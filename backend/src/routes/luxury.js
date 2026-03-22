@@ -38,8 +38,8 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
         // Format for Luxury UI
         const { passwordHash, ...userData } = user;
 
-        // Add computed fields
-        const wallet_balance = user.credits.reduce((acc, c) => acc + c.amount, 0);
+        // Add computed fields ensuring nomenclature matches LUXURY/src/pages
+        const wallet_balance = user.credits.reduce((acc, c) => acc + (c.type === 'CHARGE' ? c.amount : -c.amount), 0);
         const activeMembership = user.memberships.find(m => m.status === 'ACTIVE');
 
         res.json({
@@ -49,7 +49,13 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
                 name: `${user.firstName} ${user.lastName}`,
                 wallet_balance,
                 membership_status: activeMembership ? 'Activa' : 'Inactiva',
-                activeMembership
+                activeMembership,
+                bookings: user.appointments.map(a => ({
+                    ...a,
+                    booking_date: a.startTime // Standard alias
+                })),
+                wallet_history: user.credits,
+                avatar: user.avatarUrl || `https://ui-avatars.com/api/?name=${user.firstName}+${user.lastName}&background=0040e0&color=fff`
             }
         });
     } catch (err) {

@@ -20,90 +20,51 @@ export default function AdminDashboard() {
   const revenueData = d.monthlyRevenue || [];
 
   return (
-    <div className="page-content">
+    <div className="space-y-8 no-scrollbar">
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="page-header"><h1>📊 Panel de Administración</h1><p className="text-muted">Luxury Garage — Métricas en tiempo real</p></div>
+        <div>
+          <h1 className="text-4xl font-headline font-black italic tracking-tighter text-slate-900 dark:text-white uppercase">📊 Dashboard</h1>
+          <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-2">Métricas en tiempo real</p>
+        </div>
       </motion.div>
 
-      <div className="stats-grid">
-        <StatCard icon="👥" title="Miembros Activos" value={d.activeMembers || 0} trend="up" trendValue="+12%" color="#1E90FF" />
-        <StatCard icon="💰" title="Ingresos del Mes" value={`₲${(d.monthlyRevenue?.[0]?.revenue || 0).toLocaleString()}`} color="#10B981" />
-        <StatCard icon="🆕" title="Nuevos este mes" value={d.newThisMonth || 0} color="#00D4FF" />
-        <StatCard icon="📈" title="Retención" value={`${d.retentionRate || 0}%`} color="#8B5CF6" />
-        <StatCard icon="📅" title="Turnos Hoy" value={d.todayAppointments || 0} color="#F59E0B" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+        <StatCard icon="👥" title="Miembros Activos" value={d.activeMembers || 0} color="#0040e0" />
+        <StatCard icon="💰" title="Ingresos Mes" value={`₲${(d.monthlyRevenue?.[0]?.revenue || 0).toLocaleString()}`} color="#10B981" />
+        <StatCard icon="🆕" title="Nuevos Miembros" value={d.newThisMonth || 0} color="#8B5CF6" />
+        <StatCard icon="📈" title="Retención" value={`${d.retentionRate || 0}%`} color="#F59E0B" />
+        <StatCard icon="📅" title="Turnos Hoy" value={d.todayAppointments || 0} color="#2e5bff" />
       </div>
 
-      <div className="dashboard-grid">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Revenue Chart */}
-        <motion.div className="card card-glass" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <div className="card-header"><h3>📈 Ingresos (últimos 6 meses)</h3></div>
-          <div className="card-body" style={{ height: '280px' }}>
+        <motion.div className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-xl p-8 rounded-[2.5rem] border border-slate-100 dark:border-white/5 shadow-sm" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="mb-6"><h3 className="text-sm font-black uppercase tracking-widest text-slate-400">📈 Ingresos</h3></div>
+          <div style={{ height: '300px' }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={revenueData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.1)" />
-                <XAxis dataKey="month" tick={{ fill: '#94A3B8', fontSize: 12 }} />
-                <YAxis tick={{ fill: '#94A3B8', fontSize: 12 }} tickFormatter={v => `₲${(v/1000000).toFixed(1)}M`} />
-                <Tooltip contentStyle={{ background: '#111d33', border: '1px solid rgba(148,163,184,0.1)', borderRadius: 8, color: '#F0F4F8' }} />
-                <Bar dataKey="revenue" fill="url(#blueGradient)" radius={[6, 6, 0, 0]} />
-                <defs><linearGradient id="blueGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1E90FF" /><stop offset="100%" stopColor="#00D4FF" /></linearGradient></defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.1)" vertical={false} />
+                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10, fontWeight: 'bold' }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10, fontWeight: 'bold' }} tickFormatter={v => `₲${(v / 1000000).toFixed(1)}M`} />
+                <Tooltip cursor={{ fill: 'rgba(0,64,224,0.05)' }} contentStyle={{ background: '#0f172a', border: 'none', borderRadius: 16, color: '#F0F4F8', fontWeight: 'bold' }} />
+                <Bar dataKey="revenue" fill="#0040e0" radius={[10, 10, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </motion.div>
 
         {/* Plan Distribution */}
-        <motion.div className="card card-glass" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <div className="card-header"><h3>📊 Distribución por Plan</h3></div>
-          <div className="card-body" style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <motion.div className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-xl p-8 rounded-[2.5rem] border border-slate-100 dark:border-white/5 shadow-sm" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="mb-6"><h3 className="text-sm font-black uppercase tracking-widest text-slate-400">📊 Planes</h3></div>
+          <div style={{ height: '300px' }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={planData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
+                <Pie data={planData} cx="50%" cy="50%" outerRadius={100} innerRadius={60} dataKey="value" stroke="none">
                   {planData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={{ background: '#111d33', border: '1px solid rgba(148,163,184,0.1)', borderRadius: 8, color: '#F0F4F8' }} />
+                <Tooltip contentStyle={{ background: '#0f172a', border: 'none', borderRadius: 16, color: '#F0F4F8' }} />
               </PieChart>
             </ResponsiveContainer>
-          </div>
-        </motion.div>
-
-        {/* Alerts */}
-        <motion.div className="card card-glass" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <div className="card-header"><h3>⚠️ Alertas</h3></div>
-          <div className="card-body">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--gold-glow)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                <span>⚠️</span>
-                <div><p style={{ fontWeight: 600, fontSize: '0.875rem' }}>{d.expiringThisWeek || 0} membresías vencen esta semana</p></div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--red-glow)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                <span>🔴</span>
-                <div><p style={{ fontWeight: 600, fontSize: '0.875rem' }}>{d.lowStockItems || 0} insumos con stock bajo</p></div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--cyan-glow)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(0,212,255,0.2)' }}>
-                <span>📅</span>
-                <div><p style={{ fontWeight: 600, fontSize: '0.875rem' }}>{d.pendingAppointments || 0} turnos pendientes de confirmar</p></div>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Recent Activity */}
-        <motion.div className="card card-glass" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
-          <div className="card-header"><h3>🕐 Actividad Reciente</h3></div>
-          <div className="card-body">
-            {(d.recentActivity || []).length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {(d.recentActivity || []).slice(0, 5).map((a, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem' }}>
-                    <span>{a.icon || '📝'}</span>
-                    <span style={{ flex: 1 }}>{a.message}</span>
-                    <span className="text-xs text-muted">{a.time}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted text-sm" style={{ textAlign: 'center', padding: '20px' }}>Sin actividad reciente</p>
-            )}
           </div>
         </motion.div>
       </div>

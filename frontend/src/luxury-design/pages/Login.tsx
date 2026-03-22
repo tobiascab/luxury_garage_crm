@@ -1,40 +1,36 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mail, Lock, LogIn, Sparkles, Car, Eye, EyeOff } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-import { API_URL } from '../config';
-
-interface LoginProps {
-    onLogin: (user: any) => void;
-}
-
-export default function Login({ onLogin }: LoginProps) {
+export default function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const { login } = useAuth();
+    const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
 
         try {
-            const response = await fetch(`${API_URL}/api/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            });
+            const userData = await login(email, password);
+            toast.success(`¡Bienvenido, ${userData.firstName}!`);
 
-            const data = await response.json();
+            // Redirection logic based on role
+            const role = userData.role.toUpperCase();
+            const dest = role === 'CLIENT' ? '/' : (role === 'ADMIN' || role === 'SUPER_ADMIN') ? '/admin' : '/employee';
 
-            if (data.success) {
-                onLogin(data.user);
-            } else {
-                alert(data.message || 'Credenciales incorrectas');
-            }
-        } catch (error) {
+            setTimeout(() => {
+                navigate(dest, { replace: true });
+            }, 500);
+        } catch (error: any) {
             console.error('Error al iniciar sesión:', error);
-            alert('Error de conexión con el servidor');
+            toast.error(error.response?.data?.message || 'Error de conexión con el servidor');
         } finally {
             setIsLoading(false);
         }

@@ -15,10 +15,14 @@ export default function LoginPage() {
 
   // Redirect if already logged in
   useEffect(() => {
+    document.body.classList.add('luxury-experience');
     if (user && !authLoading) {
-      const dest = user.role === 'CLIENT' ? '/client' : ['SUPER_ADMIN', 'ADMIN', 'SUPER_ADMIN'].includes(user.role) ? '/admin' : '/employee';
+      const role = user.role.toUpperCase();
+      const dest = role === 'CLIENT' ? '/client' : (role === 'ADMIN' || role === 'SUPER_ADMIN') ? '/admin' : '/employee';
+      console.log('Redirecting to:', dest);
       navigate(dest, { replace: true });
     }
+    return () => document.body.classList.remove('luxury-experience');
   }, [user, authLoading, navigate]);
 
   const handleSubmit = async (e) => {
@@ -29,7 +33,8 @@ export default function LoginPage() {
     try {
       const userData = await login(email, password);
       toast.success(`¡Bienvenido, ${userData.firstName}!`);
-      const dest = userData.role === 'CLIENT' ? '/client' : ['SUPER_ADMIN', 'ADMIN'].includes(userData.role) ? '/admin' : '/employee';
+      const role = userData.role.toUpperCase();
+      const dest = role === 'CLIENT' ? '/client' : (role === 'ADMIN' || role === 'SUPER_ADMIN') ? '/admin' : '/employee';
 
       setTimeout(() => {
         navigate(dest, { replace: true });
@@ -44,8 +49,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="luxury-experience min-h-screen grid lg:grid-cols-2 bg-slate-50 dark:bg-slate-950 overflow-hidden font-sans transition-colors duration-500">
-      <Toaster position="top-center" toastOptions={{ style: { background: '#111d33', color: '#F0F4F8' } }} />
+    <div className="min-h-screen grid lg:grid-cols-2 bg-slate-50 dark:bg-slate-950 overflow-hidden font-sans transition-colors duration-500">
 
       {/* Visual Side */}
       <div className="hidden lg:block relative overflow-hidden bg-blue-700 dark:bg-blue-900 shadow-2xl">

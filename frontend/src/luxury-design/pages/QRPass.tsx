@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { QrCode, ShieldCheck, RefreshCw, Clock, AlertTriangle, Droplets, Star, Info, CheckCircle2, Sparkles } from 'lucide-react';
-import api from '../../services/api';
+
+import { API_URL } from '../config';
 
 interface QRPassProps {
     user: any;
@@ -18,7 +19,6 @@ const FUN_PHRASES = [
     '¡Un lujo sobre ruedas! 💎',
     '¡El lavadero ya sabe qué hacer! 🧼',
 ];
-
 
 export default function QRPass({ user }: QRPassProps) {
     const [qrToken, setQrToken] = useState<string | null>(null);
@@ -59,17 +59,17 @@ export default function QRPass({ user }: QRPassProps) {
 
         pollRef.current = setInterval(async () => {
             try {
-                const res = await api.get(`/luxury/latest-wash?since=${generatedAt}`);
-                if (res.data.found) {
+                const res = await fetch(`${API_URL}/api/users/${user.id}/latest-wash?since=${generatedAt}`);
+                const data = await res.json();
+                if (data.found) {
                     setWashProcessed(true);
-                    if (pollRef.current) clearInterval(pollRef.current);
+                    clearInterval(pollRef.current!);
                 }
             } catch (_) { }
         }, 3000);
 
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    }, [qrToken, isExpired, washProcessed, generatedAt]);
-
+    }, [qrToken, isExpired, washProcessed, generatedAt, user.id]);
 
     const minutesLeft = Math.floor(secondsLeft / 60);
     const secs = secondsLeft % 60;

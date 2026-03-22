@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { ScanLine, CheckCircle2, Droplets, Calendar, TrendingUp, Users } from 'lucide-react';
-import api from '../../services/api';
+
+import { API_URL } from '../config';
 
 interface Stats {
     totalToday: number;
     totalMonth: number;
 }
-
 
 export default function DashboardEmpleado({ user }: { user: any }) {
     const navigate = useNavigate();
@@ -18,8 +18,9 @@ export default function DashboardEmpleado({ user }: { user: any }) {
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const res = await api.get('/luxury/employee/stats');
-                setStats(res.data.data);
+                const res = await fetch(`${API_URL}/api/employee/${user.id}/stats`);
+                const data = await res.json();
+                setStats(data);
             } catch (e) {
                 console.error('Error fetching employee stats');
             } finally {
@@ -27,8 +28,7 @@ export default function DashboardEmpleado({ user }: { user: any }) {
             }
         };
         fetchStats();
-    }, []);
-
+    }, [user.id]);
 
     return (
         <motion.div

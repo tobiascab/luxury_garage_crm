@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Calendar, QrCode, CreditCard, User, Bell, ArrowLeft, X, Moon, Sun, History } from 'lucide-react';
+import { Home, Calendar, QrCode, CreditCard, User, Bell, ArrowLeft, ShieldCheck, CheckCircle2, X, Moon, Sun, History } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '../../context/AuthContext';
-import api from '../../services/api';
+
+import { API_URL } from '../config';
+import { useLuxuryUser } from '../context/LuxuryUserContext';
 
 interface Notification {
     id: string;
@@ -15,11 +16,12 @@ interface Notification {
 
 interface MainLayoutProps {
     children: React.ReactNode;
+    user?: any;
 }
 
-export default function MainLayout({ children }: MainLayoutProps) {
-    const { user } = useAuth();
-
+export default function MainLayout({ children, user: userProp }: MainLayoutProps) {
+    const { fullUser } = useLuxuryUser();
+    const user = userProp ?? fullUser;
     const navigate = useNavigate();
     const location = useLocation();
     const [showNotifs, setShowNotifs] = useState(false);
@@ -28,7 +30,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
     const notifRef = useRef<HTMLDivElement>(null);
 
-    const activeScreen = location.pathname.split('/').pop() || 'dashboard';
+    const activeScreen = location.pathname === '/' ? 'dashboard' : (location.pathname.substring(1) || 'dashboard');
     const unreadCount = notifications.filter(n => !readIds.has(n.id)).length;
 
     // Sync with localStorage and HTML class
@@ -46,15 +48,15 @@ export default function MainLayout({ children }: MainLayoutProps) {
         if (!user?.id) return;
         const fetchNotifs = async () => {
             try {
-                const res = await api.get('/luxury/notifications');
-                setNotifications(res.data.data);
+                const res = await fetch(`${API_URL}/api/users/${user.id}/notifications`);
+                const data = await res.json();
+                setNotifications(data);
             } catch (_) { }
         };
         fetchNotifs();
         const interval = setInterval(fetchNotifs, 30000);
         return () => clearInterval(interval);
     }, [user?.id]);
-
 
     // Close on outside click
     useEffect(() => {
@@ -90,11 +92,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
             {/* Top Navigation Bar */}
             <header className={`fixed top-0 w-full z-50 px-4 py-3 border-b transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/80 border-slate-800' : 'bg-white/80 border-slate-100'
                 } backdrop-blur-xl`}>
-                <div className="max-w-7xl mx-auto flex justify-between items-center">
+                <div className="max-w-md mx-auto flex justify-between items-center">
                     <div className="flex items-center gap-3">
-                        {activeScreen !== 'client' && activeScreen !== 'employee' && activeScreen !== '' && (
+                        {activeScreen !== 'dashboard' && (
                             <button
-                                onClick={() => navigate(-1)}
+                                onClick={() => navigate('/')}
                                 className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'
                                     }`}
                             >
@@ -105,7 +107,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                             <div className={`w-8 h-8 rounded-full overflow-hidden border-2 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-primary-container border-white'
                                 }`}>
                                 <img
-                                    src={user?.avatarUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100"}
+                                    src={user?.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100"}
                                     alt="Profile"
                                     className="w-full h-full object-cover"
                                     referrerPolicy="no-referrer"
@@ -189,39 +191,37 @@ export default function MainLayout({ children }: MainLayoutProps) {
                                     </motion.div>
                                 )}
                             </AnimatePresence>
-
                         </div>
                     </div>
                 </div>
             </header>
 
             {/* Main Content Area */}
-            <main className="pt-16 px-4 max-w-7xl mx-auto">
+            <main className="pt-16 px-4 max-w-md mx-auto">
                 {children}
             </main>
 
             {/* Bottom Navigation Bar */}
-            <nav className={`fixed bottom-0 left-0 w-full flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 rounded-t-3xl transition-all duration-300 shadow-[0_-8px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'
+            <nav className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 rounded-t-3xl transition-all duration-300 shadow-[0_-8px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'
                 }`}>
-                {user?.role === 'EMPLOYEE' ? (
+                {(user?.role === 'Empleado' || user?.role === 'EMPLOYEE') ? (
                     <>
-                        <NavItem active={activeScreen === 'employee'} onClick={() => navigate('/employee')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'service'} onClick={() => navigate('/employee/service')} icon={<QrCode size={18} />} label="Escanear" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'history'} onClick={() => navigate('/employee/history')} icon={<History size={18} />} label="Historial" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'profile'} onClick={() => navigate('/employee/profile')} icon={<User size={18} />} label="Perfil" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'dashboard'} onClick={() => navigate('/')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'scan'} onClick={() => navigate('/scan')} icon={<QrCode size={18} />} label="Escanear" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'historial'} onClick={() => navigate('/historial')} icon={<History size={18} />} label="Historial" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'perfil'} onClick={() => navigate('/perfil')} icon={<User size={18} />} label="Perfil" darkMode={darkMode} />
                     </>
                 ) : (
                     <>
-                        <NavItem active={activeScreen === 'client'} onClick={() => navigate('/client')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'book'} onClick={() => navigate('/client/book')} icon={<Calendar size={18} />} label="Reserva" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'card'} onClick={() => navigate('/client/card')} icon={<QrCode size={18} />} label="QR" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'membership'} onClick={() => navigate('/client/membership')} icon={<CreditCard size={18} />} label="Planes" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'profile'} onClick={() => navigate('/client/profile')} icon={<User size={18} />} label="Perfil" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'dashboard'} onClick={() => navigate('/')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'booking'} onClick={() => navigate('/booking')} icon={<Calendar size={18} />} label="Reserva" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'qr'} onClick={() => navigate('/qr')} icon={<QrCode size={18} />} label="QR" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'planes'} onClick={() => navigate('/planes')} icon={<CreditCard size={18} />} label="Planes" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'perfil'} onClick={() => navigate('/perfil')} icon={<User size={18} />} label="Perfil" darkMode={darkMode} />
                     </>
                 )}
             </nav>
         </div>
-
     );
 }
 

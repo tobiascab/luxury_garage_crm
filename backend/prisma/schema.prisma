@@ -6,6 +6,285 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id                String          @id @default(uuid())
+  email             String          @unique
+  passwordHash      String          @map("password_hash")
+  role              Role            @default(CLIENT)
+  firstName         String          @map("first_name")
+  lastName          String          @map("last_name")
+  phone             String?
+  avatarUrl         String?         @map("avatar_url")
+  arizarContactId   String?         @map("arizar_contact_id")
+  isActive          Boolean         @default(true) @map("is_active")
+  lastLoginAt       DateTime?       @map("last_login_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  appointments      Appointment[]
+  auditLogs         AuditLog[]
+  credits           Credit[]
+  memberships       Membership[]
+  notifications     Notification[]
+  payments          Payment[]
+  referralsReceived Referral[]      @relation("referred")
+  referralsMade     Referral[]      @relation("referrer")
+  reviews           Review[]
+  serviceRecords    ServiceRecord[] @relation("employee_records")
+  vehicles          Vehicle[]
+
+  @@map("users")
+}
+
+model Plan {
+  id               String       @id @default(uuid())
+  name             String
+  slug             String       @unique
+  description      String?
+  priceGs          Int          @map("price_gs")
+  billingPeriod    String       @default("monthly") @map("billing_period")
+  servicesIncluded Json?        @map("services_included")
+  limitsJson       Json?        @map("limits_json")
+  discountPercent  Int          @default(0) @map("discount_percent")
+  features         Json?
+  isActive         Boolean      @default(true) @map("is_active")
+  sortOrder        Int          @default(0) @map("sort_order")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  memberships      Membership[]
+
+  @@map("plans")
+}
+
+model Membership {
+  id                   String           @id @default(uuid())
+  userId               String           @map("user_id")
+  planId               String           @map("plan_id")
+  status               MembershipStatus @default(PENDING)
+  startDate            DateTime         @map("start_date")
+  endDate              DateTime         @map("end_date")
+  autoRenew            Boolean          @default(true) @map("auto_renew")
+  arizarSubscriptionId String?          @map("arizar_subscription_id")
+  servicesUsed         Int              @default(0) @map("services_used")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+  plan                 Plan             @relation(fields: [planId], references: [id])
+  user                 User             @relation(fields: [userId], references: [id])
+  payments             Payment[]
+
+  @@map("memberships")
+}
+
+model Vehicle {
+  id           String        @id @default(uuid())
+  userId       String        @map("user_id")
+  brand        String
+  model        String
+  year         Int?
+  color        String?
+  licensePlate String        @map("license_plate")
+  photoUrl     String?       @map("photo_url")
+  isPrimary    Boolean       @default(false) @map("is_primary")
+  notes        String?
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  appointments Appointment[]
+  user         User          @relation(fields: [userId], references: [id])
+
+  @@map("vehicles")
+}
+
+model Service {
+  id              String        @id @default(uuid())
+  name            String
+  slug            String        @unique
+  description     String?
+  category        String        @default("standard")
+  durationMinutes Int           @map("duration_minutes")
+  basePriceGs     Int           @map("base_price_gs")
+  isAddon         Boolean       @default(false) @map("is_addon")
+  includedInPlans Json?         @map("included_in_plans")
+  isActive        Boolean       @default(true) @map("is_active")
+  sortOrder       Int           @default(0) @map("sort_order")
+  icon            String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  appointments    Appointment[]
+
+  @@map("services")
+}
+
+model Appointment {
+  id                  String            @id @default(uuid())
+  userId              String            @map("user_id")
+  vehicleId           String            @map("vehicle_id")
+  serviceId           String            @map("service_id")
+  employeeId          String?           @map("employee_id")
+  date                DateTime
+  startTime           DateTime          @map("start_time")
+  endTime             DateTime          @map("end_time")
+  status              AppointmentStatus @default(PENDING)
+  notes               String?
+  arizarAppointmentId String?           @map("arizar_appointment_id")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  service             Service           @relation(fields: [serviceId], references: [id])
+  user                User              @relation(fields: [userId], references: [id])
+  vehicle             Vehicle           @relation(fields: [vehicleId], references: [id])
+  serviceRecord       ServiceRecord?
+
+  @@map("appointments")
+}
+
+model ServiceRecord {
+  id                  String      @id @default(uuid())
+  appointmentId       String      @unique @map("appointment_id")
+  employeeId          String      @map("employee_id")
+  startedAt           DateTime?   @map("started_at")
+  completedAt         DateTime?   @map("completed_at")
+  durationMinutes     Int?        @map("duration_minutes")
+  notes               String?
+  photosBefore        Json?       @map("photos_before")
+  photosAfter         Json?       @map("photos_after")
+  vehicleObservations String?     @map("vehicle_observations")
+  createdAt           DateTime    @default(now()) @map("created_at")
+  review              Review?
+  appointment         Appointment @relation(fields: [appointmentId], references: [id])
+  employee            User        @relation("employee_records", fields: [employeeId], references: [id])
+
+  @@map("service_records")
+}
+
+model Review {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  serviceRecordId String        @unique @map("service_record_id")
+  rating          Int
+  comment         String?
+  adminResponse   String?       @map("admin_response")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  serviceRecord   ServiceRecord @relation(fields: [serviceRecordId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
+
+  @@map("reviews")
+}
+
+model Referral {
+  id             String   @id @default(uuid())
+  referrerId     String   @map("referrer_id")
+  referredEmail  String?  @map("referred_email")
+  referredPhone  String?  @map("referred_phone")
+  referredUserId String?  @map("referred_user_id")
+  status         String   @default("invited")
+  rewardType     String?  @map("reward_type")
+  rewardAmount   Int?     @map("reward_amount")
+  createdAt      DateTime @default(now()) @map("created_at")
+  referred       User?    @relation("referred", fields: [referredUserId], references: [id])
+  referrer       User     @relation("referrer", fields: [referrerId], references: [id])
+
+  @@map("referrals")
+}
+
+model Credit {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  amount      Int
+  type        String
+  description String?
+  referenceId String?   @map("reference_id")
+  expiresAt   DateTime? @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@map("credits")
+}
+
+model Payment {
+  id                  String        @id @default(uuid())
+  userId              String        @map("user_id")
+  membershipId        String?       @map("membership_id")
+  amountGs            Int           @map("amount_gs")
+  paymentMethod       String?       @map("payment_method")
+  arizarTransactionId String?       @map("arizar_transaction_id")
+  arizarInvoiceId     String?       @map("arizar_invoice_id")
+  status              PaymentStatus @default(PENDING)
+  description         String?
+  createdAt           DateTime      @default(now()) @map("created_at")
+  membership          Membership?   @relation(fields: [membershipId], references: [id])
+  user                User          @relation(fields: [userId], references: [id])
+
+  @@map("payments")
+}
+
+model Promotion {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  type        String
+  value       Int
+  minPurchase Int?     @map("min_purchase")
+  maxUses     Int?     @map("max_uses")
+  usesCount   Int      @default(0) @map("uses_count")
+  validFrom   DateTime @map("valid_from")
+  validUntil  DateTime @map("valid_until")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("promotions")
+}
+
+model InventoryItem {
+  id            String   @id @default(uuid())
+  name          String
+  category      String?
+  unit          String   @default("unidad")
+  currentStock  Int      @default(0) @map("current_stock")
+  minStockAlert Int      @default(5) @map("min_stock_alert")
+  costPerUnit   Int?     @map("cost_per_unit")
+  supplier      String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("inventory_items")
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  type      String
+  title     String
+  message   String
+  isRead    Boolean   @default(false) @map("is_read")
+  channel   String    @default("app")
+  sentAt    DateTime? @map("sent_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  action      String
+  entity      String
+  entityId    String?  @map("entity_id")
+  detailsJson Json?    @map("details_json")
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model Setting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
 enum Role {
   SUPER_ADMIN
   ADMIN
@@ -35,296 +314,4 @@ enum PaymentStatus {
   COMPLETED
   FAILED
   REFUNDED
-}
-
-model User {
-  id              String    @id @default(uuid())
-  email           String    @unique
-  passwordHash    String    @map("password_hash")
-  role            Role      @default(CLIENT)
-  firstName       String    @map("first_name")
-  lastName        String    @map("last_name")
-  phone           String?
-  avatarUrl       String?   @map("avatar_url")
-  arizarContactId String?   @map("arizar_contact_id")
-  isActive        Boolean   @default(true) @map("is_active")
-  lastLoginAt     DateTime? @map("last_login_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  memberships     Membership[]
-  vehicles        Vehicle[]
-  appointments    Appointment[]
-  reviews         Review[]
-  referralsMade   Referral[]     @relation("referrer")
-  referralsReceived Referral[]   @relation("referred")
-  credits         Credit[]
-  payments        Payment[]
-  notifications   Notification[]
-  auditLogs       AuditLog[]
-  serviceRecords  ServiceRecord[] @relation("employee_records")
-
-  @@map("users")
-}
-
-model Plan {
-  id              String   @id @default(uuid())
-  name            String
-  slug            String   @unique
-  description     String?
-  priceGs         Int      @map("price_gs")
-  billingPeriod   String   @default("monthly") @map("billing_period")
-  servicesIncluded Json?   @map("services_included")
-  limitsJson      Json?    @map("limits_json")
-  discountPercent Int      @default(0) @map("discount_percent")
-  features        Json?
-  isActive        Boolean  @default(true) @map("is_active")
-  sortOrder       Int      @default(0) @map("sort_order")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  memberships     Membership[]
-
-  @@map("plans")
-}
-
-model Membership {
-  id                    String           @id @default(uuid())
-  userId                String           @map("user_id")
-  planId                String           @map("plan_id")
-  status                MembershipStatus @default(PENDING)
-  startDate             DateTime         @map("start_date")
-  endDate               DateTime         @map("end_date")
-  autoRenew             Boolean          @default(true) @map("auto_renew")
-  arizarSubscriptionId  String?          @map("arizar_subscription_id")
-  servicesUsed          Int              @default(0) @map("services_used")
-  createdAt             DateTime         @default(now()) @map("created_at")
-  updatedAt             DateTime         @updatedAt @map("updated_at")
-
-  user     User      @relation(fields: [userId], references: [id])
-  plan     Plan      @relation(fields: [planId], references: [id])
-  payments Payment[]
-
-  @@map("memberships")
-}
-
-model Vehicle {
-  id           String   @id @default(uuid())
-  userId       String   @map("user_id")
-  brand        String
-  model        String
-  year         Int?
-  color        String?
-  licensePlate String   @map("license_plate")
-  photoUrl     String?  @map("photo_url")
-  isPrimary    Boolean  @default(false) @map("is_primary")
-  notes        String?
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  user         User          @relation(fields: [userId], references: [id])
-  appointments Appointment[]
-
-  @@map("vehicles")
-}
-
-model Service {
-  id              String   @id @default(uuid())
-  name            String
-  slug            String   @unique
-  description     String?
-  category        String   @default("standard")
-  durationMinutes Int      @map("duration_minutes")
-  basePriceGs     Int      @map("base_price_gs")
-  isAddon         Boolean  @default(false) @map("is_addon")
-  includedInPlans Json?    @map("included_in_plans")
-  isActive        Boolean  @default(true) @map("is_active")
-  sortOrder       Int      @default(0) @map("sort_order")
-  icon            String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  appointments    Appointment[]
-
-  @@map("services")
-}
-
-model Appointment {
-  id                   String            @id @default(uuid())
-  userId               String            @map("user_id")
-  vehicleId            String            @map("vehicle_id")
-  serviceId            String            @map("service_id")
-  employeeId           String?           @map("employee_id")
-  date                 DateTime
-  startTime            DateTime          @map("start_time")
-  endTime              DateTime          @map("end_time")
-  status               AppointmentStatus @default(PENDING)
-  notes                String?
-  arizarAppointmentId  String?           @map("arizar_appointment_id")
-  createdAt            DateTime          @default(now()) @map("created_at")
-  updatedAt            DateTime          @updatedAt @map("updated_at")
-
-  user           User            @relation(fields: [userId], references: [id])
-  vehicle        Vehicle         @relation(fields: [vehicleId], references: [id])
-  service        Service         @relation(fields: [serviceId], references: [id])
-  serviceRecord  ServiceRecord?
-
-  @@map("appointments")
-}
-
-model ServiceRecord {
-  id                  String   @id @default(uuid())
-  appointmentId       String   @unique @map("appointment_id")
-  employeeId          String   @map("employee_id")
-  startedAt           DateTime? @map("started_at")
-  completedAt         DateTime? @map("completed_at")
-  durationMinutes     Int?     @map("duration_minutes")
-  notes               String?
-  photosBefore        Json?    @map("photos_before")
-  photosAfter         Json?    @map("photos_after")
-  vehicleObservations String?  @map("vehicle_observations")
-  createdAt           DateTime @default(now()) @map("created_at")
-
-  appointment  Appointment @relation(fields: [appointmentId], references: [id])
-  employee     User        @relation("employee_records", fields: [employeeId], references: [id])
-  review       Review?
-
-  @@map("service_records")
-}
-
-model Review {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  serviceRecordId String    @unique @map("service_record_id")
-  rating          Int
-  comment         String?
-  adminResponse   String?   @map("admin_response")
-  createdAt       DateTime  @default(now()) @map("created_at")
-
-  user          User          @relation(fields: [userId], references: [id])
-  serviceRecord ServiceRecord @relation(fields: [serviceRecordId], references: [id])
-
-  @@map("reviews")
-}
-
-model Referral {
-  id             String   @id @default(uuid())
-  referrerId     String   @map("referrer_id")
-  referredEmail  String?  @map("referred_email")
-  referredPhone  String?  @map("referred_phone")
-  referredUserId String?  @map("referred_user_id")
-  status         String   @default("invited")
-  rewardType     String?  @map("reward_type")
-  rewardAmount   Int?     @map("reward_amount")
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  referrer  User  @relation("referrer", fields: [referrerId], references: [id])
-  referred  User? @relation("referred", fields: [referredUserId], references: [id])
-
-  @@map("referrals")
-}
-
-model Credit {
-  id          String    @id @default(uuid())
-  userId      String    @map("user_id")
-  amount      Int
-  type        String
-  description String?
-  referenceId String?   @map("reference_id")
-  expiresAt   DateTime? @map("expires_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("credits")
-}
-
-model Payment {
-  id                  String        @id @default(uuid())
-  userId              String        @map("user_id")
-  membershipId        String?       @map("membership_id")
-  amountGs            Int           @map("amount_gs")
-  paymentMethod       String?       @map("payment_method")
-  arizarTransactionId String?       @map("arizar_transaction_id")
-  arizarInvoiceId     String?       @map("arizar_invoice_id")
-  status              PaymentStatus @default(PENDING)
-  description         String?
-  createdAt           DateTime      @default(now()) @map("created_at")
-
-  user       User        @relation(fields: [userId], references: [id])
-  membership Membership? @relation(fields: [membershipId], references: [id])
-
-  @@map("payments")
-}
-
-model Promotion {
-  id          String    @id @default(uuid())
-  code        String    @unique
-  type        String
-  value       Int
-  minPurchase Int?      @map("min_purchase")
-  maxUses     Int?      @map("max_uses")
-  usesCount   Int       @default(0) @map("uses_count")
-  validFrom   DateTime  @map("valid_from")
-  validUntil  DateTime  @map("valid_until")
-  isActive    Boolean   @default(true) @map("is_active")
-  createdAt   DateTime  @default(now()) @map("created_at")
-
-  @@map("promotions")
-}
-
-model InventoryItem {
-  id            String   @id @default(uuid())
-  name          String
-  category      String?
-  unit          String   @default("unidad")
-  currentStock  Int      @default(0) @map("current_stock")
-  minStockAlert Int      @default(5) @map("min_stock_alert")
-  costPerUnit   Int?     @map("cost_per_unit")
-  supplier      String?
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  @@map("inventory_items")
-}
-
-model Notification {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  type      String
-  title     String
-  message   String
-  isRead    Boolean  @default(false) @map("is_read")
-  channel   String   @default("app")
-  sentAt    DateTime? @map("sent_at")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("notifications")
-}
-
-model AuditLog {
-  id          String   @id @default(uuid())
-  userId      String?  @map("user_id")
-  action      String
-  entity      String
-  entityId    String?  @map("entity_id")
-  detailsJson Json?    @map("details_json")
-  ipAddress   String?  @map("ip_address")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  user User? @relation(fields: [userId], references: [id])
-
-  @@map("audit_logs")
-}
-
-model Setting {
-  id        String   @id @default(uuid())
-  key       String   @unique
-  value     Json
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("settings")
 }

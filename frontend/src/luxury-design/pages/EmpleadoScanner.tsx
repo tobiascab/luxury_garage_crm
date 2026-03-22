@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScanLine, CheckCircle2, XCircle, Camera, Car, RefreshCw, KeyRound, User, History, Droplets, MapPin, Clock } from 'lucide-react';
+
+import { API_URL } from '../config';
+
 import { Html5Qrcode } from "html5-qrcode";
-import api from '../../services/api';
 
 type ScanResult = {
     success: boolean;
@@ -17,7 +19,6 @@ type ScanResult = {
     };
 };
 
-
 export default function EmpleadoScanner({ user }: { user: any }) {
     const [result, setResult] = useState<ScanResult | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -30,7 +31,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
             setCameraError(null);
 
             // Check for Secure Context (HTTPS requirement)
-            if (!window.isSecureContext && window.location.hostname !== 'localhost') {
+            if (!window.isSecureContext) {
                 setCameraError("La cámara requiere una conexión SEGURA (HTTPS) para funcionar en dispositivos móviles.");
                 return;
             }
@@ -85,18 +86,19 @@ export default function EmpleadoScanner({ user }: { user: any }) {
         setIsProcessing(true);
         setResult(null);
         try {
-            const res = await api.post('/luxury/qr/scan', { token: token.trim() });
-            setResult(res.data);
-        } catch (e: any) {
-            setResult({
-                success: false,
-                message: e.response?.data?.message || 'Error de conexión con el servidor.'
+            const res = await fetch(`${API_URL}/api/qr/scan`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: token.trim(), employeeId: user?.id }),
             });
+            const data = await res.json();
+            setResult(data);
+        } catch (_) {
+            setResult({ success: false, message: 'Error de conexión con el servidor.' });
         } finally {
             setIsProcessing(false);
         }
     };
-
 
     const handleManualSubmit = () => {
         processQR(manualToken);
