@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.arizar-oauth-tokens.json
+*.log
+.DS_Store
+package-lock.json

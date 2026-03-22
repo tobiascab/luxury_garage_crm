@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: luxury-garage-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: luxury_garage_db
+      POSTGRES_USER: luxury_admin
+      POSTGRES_PASSWORD: LuxGar@2026!Secure
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - luxury_garage_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luxury_admin -d luxury_garage_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  luxury_garage_data:
+    driver: local

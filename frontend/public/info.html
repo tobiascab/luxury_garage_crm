@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luxury Garage — Lavadero Premium | Lambaré, Paraguay</title>
+  <meta name="description" content="Luxury Garage - Lavadero Premium en Lambaré, Paraguay. Membresías exclusivas, servicios de detailing, tratamiento cerámico y más.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-dark: #0a0e1a;
+      --bg-card: rgba(15, 23, 42, 0.7);
+      --bg-glass: rgba(255,255,255,0.04);
+      --accent: #6366f1;
+      --accent-glow: rgba(99,102,241,0.3);
+      --gold: #f59e0b;
+      --gold-glow: rgba(245,158,11,0.2);
+      --cyan: #06b6d4;
+      --emerald: #10b981;
+      --rose: #f43f5e;
+      --text: #f0f4f8;
+      --text-muted: #94a3b8;
+      --border: rgba(148,163,184,0.1);
+      --radius: 16px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* Background effects */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50%; left: -50%;
+      width: 200%; height: 200%;
+      background: radial-gradient(circle at 20% 20%, rgba(99,102,241,0.08) 0%, transparent 50%),
+                  radial-gradient(circle at 80% 80%, rgba(6,182,212,0.06) 0%, transparent 50%),
+                  radial-gradient(circle at 50% 50%, rgba(245,158,11,0.04) 0%, transparent 50%);
+      z-index: -1;
+      animation: bgFloat 30s ease-in-out infinite;
+    }
+
+    @keyframes bgFloat {
+      0%, 100% { transform: translate(0, 0) rotate(0deg); }
+      33% { transform: translate(30px, -30px) rotate(1deg); }
+      66% { transform: translate(-20px, 20px) rotate(-1deg); }
+    }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 40px 20px;
+      position: relative;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      font-size: 0.85rem;
+      color: var(--gold);
+      font-weight: 500;
+      margin-bottom: 24px;
+      backdrop-filter: blur(10px);
+      animation: fadeUp 0.8s ease;
+    }
+
+    .hero h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.5rem, 6vw, 5rem);
+      font-weight: 900;
+      background: linear-gradient(135deg, #fff 0%, var(--gold) 50%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 16px;
+      animation: fadeUp 0.8s ease 0.1s both;
+    }
+
+    .hero p {
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      color: var(--text-muted);
+      max-width: 600px;
+      animation: fadeUp 0.8s ease 0.2s both;
+    }
+
+    .hero-cta {
+      display: flex;
+      gap: 16px;
+      margin-top: 32px;
+      flex-wrap: wrap;
+      justify-content: center;
+      animation: fadeUp 0.8s ease 0.3s both;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 32px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 1rem;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      color: white;
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px var(--accent-glow); }
+
+    .btn-gold {
+      background: linear-gradient(135deg, var(--gold), #d97706);
+      color: #1a1a2e;
+      box-shadow: 0 4px 20px var(--gold-glow);
+    }
+    .btn-gold:hover { transform: translateY(-2px); box-shadow: 0 8px 30px var(--gold-glow); }
+
+    .scroll-indicator {
+      position: absolute;
+      bottom: 40px;
+      animation: bounce 2s infinite;
+      font-size: 1.5rem;
+      color: var(--text-muted);
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(10px); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Section */
+    section {
+      padding: 100px 0;
+    }
+
+    .section-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+
+    .section-desc {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin-bottom: 48px;
+    }
+
+    /* Info Cards */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .info-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+    }
+    .info-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(99,102,241,0.3);
+      box-shadow: 0 8px 40px rgba(99,102,241,0.1);
+    }
+
+    .info-card-icon {
+      font-size: 2.5rem;
+      margin-bottom: 16px;
+    }
+
+    .info-card h3 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .info-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* Plans */
+    .plans-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      align-items: stretch;
+    }
+
+    .plan-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 36px;
+      backdrop-filter: blur(10px);
+      transition: all 0.4s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .plan-card:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    .plan-card.featured {
+      border-color: var(--gold);
+      box-shadow: 0 0 40px var(--gold-glow);
+    }
+    .plan-card.featured::before {
+      content: '⭐ MÁS ELEGIDO';
+      position: absolute;
+      top: 16px;
+      right: -30px;
+      background: linear-gradient(135deg, var(--gold), #d97706);
+      color: #1a1a2e;
+      font-size: 0.7rem;
+      font-weight: 800;
+      padding: 4px 40px;
+      transform: rotate(45deg);
+      letter-spacing: 1px;
+    }
+
+    .plan-card.vip { border-color: var(--accent); box-shadow: 0 0 30px var(--accent-glow); }
+
+    .plan-name {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .plan-price {
+      font-family: 'Playfair Display', serif;
+      font-size: 2.5rem;
+      font-weight: 900;
+      margin: 8px 0;
+    }
+    .plan-price span { font-size: 1rem; color: var(--text-muted); font-family: 'Inter'; font-weight: 400; }
+
+    .plan-features {
+      list-style: none;
+      margin: 24px 0;
+    }
+    .plan-features li {
+      padding: 8px 0;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.95rem;
+    }
+    .plan-features li::before {
+      content: '✓';
+      color: var(--emerald);
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    /* Services */
+    .services-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
+    }
+
+    .service-card {
+      display: flex;
+      gap: 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+    }
+    .service-card:hover {
+      border-color: rgba(6,182,212,0.3);
+      transform: translateY(-2px);
+    }
+
+    .service-icon { font-size: 2rem; flex-shrink: 0; }
+    .service-card h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 4px; }
+    .service-card .duration { font-size: 0.8rem; color: var(--cyan); margin-bottom: 6px; }
+    .service-card p { font-size: 0.85rem; color: var(--text-muted); }
+    .service-price {
+      display: inline-block;
+      background: rgba(6,182,212,0.1);
+      color: var(--cyan);
+      padding: 4px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      margin-top: 8px;
+    }
+
+    /* Schedule */
+    .schedule-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+    }
+
+    .schedule-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 20px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+    }
+    .schedule-item.closed { opacity: 0.5; }
+    .schedule-day { font-weight: 600; }
+    .schedule-time { color: var(--emerald); font-weight: 500; }
+    .schedule-time.off { color: var(--rose); }
+
+    /* FAQ */
+    .faq-list { max-width: 800px; }
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+      padding: 24px 0;
+    }
+    .faq-item summary {
+      font-weight: 600;
+      font-size: 1.05rem;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .faq-item summary::after { content: '+'; font-size: 1.5rem; color: var(--accent); transition: transform 0.3s; }
+    .faq-item[open] summary::after { transform: rotate(45deg); }
+    .faq-item p {
+      color: var(--text-muted);
+      margin-top: 12px;
+      font-size: 0.95rem;
+      line-height: 1.8;
+    }
+
+    /* Contact */
+    .contact-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+    }
+
+    .contact-card {
+      text-align: center;
+      padding: 32px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      backdrop-filter: blur(10px);
+    }
+    .contact-card .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .contact-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    .contact-card p { color: var(--text-muted); font-size: 0.9rem; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Nav */
+    .nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      z-index: 100;
+      padding: 16px 0;
+      backdrop-filter: blur(20px);
+      background: rgba(10,14,26,0.8);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .nav-logo {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .nav-links { display: flex; gap: 24px; list-style: none; }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.3s;
+    }
+    .nav-links a:hover { color: var(--text); }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      section { padding: 60px 0; }
+      .plans-grid, .services-grid { grid-template-columns: 1fr; }
+      .hero-cta { flex-direction: column; align-items: center; }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">🚗 LUXURY GARAGE</a>
+    <ul class="nav-links">
+      <li><a href="#planes">Planes</a></li>
+      <li><a href="#servicios">Servicios</a></li>
+      <li><a href="#horarios">Horarios</a></li>
+      <li><a href="#faq">FAQ</a></li>
+      <li><a href="#contacto">Contacto</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">✨ Lavadero Premium en Lambaré</div>
+  <h1>Luxury Garage</h1>
+  <p>El cuidado que tu auto merece. Membresías exclusivas, productos importados premium y atención personalizada.</p>
+  <div class="hero-cta">
+    <a href="https://luxurygarage.arizar-ia.cloud/register" class="btn btn-primary">🚀 Registrate Gratis</a>
+    <a href="#planes" class="btn btn-gold">👑 Ver Planes</a>
+  </div>
+  <div class="scroll-indicator">↓</div>
+</section>
+
+<!-- ABOUT -->
+<section>
+  <div class="container">
+    <div class="section-label">🏢 Sobre Nosotros</div>
+    <h2 class="section-title">¿Por qué Luxury Garage?</h2>
+    <p class="section-desc">Más que un lavadero, una experiencia premium para tu vehículo.</p>
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="info-card-icon">🧴</div>
+        <h3>Productos Premium</h3>
+        <p>Productos importados, biodegradables y seguros para todo tipo de pintura y acabado.</p>
+      </div>
+      <div class="info-card">
+        <div class="info-card-icon">📱</div>
+        <h3>App & Portal Web</h3>
+        <p>Agendá turnos, gestioná tu membresía y seguí tus servicios desde cualquier dispositivo.</p>
+      </div>
+      <div class="info-card">
+        <div class="info-card-icon">💬</div>
+        <h3>WhatsApp Directo</h3>
+        <p>Agendá, consultá y recibí notificaciones automáticas por WhatsApp.</p>
+      </div>
+      <div class="info-card">
+        <div class="info-card-icon">☕</div>
+        <h3>Área de Espera</h3>
+        <p>Zona cómoda con WiFi y café mientras esperás tu vehículo.</p>
+      </div>
+      <div class="info-card">
+        <div class="info-card-icon">👷</div>
+        <h3>Personal Capacitado</h3>
+        <p>Equipo entrenado en técnicas profesionales de detailing y cuidado automotor.</p>
+      </div>
+      <div class="info-card">
+        <div class="info-card-icon">🎁</div>
+        <h3>Programa de Referidos</h3>
+        <p>Referí amigos y ganá lavados premium gratis. Sin límite de referidos.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PLANES -->
+<section id="planes">
+  <div class="container">
+    <div class="section-label">👑 Membresías</div>
+    <h2 class="section-title">Planes de Membresía</h2>
+    <p class="section-desc">Sin contrato, sin permanencia mínima. Cancelá cuando quieras.</p>
+    <div class="plans-grid">
+      <div class="plan-card">
+        <div class="plan-name">Plan Básico</div>
+        <div class="plan-price">₲250.000 <span>/mes</span></div>
+        <ul class="plan-features">
+          <li>8 lavados exteriores al mes</li>
+          <li>Aspirado básico incluido</li>
+          <li>1 vehículo registrado</li>
+          <li>Agenda por portal web o WhatsApp</li>
+          <li>Notificaciones por WhatsApp</li>
+        </ul>
+        <p style="color:var(--text-muted);font-size:0.85rem">Ideal para mantener tu auto siempre limpio.</p>
+        <a href="https://luxurygarage.arizar-ia.cloud/register" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:16px">Elegir Plan</a>
+      </div>
+      <div class="plan-card featured">
+        <div class="plan-name">Plan Premium</div>
+        <div class="plan-price">₲450.000 <span>/mes</span></div>
+        <ul class="plan-features">
+          <li>12 lavados completos (exterior + interior)</li>
+          <li>Aspirado interior completo incluido</li>
+          <li>Prioridad en agenda</li>
+          <li>15% descuento en servicios extra</li>
+          <li>Hasta 2 vehículos registrados</li>
+        </ul>
+        <p style="color:var(--text-muted);font-size:0.85rem">Para quienes exigen el servicio más completo.</p>
+        <a href="https://luxurygarage.arizar-ia.cloud/register" class="btn btn-gold" style="width:100%;justify-content:center;margin-top:16px">Elegir Plan</a>
+      </div>
+      <div class="plan-card vip">
+        <div class="plan-name">Plan VIP</div>
+        <div class="plan-price">₲800.000 <span>/mes</span></div>
+        <ul class="plan-features">
+          <li>Lavados ILIMITADOS</li>
+          <li>1 Detailing mensual gratis (₲350.000)</li>
+          <li>Máxima prioridad en agenda</li>
+          <li>25% descuento en todos los extras</li>
+          <li>Vehículos ilimitados</li>
+          <li>Atención dedicada VIP</li>
+        </ul>
+        <p style="color:var(--text-muted);font-size:0.85rem">Para familias, empresas y múltiples vehículos.</p>
+        <a href="https://luxurygarage.arizar-ia.cloud/register" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:16px">Elegir Plan</a>
+      </div>
+    </div>
+    <div style="margin-top:32px;padding:24px;background:var(--bg-glass);border:1px solid var(--border);border-radius:12px">
+      <p style="color:var(--text-muted);font-size:0.9rem">💡 <strong style="color:var(--text)">Importante:</strong> Planes mensuales sin contrato. Se puede cambiar o cancelar en cualquier momento. Los lavados no acumulan. Pago online por MasFacil (tarjetas, QR, transferencias). Al pagar, la membresía se activa al instante por 30 días.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SERVICIOS -->
+<section id="servicios">
+  <div class="container">
+    <div class="section-label">✨ Servicios</div>
+    <h2 class="section-title">Nuestros Servicios</h2>
+    <p class="section-desc">Profesionalismo y calidad en cada detalle.</p>
+    <div class="services-grid">
+      <div class="service-card">
+        <div class="service-icon">🚿</div>
+        <div>
+          <h3>Lavado Exterior</h3>
+          <div class="duration">⏱ 30 minutos</div>
+          <p>Agua a presión, shampoo premium, enjuague, secado con microfibra, limpieza de llantas.</p>
+          <div class="service-price">Incluido en membresía</div>
+        </div>
+      </div>
+      <div class="service-card">
+        <div class="service-icon">🧹</div>
+        <div>
+          <h3>Lavado Completo</h3>
+          <div class="duration">⏱ 45 minutos</div>
+          <p>Lavado exterior + aspirado interior, limpieza de tablero, consola y vidrios internos.</p>
+          <div class="service-price">Incluido en Premium/VIP</div>
+        </div>
+      </div>
+      <div class="service-card">
+        <div class="service-icon">💎</div>
+        <div>
+          <h3>Lavado Premium + Aspirado</h3>
+          <div class="duration">⏱ 60 minutos</div>
+          <p>Lavado completo + abrillantado de pintura, acondicionamiento de plásticos, perfumado.</p>
+          <div class="service-price">Servicio Premium</div>
+        </div>
+      </div>
+      <div class="service-card">
+        <div class="service-icon">🔬</div>
+        <div>
+          <h3>Detailing Completo</h3>
+          <div class="duration">⏱ 120 minutos</div>
+          <p>Pulido de pintura, encerado carnauba, hidratación de plásticos, limpieza profunda interior.</p>
+          <div class="service-price">₲350.000</div>
+        </div>
+      </div>
+      <div class="service-card">
+        <div class="service-icon">🪑</div>
+        <div>
+          <h3>Limpieza de Tapizados</h3>
+          <div class="duration">⏱ 90 minutos</div>
+          <p>Lavado profundo con vapor, extracción de manchas, desinfección, secado profesional.</p>
+          <div class="service-price">₲250.000</div>
+        </div>
+      </div>
+      <div class="service-card">
+        <div class="service-icon">🛡️</div>
+        <div>
+          <h3>Tratamiento Cerámico</h3>
+          <div class="duration">⏱ 180 minutos</div>
+          <p>Coating cerámico profesional. Protección 6-12 meses, brillo extremo, repelencia al agua.</p>
+          <div class="service-price">₲500.000</div>
+        </div>
+      </div>
+      <div class="service-card">
+        <div class="service-icon">💡</div>
+        <div>
+          <h3>Pulido de Faros</h3>
+          <div class="duration">⏱ 30 minutos</div>
+          <p>Remoción de opacidad, pulido progresivo, sellado protector UV.</p>
+          <div class="service-price">₲80.000</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HORARIOS -->
+<section id="horarios">
+  <div class="container">
+    <div class="section-label">🕐 Horarios</div>
+    <h2 class="section-title">Horarios de Atención</h2>
+    <p class="section-desc">Te esperamos de lunes a sábado.</p>
+    <div class="schedule-grid">
+      <div class="schedule-item"><span class="schedule-day">Lunes a Viernes</span><span class="schedule-time">7:00 — 18:00</span></div>
+      <div class="schedule-item"><span class="schedule-day">Sábados</span><span class="schedule-time">7:00 — 13:00</span></div>
+      <div class="schedule-item closed"><span class="schedule-day">Domingos y Feriados</span><span class="schedule-time off">CERRADO</span></div>
+    </div>
+    <div style="margin-top:32px">
+      <h3 style="margin-bottom:16px;font-size:1.1rem">📅 Cómo agendar tu turno</h3>
+      <div class="info-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+        <div class="info-card" style="text-align:center;padding:24px">
+          <div style="font-size:2rem;margin-bottom:8px">📱</div>
+          <h3 style="font-size:0.95rem">Portal Web</h3>
+          <p style="font-size:0.85rem">luxurygarage.arizar-ia.cloud</p>
+        </div>
+        <div class="info-card" style="text-align:center;padding:24px">
+          <div style="font-size:2rem;margin-bottom:8px">💬</div>
+          <h3 style="font-size:0.95rem">Por WhatsApp</h3>
+          <p style="font-size:0.85rem">Escribinos y te agendamos</p>
+        </div>
+        <div class="info-card" style="text-align:center;padding:24px">
+          <div style="font-size:2rem;margin-bottom:8px">🏠</div>
+          <h3 style="font-size:0.95rem">Presencial</h3>
+          <p style="font-size:0.85rem">Vení a nuestro local</p>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:24px;padding:20px;background:var(--bg-glass);border:1px solid var(--border);border-radius:12px">
+      <p style="color:var(--text-muted);font-size:0.9rem">📌 Agendá con 1 día de anticipación. Cancelación sin costo hasta 2 horas antes. Miembros Premium y VIP tienen prioridad. Si llueve, reprogramamos automáticamente. Te avisamos por WhatsApp cuando tu auto está listo.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PAGOS -->
+<section>
+  <div class="container">
+    <div class="section-label">💳 Pagos</div>
+    <h2 class="section-title">Métodos de Pago</h2>
+    <p class="section-desc">Pagá como quieras, de forma segura.</p>
+    <div class="info-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+      <div class="info-card" style="text-align:center">
+        <div class="info-card-icon">💳</div>
+        <h3>Tarjetas</h3>
+        <p>Crédito y débito via MasFacil</p>
+      </div>
+      <div class="info-card" style="text-align:center">
+        <div class="info-card-icon">📲</div>
+        <h3>Pago QR</h3>
+        <p>Tigo Money, Personal Pay, Billetera Personal</p>
+      </div>
+      <div class="info-card" style="text-align:center">
+        <div class="info-card-icon">🏦</div>
+        <h3>Transferencia</h3>
+        <p>Bancaria directa</p>
+      </div>
+      <div class="info-card" style="text-align:center">
+        <div class="info-card-icon">💵</div>
+        <h3>Efectivo</h3>
+        <p>Solo servicios extra individuales</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq">
+  <div class="container">
+    <div class="section-label">❓ Preguntas Frecuentes</div>
+    <h2 class="section-title">FAQ</h2>
+    <div class="faq-list">
+      <details class="faq-item"><summary>¿Cómo me hago miembro?</summary><p>Registrate en luxurygarage.arizar-ia.cloud, elegí tu plan y pagá online. Tu membresía se activa al instante.</p></details>
+      <details class="faq-item"><summary>¿Puedo cambiar de plan?</summary><p>Sí, en cualquier momento desde tu portal. El cambio aplica desde el próximo ciclo de facturación.</p></details>
+      <details class="faq-item"><summary>¿Se acumulan los lavados no usados?</summary><p>No, los lavados no utilizados en el mes no se acumulan para el siguiente.</p></details>
+      <details class="faq-item"><summary>¿Puedo traer más de un auto?</summary><p>Plan Básico: 1 vehículo. Plan Premium: hasta 2. Plan VIP: sin límite.</p></details>
+      <details class="faq-item"><summary>¿Aceptan tarjeta de crédito?</summary><p>Sí, todas las tarjetas a través de MasFacil. También QR y transferencias.</p></details>
+      <details class="faq-item"><summary>¿Y si llueve el día de mi turno?</summary><p>Te notificamos y reprogramamos automáticamente. No se cuenta como lavado usado.</p></details>
+      <details class="faq-item"><summary>¿Puedo cancelar mi membresía?</summary><p>Sí, sin permanencia mínima ni penalidad. Cancelá cuando quieras desde tu portal.</p></details>
+      <details class="faq-item"><summary>¿Lavan motos, camionetas y utilitarios?</summary><p>Sí, lavamos todo tipo de vehículo.</p></details>
+      <details class="faq-item"><summary>¿Cuánto tarda un lavado?</summary><p>Exterior: 30 min. Completo: 45 min. Premium: 60 min. Detailing: 120 min.</p></details>
+      <details class="faq-item"><summary>¿Tienen garantía de satisfacción?</summary><p>Sí. Si no estás conforme, contactanos en 24 horas y lo repetimos sin costo.</p></details>
+      <details class="faq-item"><summary>¿Puedo referir amigos?</summary><p>Sí. Tu referido se registra con tu código → vos recibís 1 lavado premium gratis y tu referido 10% de descuento en su primer mes. Sin límite de referidos.</p></details>
+      <details class="faq-item"><summary>¿Ofrecen servicio a domicilio?</summary><p>Por el momento no. Nuestro servicio es presencial en Av. Cacique Lambaré 2030.</p></details>
+      <details class="faq-item"><summary>¿Puedo regalar una membresía?</summary><p>Sí, contactanos por WhatsApp y te generamos un link de pago para regalar.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- CONTACTO -->
+<section id="contacto">
+  <div class="container">
+    <div class="section-label">📍 Contacto</div>
+    <h2 class="section-title">Encontranos</h2>
+    <div class="contact-grid">
+      <div class="contact-card">
+        <div class="icon">📍</div>
+        <h3>Dirección</h3>
+        <p>Av. Cacique Lambaré 2030, Lambaré, Paraguay</p>
+      </div>
+      <div class="contact-card">
+        <div class="icon">📧</div>
+        <h3>Email</h3>
+        <p>avanzatecgroupsa@gmail.com</p>
+      </div>
+      <div class="contact-card">
+        <div class="icon">🌐</div>
+        <h3>Portal Web</h3>
+        <p>luxurygarage.arizar-ia.cloud</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>© 2026 Luxury Garage — Lavadero Premium. Todos los derechos reservados.</p>
+    <p style="margin-top:8px"><a href="https://luxurygarage.arizar-ia.cloud/register" style="color:var(--accent);text-decoration:none">Registrate ahora →</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
