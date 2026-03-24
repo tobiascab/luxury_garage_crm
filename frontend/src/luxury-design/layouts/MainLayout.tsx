@@ -65,6 +65,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const TABS = isEmployee ? EMPLOYEE_TABS : CLIENT_TABS;
     const N = TABS.length;
 
+    // Determine initial tab index from current URL
+    const getTabIdx = (tabs: typeof CLIENT_TABS) => Math.max(0, tabs.findIndex(t => t.path === location.pathname));
+    const initialIdx = getTabIdx(isEmployee ? EMPLOYEE_TABS : CLIENT_TABS);
+
+
     // ── Dark mode ─────────────────────────────────────────────────────────────
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
     useEffect(() => {
@@ -117,48 +122,55 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const tabIdx = TABS.findIndex(t => t.path === location.pathname);
     const isTabRoute = tabIdx !== -1;
 
-    const activeRef = useRef(Math.max(0, tabIdx));
-    const [activeTab, setActiveTab] = useState(Math.max(0, tabIdx));
+    const [activeTab, setActiveTab] = useState(initialIdx);
 
     // ── Slider ref ────────────────────────────────────────────────────────────
     const sliderRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    // ── Slider style stored in state so initial position is correct on first paint ──
+    const [sliderStyle, setSliderStyle] = useState<React.CSSProperties>({
+        transform: `translateX(-${initialIdx * (100 / N)}%)`,
+        transition: 'none',
+    });
+
     const applyTranslate = (idx: number, animated: boolean) => {
-        const el = sliderRef.current;
-        if (!el) return;
-        el.style.transition = animated ? 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)' : 'none';
-        el.style.transform = `translateX(-${idx * (100 / N)}%)`;
+        const transform = `translateX(-${idx * (100 / N)}%)`;
+        const transition = animated ? 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)' : 'none';
+        // Update DOM immediately (no re-render lag)
+        if (sliderRef.current) {
+            sliderRef.current.style.transform = transform;
+            sliderRef.current.style.transition = transition;
+        }
+        // Update state so React re-renders preserve the position
+        setSliderStyle({ transform, transition });
     };
 
-    // Set initial position without animation
-    useEffect(() => {
-        if (isTabRoute) applyTranslate(activeRef.current, false);
-    }, []); // eslint-disable-line
-
-    // Sync when URL changes (back button, external navigate, initial load)
+    // Sync when URL changes (back button, external navigate)
     useEffect(() => {
         const idx = TABS.findIndex(t => t.path === location.pathname);
-        if (idx !== -1 && idx !== activeRef.current) {
-            activeRef.current = idx;
+        if (idx !== -1 && idx !== activeTab) {
             setActiveTab(idx);
+            activeTabRef.current = idx; // Keep ref in sync
             applyTranslate(idx, true);
         }
-    }, [location.pathname]); // eslint-disable-line
+    }, [location.pathname, activeTab, TABS]); // eslint-disable-line
 
     const goToTab = (idx: number) => {
         if (idx < 0 || idx >= N) return;
-        activeRef.current = idx;
+        activeTabRef.current = idx;
         setActiveTab(idx);
         applyTranslate(idx, true);
         navigate(TABS[idx].path, { replace: true });
     };
 
-    // ── Touch state ───────────────────────────────────────────────────────────
+    // ── Touch state ──────────────────────────────────────────────────────────
+    const activeTabRef = useRef(initialIdx);  // kept in sync with activeTab, safe in touch closures
     const touchStartX = useRef(0);
     const touchStartY = useRef(0);
     const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
     const isDragging = useRef(false);
+
 
     // Non-passive listener so we can preventDefault on horizontal swipe (iOS fix)
     useEffect(() => {
@@ -177,8 +189,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
         touchStartY.current = e.touches[0].clientY;
         directionLocked.current = null;
         isDragging.current = true;
-        applyTranslate(activeRef.current, false);
+        // kill any running transition so drag follows finger precisely
+        applyTranslate(activeTabRef.current, false);
     };
+
 
     const handleTouchMove = (e: React.TouchEvent) => {
         if (!isTabRoute || !isDragging.current) return;
@@ -190,7 +204,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
         }
         if (directionLocked.current !== 'horizontal') return;
 
-        const idx = activeRef.current;
+        const idx = activeTabRef.current;
+
         const base = idx * (100 / N);
         const adj = (idx === 0 && diffX > 0) || (idx === N - 1 && diffX < 0)
             ? diffX * 0.25
@@ -209,7 +224,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         directionLocked.current = null;
 
         const diffX = e.changedTouches[0].clientX - touchStartX.current;
-        const idx = activeRef.current;
+        const idx = activeTabRef.current;
         if (Math.abs(diffX) >= MIN_SWIPE) {
             goToTab(diffX < 0 ? Math.min(idx + 1, N - 1) : Math.max(idx - 1, 0));
         } else {
@@ -220,8 +235,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const handleTouchCancel = () => {
         isDragging.current = false;
         directionLocked.current = null;
-        applyTranslate(activeRef.current, true);
+        applyTranslate(activeTabRef.current, true);
     };
+
 
     // ── Render individual tab panel ───────────────────────────────────────────
     const renderPanel = (path: string) => {
@@ -357,8 +373,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 >
                     <div
                         ref={sliderRef}
-                        style={{ display: 'flex', width: `${N * 100}%`, height: '100%', willChange: 'transform' }}
+                        style={{ display: 'flex', width: `${N * 100}%`, height: '100%', willChange: 'transform', ...sliderStyle }}
                     >
+
                         {TABS.map(tab => (
                             <div
                                 key={tab.path}
