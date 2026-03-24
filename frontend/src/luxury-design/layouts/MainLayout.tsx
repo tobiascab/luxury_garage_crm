@@ -25,7 +25,7 @@ interface MainLayoutProps {
 
 // ── Tab definitions ────────────────────────────────────────────────────────
 const CLIENT_TABS = ['/', '/booking', '/qr', '/planes', '/perfil'];
-const EMPLOYEE_TABS = ['/', '/scan', '/historial', '/perfil'];
+const EMPLOYEE_TABS = ['/employee', '/scan', '/historial', '/perfil'];
 
 const NAV_CLIENT = [
     { path: '/', Icon: Home, label: 'Inicio' },
@@ -36,7 +36,7 @@ const NAV_CLIENT = [
 ];
 
 const NAV_EMPLOYEE = [
-    { path: '/', Icon: Home, label: 'Inicio' },
+    { path: '/employee', Icon: Home, label: 'Inicio' },
     { path: '/scan', Icon: QrCode, label: 'Escanear' },
     { path: '/historial', Icon: History, label: 'Historial' },
     { path: '/perfil', Icon: User, label: 'Perfil' },
@@ -266,8 +266,8 @@ function NavItem({
                 }`}
         >
             <div className={`p-1.5 rounded-xl transition-all duration-300 ${active
-                    ? (darkMode ? 'bg-blue-500/10' : 'bg-primary/10')
-                    : (darkMode ? 'group-hover:bg-slate-800' : 'group-hover:bg-slate-50')
+                ? (darkMode ? 'bg-blue-500/10' : 'bg-primary/10')
+                : (darkMode ? 'group-hover:bg-slate-800' : 'group-hover:bg-slate-50')
                 }`}>
                 {icon}
             </div>

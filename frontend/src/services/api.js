@@ -13,7 +13,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+    const url = error.config?.url || '';
+
+    // Solo hacer logout automático si el token de sesión está rechazado (/auth/me)
+    // Evita que un 401 de negocio (ej: QR inválido) cierre la sesión del empleado
+    if (status === 401 && url.includes('/auth/me')) {
       localStorage.removeItem('luxury_token');
       localStorage.removeItem('luxury_user');
       window.location.href = '/login';
@@ -21,5 +26,6 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
 
 export default api;
