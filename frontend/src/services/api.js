@@ -2,32 +2,7 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
 
-// ── In-memory GET cache ───────────────────────────────────────────────────
-const memCache = new Map();
-const CACHE_TTL = 45 * 1000; // 45 seconds — fast enough for fresh data, instant on re-visit
-
-const defaultAdapter = axios.defaults.adapter;
-
-const cachedAdapter = async (config) => {
-  // Only cache authenticated GET requests
-  if (config.method !== 'get' || config._noCache) {
-    return defaultAdapter(config);
-  }
-
-  const key = `${config.url}||${JSON.stringify(config.params ?? {})}`;
-  const hit = memCache.get(key);
-
-  if (hit && Date.now() - hit.ts < CACHE_TTL) {
-    // Return a clone so callers can mutate without affecting cache
-    return { ...hit.res };
-  }
-
-  const res = await defaultAdapter(config);
-  memCache.set(key, { res, ts: Date.now() });
-  return res;
-};
-
-const api = axios.create({ baseURL: API_URL, adapter: cachedAdapter });
+const api = axios.create({ baseURL: API_URL });
 
 // ── Request interceptor — attach JWT ─────────────────────────────────────
 api.interceptors.request.use((config) => {
@@ -42,9 +17,7 @@ api.interceptors.response.use(
   (error) => {
     const status = error.response?.status;
     const url = error.config?.url || '';
-
     // Solo hacer logout si el token de sesión está rechazado en /auth/me
-    // Evita que un 401 de negocio (QR inválido, etc.) cierre la sesión
     if (status === 401 && url.includes('/auth/me')) {
       localStorage.removeItem('luxury_token');
       localStorage.removeItem('luxury_user');
@@ -54,21 +27,36 @@ api.interceptors.response.use(
   }
 );
 
-// ── Cache helpers ─────────────────────────────────────────────────────────
-/**
- * Invalidate cache entries whose URL contains any of the provided patterns.
- * Call after POST/PUT/DELETE to ensure fresh data on next GET.
- * Example: api.invalidate('/appointments', '/luxury/profile')
- */
+// ── In-memory GET cache (safe wrapper — no Axios internals) ───────────────
+const memCache = new Map();
+const CACHE_TTL = 45 * 1000; // 45 seconds
+
+const _originalGet = api.get.bind(api);
+
+api.get = async (url, config = {}) => {
+  // Skip cache when explicitly requested
+  if (config._noCache) return _originalGet(url, config);
+
+  const key = `${url}||${JSON.stringify(config.params ?? {})}`;
+  const hit = memCache.get(key);
+
+  if (hit && Date.now() - hit.ts < CACHE_TTL) {
+    return hit.res;
+  }
+
+  const res = await _originalGet(url, config);
+  memCache.set(key, { res, ts: Date.now() });
+  return res;
+};
+
+/** Invalidate cache entries whose URL matches any of the given patterns */
 api.invalidate = (...patterns) => {
   for (const key of memCache.keys()) {
-    if (patterns.some(p => key.includes(p))) {
-      memCache.delete(key);
-    }
+    if (patterns.some(p => key.includes(p))) memCache.delete(key);
   }
 };
 
-/** Clear the entire cache (e.g., on logout) */
+/** Clear entire cache (e.g., on logout) */
 api.clearCache = () => memCache.clear();
 
 export default api;
