@@ -18,6 +18,7 @@ import HistorialEmpleado from '../pages/HistorialEmpleado';
 
 import api from '../../services/api';
 import { useLuxuryUser } from '../context/LuxuryUserContext';
+import { useAuth } from '../../context/AuthContext';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Notification {
@@ -29,11 +30,7 @@ interface Notification {
 }
 
 interface MainLayoutProps {
-    children?: React.ReactNode;
-    user?: any;
-    onLogout?: () => void;
-    onBookingComplete?: () => void;
-    onUpdate?: () => void;
+    children?: React.ReactNode; // <Outlet /> from App.jsx — used for non-tab routes
 }
 
 // ── Tab definitions ────────────────────────────────────────────────────────
@@ -54,12 +51,13 @@ const EMPLOYEE_TABS = [
 
 const MIN_SWIPE = 40;
 
-// ── MainLayout ─────────────────────────────────────────────────────────────
-export default function MainLayout({
-    children, user: userProp, onLogout, onBookingComplete, onUpdate
-}: MainLayoutProps) {
-    const { fullUser } = useLuxuryUser();
-    const user = userProp ?? fullUser;
+// ── Component ──────────────────────────────────────────────────────────────
+export default function MainLayout({ children }: MainLayoutProps) {
+    // ── Auth & user from context (LuxuryUserProvider wraps this in App.jsx) ─
+    const { fullUser, loading: userLoading, refreshProfile } = useLuxuryUser();
+    const { logout } = useAuth();
+    const user = fullUser;
+
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -67,14 +65,14 @@ export default function MainLayout({
     const TABS = isEmployee ? EMPLOYEE_TABS : CLIENT_TABS;
     const N = TABS.length;
 
-    // ── Dark mode ────────────────────────────────────────────────────────────
+    // ── Dark mode ─────────────────────────────────────────────────────────────
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
     useEffect(() => {
         localStorage.setItem('theme', darkMode ? 'dark' : 'light');
         document.documentElement.classList.toggle('dark', darkMode);
     }, [darkMode]);
 
-    // ── Notifications ────────────────────────────────────────────────────────
+    // ── Notifications ─────────────────────────────────────────────────────────
     const [showNotifs, setShowNotifs] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [readIds, setReadIds] = useState<Set<string>>(new Set());
@@ -115,32 +113,30 @@ export default function MainLayout({
             : t === 'reminder' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400'
                 : 'bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400';
 
-    // ── Tab routing ──────────────────────────────────────────────────────────
+    // ── Tab routing ───────────────────────────────────────────────────────────
     const tabIdx = TABS.findIndex(t => t.path === location.pathname);
     const isTabRoute = tabIdx !== -1;
 
     const activeRef = useRef(Math.max(0, tabIdx));
     const [activeTab, setActiveTab] = useState(Math.max(0, tabIdx));
 
-    // ── Slider ref ───────────────────────────────────────────────────────────
+    // ── Slider ref ────────────────────────────────────────────────────────────
     const sliderRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
     const applyTranslate = (idx: number, animated: boolean) => {
         const el = sliderRef.current;
         if (!el) return;
-        el.style.transition = animated
-            ? 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
-            : 'none';
+        el.style.transition = animated ? 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)' : 'none';
         el.style.transform = `translateX(-${idx * (100 / N)}%)`;
     };
 
-    // Initial position (no animation)
+    // Set initial position without animation
     useEffect(() => {
         if (isTabRoute) applyTranslate(activeRef.current, false);
     }, []); // eslint-disable-line
 
-    // Sync when URL changes (back button, external navigate)
+    // Sync when URL changes (back button, external navigate, initial load)
     useEffect(() => {
         const idx = TABS.findIndex(t => t.path === location.pathname);
         if (idx !== -1 && idx !== activeRef.current) {
@@ -158,13 +154,13 @@ export default function MainLayout({
         navigate(TABS[idx].path, { replace: true });
     };
 
-    // ── Touch state ──────────────────────────────────────────────────────────
+    // ── Touch state ───────────────────────────────────────────────────────────
     const touchStartX = useRef(0);
     const touchStartY = useRef(0);
     const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
     const isDragging = useRef(false);
 
-    // iOS requires non-passive touchmove listener to call preventDefault
+    // Non-passive listener so we can preventDefault on horizontal swipe (iOS fix)
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
@@ -181,7 +177,7 @@ export default function MainLayout({
         touchStartY.current = e.touches[0].clientY;
         directionLocked.current = null;
         isDragging.current = true;
-        applyTranslate(activeRef.current, false); // kill any running transition
+        applyTranslate(activeRef.current, false);
     };
 
     const handleTouchMove = (e: React.TouchEvent) => {
@@ -196,7 +192,6 @@ export default function MainLayout({
 
         const idx = activeRef.current;
         const base = idx * (100 / N);
-        // Elastic resistance at edges
         const adj = (idx === 0 && diffX > 0) || (idx === N - 1 && diffX < 0)
             ? diffX * 0.25
             : diffX;
@@ -210,20 +205,15 @@ export default function MainLayout({
     const handleTouchEnd = (e: React.TouchEvent) => {
         if (!isTabRoute || !isDragging.current) return;
         isDragging.current = false;
-
-        if (directionLocked.current !== 'horizontal') {
-            directionLocked.current = null;
-            return;
-        }
+        if (directionLocked.current !== 'horizontal') { directionLocked.current = null; return; }
         directionLocked.current = null;
 
         const diffX = e.changedTouches[0].clientX - touchStartX.current;
         const idx = activeRef.current;
-
         if (Math.abs(diffX) >= MIN_SWIPE) {
             goToTab(diffX < 0 ? Math.min(idx + 1, N - 1) : Math.max(idx - 1, 0));
         } else {
-            applyTranslate(idx, true); // snap back
+            applyTranslate(idx, true);
         }
     };
 
@@ -233,29 +223,38 @@ export default function MainLayout({
         applyTranslate(activeRef.current, true);
     };
 
-    // ── Render individual tab panel ──────────────────────────────────────────
+    // ── Render individual tab panel ───────────────────────────────────────────
     const renderPanel = (path: string) => {
+        if (userLoading || !user) return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="flex flex-col items-center gap-3">
+                    <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Cargando…</p>
+                </div>
+            </div>
+        );
+
         const noop = () => { };
-        const logout = onLogout || noop;
-        const update = onUpdate || noop;
-        const booked = onBookingComplete || noop;
+        const logoutFn = logout || noop;
+        const updateFn = refreshProfile || noop;
+        const bookedFn = refreshProfile || noop;
 
         if (!isEmployee) {
             if (path === '/') return <Dashboard user={user} />;
-            if (path === '/booking') return <Booking user={user} onBookingComplete={booked} />;
+            if (path === '/booking') return <Booking user={user} onBookingComplete={bookedFn} />;
             if (path === '/qr') return <QRPass user={user} />;
             if (path === '/planes') return <Planes user={user} />;
-            if (path === '/perfil') return <Profile user={user} onLogout={logout} onUpdate={update} />;
+            if (path === '/perfil') return <Profile user={user} onLogout={logoutFn} onUpdate={updateFn} />;
         } else {
             if (path === '/') return <DashboardEmpleado user={user} />;
             if (path === '/scan') return <EmpleadoScanner user={user} />;
             if (path === '/historial') return <HistorialEmpleado user={user} />;
-            if (path === '/perfil') return <Profile user={user} onLogout={logout} onUpdate={update} />;
+            if (path === '/perfil') return <Profile user={user} onLogout={logoutFn} onUpdate={updateFn} />;
         }
         return null;
     };
 
-    // ── Layout ───────────────────────────────────────────────────────────────
+    // ── Layout ────────────────────────────────────────────────────────────────
     return (
         <div className={`h-[100dvh] flex flex-col transition-colors duration-500 overflow-hidden ${darkMode ? 'dark bg-[#0f172a]' : 'bg-background'}`}>
 
@@ -265,21 +264,19 @@ export default function MainLayout({
                     <div className="flex items-center gap-3">
                         {!isTabRoute && (
                             <button
-                                onClick={() => navigate(isEmployee ? '/' : '/')}
+                                onClick={() => navigate('/')}
                                 className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'}`}
                             >
                                 <ArrowLeft size={18} />
                             </button>
                         )}
-                        <div className="flex items-center gap-2">
-                            <div className={`w-8 h-8 rounded-full overflow-hidden border-2 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-primary-container border-white'}`}>
-                                <img
-                                    src={user?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100'}
-                                    alt="Profile"
-                                    className="w-full h-full object-cover"
-                                    referrerPolicy="no-referrer"
-                                />
-                            </div>
+                        <div className={`w-8 h-8 rounded-full overflow-hidden border-2 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-primary-container border-white'}`}>
+                            <img
+                                src={user?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100'}
+                                alt="Profile"
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                            />
                         </div>
                     </div>
 
@@ -294,10 +291,7 @@ export default function MainLayout({
                         </button>
 
                         <div className="relative" ref={notifRef}>
-                            <button
-                                onClick={handleBell}
-                                className={`p-1.5 transition-colors relative ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-primary'}`}
-                            >
+                            <button onClick={handleBell} className={`p-1.5 transition-colors relative ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-primary'}`}>
                                 <Bell size={18} />
                                 {unreadCount > 0 && (
                                     <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border border-white">
@@ -351,7 +345,7 @@ export default function MainLayout({
 
             {/* ── Content ── */}
             {isTabRoute ? (
-                /* SLIDER MODE */
+                /* SLIDER MODE — all tab pages side by side */
                 <div
                     ref={containerRef}
                     className="flex-1 overflow-hidden relative"
@@ -363,12 +357,7 @@ export default function MainLayout({
                 >
                     <div
                         ref={sliderRef}
-                        style={{
-                            display: 'flex',
-                            width: `${N * 100}%`,
-                            height: '100%',
-                            willChange: 'transform',
-                        }}
+                        style={{ display: 'flex', width: `${N * 100}%`, height: '100%', willChange: 'transform' }}
                     >
                         {TABS.map(tab => (
                             <div
@@ -393,14 +382,14 @@ export default function MainLayout({
                     </div>
                 </div>
             ) : (
-                /* NORMAL MODE (billetera, referidos, etc.) */
+                /* NORMAL MODE — non-tab routes (billetera, referidos, etc.) via <Outlet /> */
                 <div className="flex-1 overflow-y-auto px-4 pt-4 pb-28 w-full max-w-md mx-auto">
                     {children}
                 </div>
             )}
 
             {/* ── Bottom Nav ── */}
-            <nav className={`flex-shrink-0 w-full max-w-md mx-auto flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'}`}>
+            <nav className={`flex-shrink-0 w-full max-w-md mx-auto flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 transition-all duration-300 shadow-[0_-4px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'}`}>
                 {TABS.map((tab, idx) => (
                     <NavItem
                         key={tab.path}
