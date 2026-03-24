@@ -183,7 +183,10 @@ class ArizarService {
         notes: data.notes || '',
         appointmentStatus: 'confirmed',
       };
-      const response = await this.client.post('/calendars/events', payload);
+      console.log(`[ARIZAR CAL] Creating appointment: calendarId=${this.calendarId}, contactId=${data.contactId}, start=${data.startTime}`);
+      // Correct GHL API v2 endpoint for calendar appointments
+      const response = await this.client.post('/calendars/events/appointments', payload);
+      console.log(`[ARIZAR CAL] Created OK: eventId=${response.data?.id || response.data?.event?.id}`);
       return response.data;
     });
   }
@@ -191,7 +194,7 @@ class ArizarService {
   /** Actualizar cita */
   async updateAppointment(eventId, data) {
     return this._safe(async () => {
-      const response = await this.client.put(`/calendars/events/${eventId}`, data);
+      const response = await this.client.put(`/calendars/events/appointments/${eventId}`, data);
       return response.data;
     });
   }
@@ -199,7 +202,7 @@ class ArizarService {
   /** Eliminar cita */
   async deleteAppointment(eventId) {
     return this._safe(async () => {
-      const response = await this.client.delete(`/calendars/events/${eventId}`);
+      const response = await this.client.delete(`/calendars/events/appointments/${eventId}`);
       return response.data;
     });
   }

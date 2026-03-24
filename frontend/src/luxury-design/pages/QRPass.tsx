@@ -2,11 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { QrCode, ShieldCheck, RefreshCw, Clock, AlertTriangle, Droplets, Star, Info, CheckCircle2, Sparkles } from 'lucide-react';
+import api from "../../services/api";
 
-import { API_URL } from '../config';
+
 
 interface QRPassProps {
     user: any;
+    onUpdate?: () => void;
 }
 
 const QR_EXPIRY_SECONDS = 300;
@@ -20,25 +22,47 @@ const FUN_PHRASES = [
     '¡El lavadero ya sabe qué hacer! 🧼',
 ];
 
-export default function QRPass({ user }: QRPassProps) {
+// Floating particle for celebration effect
+function Particle({ delay, x }: { delay: number; x: number }) {
+    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const size = 6 + Math.random() * 8;
+    return (
+        <motion.div
+            initial={{ y: 0, x, opacity: 1, scale: 1 }}
+            animate={{ y: -320, x: x + (Math.random() - 0.5) * 120, opacity: 0, scale: 0.4, rotate: Math.random() * 360 }}
+            transition={{ duration: 1.8 + Math.random() * 0.8, delay, ease: 'easeOut' }}
+            className="absolute bottom-0 rounded-full pointer-events-none"
+            style={{ width: size, height: size, backgroundColor: color, left: '50%' }}
+        />
+    );
+}
+
+export default function QRPass({ user, onUpdate }: QRPassProps) {
     const [qrToken, setQrToken] = useState<string | null>(null);
     const [generatedAt, setGeneratedAt] = useState<number | null>(null);
     const [secondsLeft, setSecondsLeft] = useState(QR_EXPIRY_SECONDS);
     const [isExpired, setIsExpired] = useState(false);
     const [washProcessed, setWashProcessed] = useState(false);
+    const [showParticles, setShowParticles] = useState(false);
     const [funPhrase] = useState(() => FUN_PHRASES[Math.floor(Math.random() * FUN_PHRASES.length)]);
 
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const processedRef = useRef(false); // ref-based guard, immune to stale closure
     const isActive = user?.membership_status === 'Activa';
 
     const generateToken = () => {
         const ts = Date.now();
         const token = `LUXURY-${user.id}-${ts}`;
+        // Stop any existing poll
+        if (pollRef.current) clearInterval(pollRef.current);
+        processedRef.current = false;
         setQrToken(token);
         setGeneratedAt(ts);
         setSecondsLeft(QR_EXPIRY_SECONDS);
         setIsExpired(false);
         setWashProcessed(false);
+        setShowParticles(false);
     };
 
     // Countdown timer
@@ -55,21 +79,40 @@ export default function QRPass({ user }: QRPassProps) {
 
     // Poll backend every 3s to detect if employee scanned the QR
     useEffect(() => {
-        if (!qrToken || isExpired || washProcessed || !generatedAt) return;
+        if (!qrToken || isExpired || !generatedAt) return;
+
+        // Clear any previous interval before starting a new one
+        if (pollRef.current) clearInterval(pollRef.current);
+        processedRef.current = false;
 
         pollRef.current = setInterval(async () => {
+            // Use ref to avoid stale closure
+            if (processedRef.current) return;
             try {
-                const res = await fetch(`${API_URL}/api/users/${user.id}/latest-wash?since=${generatedAt}`);
-                const data = await res.json();
-                if (data.found) {
-                    setWashProcessed(true);
+                const res = await api.get(`/luxury/latest-wash?since=${generatedAt}&_t=${Date.now()}`);
+                // Backend returns: { success: true, found: bool, data: wash|null }
+                // IMPORTANT: read .found from res.data, NOT from res.data.data (that's the wash object)
+                const { found } = res.data;
+                if (found) {
+                    processedRef.current = true; // block re-entry immediately
                     clearInterval(pollRef.current!);
+                    pollRef.current = null;
+                    setShowParticles(true);
+                    setTimeout(() => setWashProcessed(true), 200);
+                    onUpdate?.();
                 }
             } catch (_) { }
         }, 3000);
 
-        return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    }, [qrToken, isExpired, washProcessed, generatedAt, user.id]);
+        return () => {
+            if (pollRef.current) {
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+            }
+        };
+        // NOTE: intentionally omit washProcessed from deps — we use processedRef instead
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [qrToken, isExpired, generatedAt, user.id]);
 
     const minutesLeft = Math.floor(secondsLeft / 60);
     const secs = secondsLeft % 60;
@@ -109,123 +152,181 @@ export default function QRPass({ user }: QRPassProps) {
             </div>
 
             {/* QR Area */}
-            <div className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+            <div className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors relative">
 
                 {/* How it works */}
-                <div className="flex items-start gap-3 p-4 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800">
-                    <Info size={15} className="text-primary dark:text-blue-400 shrink-0 mt-0.5" />
-                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                        <span className="font-bold text-slate-700 dark:text-slate-200">¿Cómo funciona?</span> Generá tu QR y presentalo al operario del lavadero.
-                        Él lo escanea desde su dispositivo y tu lavado se registra automáticamente.
-                    </p>
-                </div>
+                {!washProcessed && (
+                    <div className="flex items-start gap-3 p-4 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800">
+                        <Info size={15} className="text-primary dark:text-blue-400 shrink-0 mt-0.5" />
+                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                            <span className="font-bold text-slate-700 dark:text-slate-200">¿Cómo funciona?</span> Generá tu QR y presentalo al operario del lavadero.
+                            Él lo escanea desde su dispositivo y tu lavado se registra automáticamente.
+                        </p>
+                    </div>
+                )}
 
-                <div className="p-6">
-                    {/* ── WASH PROCESSED ─────────────────────── */}
+                <AnimatePresence mode="wait">
                     {washProcessed ? (
+                        /* ── WASH PROCESSED — in-place full card success ── */
                         <motion.div
-                            initial={{ scale: 0.85, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            className="text-center py-4"
+                            key="success"
+                            initial={{ opacity: 0, scale: 0.92 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.92 }}
+                            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+                            className="relative overflow-hidden"
                         >
-                            <motion.div
-                                animate={{ scale: [1, 1.15, 1] }}
-                                transition={{ repeat: 2, duration: 0.4 }}
-                                className="w-24 h-24 bg-emerald-100 dark:bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-100/20 dark:shadow-emerald-500/10"
-                            >
-                                <CheckCircle2 size={48} className="text-emerald-600 dark:text-emerald-400" />
-                            </motion.div>
-                            <h2 className="font-headline text-2xl font-black text-slate-900 dark:text-white mb-1 uppercase tracking-tighter italic">¡Lavado Procesado!</h2>
-                            <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">{funPhrase}</p>
-                            <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-2xl p-3 text-xs text-emerald-700 dark:text-emerald-400 font-medium font-headline uppercase italic">
-                                Tu historial fue actualizado. 🧼
+                            {/* Gradient background */}
+                            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500 to-emerald-600 opacity-100" />
+                            <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                            <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
+
+                            {/* Particles container */}
+                            {showParticles && (
+                                <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                                    {Array.from({ length: 18 }).map((_, i) => (
+                                        <Particle key={i} delay={i * 0.06} x={(i - 9) * 18} />
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="relative z-10 text-center px-8 py-10">
+                                {/* Animated checkmark */}
+                                <motion.div
+                                    initial={{ scale: 0, rotate: -20 }}
+                                    animate={{ scale: 1, rotate: 0 }}
+                                    transition={{ type: 'spring', stiffness: 400, damping: 18, delay: 0.1 }}
+                                    className="w-24 h-24 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-6 shadow-2xl border-2 border-white/30"
+                                >
+                                    <motion.div
+                                        animate={{ scale: [1, 1.2, 1] }}
+                                        transition={{ repeat: 2, duration: 0.4, delay: 0.3 }}
+                                    >
+                                        <CheckCircle2 size={52} className="text-white drop-shadow-lg" />
+                                    </motion.div>
+                                </motion.div>
+
+                                {/* Title */}
+                                <motion.div
+                                    initial={{ opacity: 0, y: 16 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.2 }}
+                                >
+                                    <p className="text-white/70 text-[10px] font-black uppercase tracking-[0.25em] mb-1">Servicio registrado</p>
+                                    <h2 className="text-white font-black text-2xl uppercase italic tracking-tighter leading-tight mb-2">
+                                        ¡Tu QR fue<br />procesado!
+                                    </h2>
+                                    <p className="text-white/80 text-sm font-medium mb-6 leading-relaxed">{funPhrase}</p>
+                                </motion.div>
+
+                                {/* Info pill */}
+                                <motion.div
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.35 }}
+                                    className="bg-white/15 backdrop-blur-sm border border-white/20 rounded-2xl p-4 text-white/90 text-xs font-medium mb-6 leading-relaxed"
+                                >
+                                    🧼 Tu historial y contador de lavados fueron actualizados correctamente.
+                                </motion.div>
+
+                                {/* CTA button */}
+                                <motion.button
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.45 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => { setQrToken(null); setWashProcessed(false); setGeneratedAt(null); setShowParticles(false); }}
+                                    className="w-full py-4 bg-white text-emerald-600 font-black uppercase tracking-widest text-xs rounded-2xl shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+                                >
+                                    <CheckCircle2 size={15} /> Entendido
+                                </motion.button>
                             </div>
-                            <button
-                                onClick={() => { setQrToken(null); setWashProcessed(false); setGeneratedAt(null); }}
-                                className="mt-4 text-[10px] font-black tracking-widest uppercase text-primary dark:text-blue-400 flex items-center gap-1.5 mx-auto hover:underline"
-                            >
-                                <RefreshCw size={12} /> Generar otro QR
-                            </button>
                         </motion.div>
 
                     ) : !qrToken ? (
-                        /* ── NO QR YET ─────────────────────── */
-                        <div className="text-center py-6">
-                            <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-4">
-                                <QrCode size={36} className="text-slate-300 dark:text-slate-700" />
+                        /* ── NO QR YET ── */
+                        <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6">
+                            <div className="text-center py-6">
+                                <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                                    <QrCode size={36} className="text-slate-300 dark:text-slate-700" />
+                                </div>
+                                <p className="text-sm text-slate-400 dark:text-slate-500 mb-6 font-medium leading-relaxed">
+                                    Tu código QR aparecerá aquí.<br />Validez: <span className="font-black text-primary dark:text-blue-400">5 minutos</span>.
+                                </p>
+                                <button
+                                    onClick={generateToken}
+                                    disabled={!isActive}
+                                    className="w-full py-4 bg-primary dark:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:shadow-lg hover:shadow-primary/20 dark:hover:shadow-blue-500/20 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5"
+                                >
+                                    <Droplets size={18} />
+                                    {isActive ? 'Generar QR de Lavado' : 'Membresía Inactiva'}
+                                </button>
                             </div>
-                            <p className="text-sm text-slate-400 dark:text-slate-500 mb-6 font-medium leading-relaxed">
-                                Tu código QR aparecerá aquí.<br />Validez: <span className="font-black text-primary dark:text-blue-400">5 minutos</span>.
-                            </p>
-                            <button
-                                onClick={generateToken}
-                                disabled={!isActive}
-                                className="w-full py-4 bg-primary dark:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:shadow-lg hover:shadow-primary/20 dark:hover:shadow-blue-500/20 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5"
-                            >
-                                <Droplets size={18} />
-                                {isActive ? 'Generar QR de Lavado' : 'Membresía Inactiva'}
-                            </button>
-                        </div>
+                        </motion.div>
 
                     ) : isExpired ? (
-                        /* ── EXPIRED ─────────────────────── */
-                        <div className="text-center py-6">
-                            <div className="w-20 h-20 bg-amber-50 dark:bg-amber-500/10 rounded-3xl flex items-center justify-center mx-auto mb-4">
-                                <Clock size={36} className="text-amber-400 dark:text-amber-300" />
+                        /* ── EXPIRED ── */
+                        <motion.div key="expired" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6">
+                            <div className="text-center py-6">
+                                <div className="w-20 h-20 bg-amber-50 dark:bg-amber-500/10 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                                    <Clock size={36} className="text-amber-400 dark:text-amber-300" />
+                                </div>
+                                <p className="text-base font-black text-slate-800 dark:text-slate-100 mb-1 uppercase tracking-tighter italic">QR Expirado</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500 mb-6">El código venció. Generá uno nuevo para continuar.</p>
+                                <button
+                                    onClick={generateToken}
+                                    className="w-full py-4 bg-primary dark:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2.5"
+                                >
+                                    <RefreshCw size={18} /> Generar Nuevo QR
+                                </button>
                             </div>
-                            <p className="text-base font-black text-slate-800 dark:text-slate-100 mb-1 uppercase tracking-tighter italic">QR Expirado</p>
-                            <p className="text-xs text-slate-400 dark:text-slate-500 mb-6">El código venció. Generá uno nuevo para continuar.</p>
-                            <button
-                                onClick={generateToken}
-                                className="w-full py-4 bg-primary dark:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2.5"
-                            >
-                                <RefreshCw size={18} /> Generar Nuevo QR
-                            </button>
-                        </div>
+                        </motion.div>
 
                     ) : (
-                        /* ── ACTIVE QR ─────────────────────── */
-                        <div className="text-center">
-                            <motion.div
-                                initial={{ scale: 0.8, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                className="bg-white border-2 border-slate-100 dark:border-slate-800 rounded-[2.5rem] p-5 inline-block mb-4 shadow-xl relative"
-                            >
-                                <QRCodeSVG value={qrToken} size={190} bgColor="#ffffff" fgColor="#0f172a" level="M" />
-                                {/* Scanning indicator */}
-                                <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-primary dark:bg-blue-500 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.1em] flex items-center gap-2 shadow-xl whitespace-nowrap">
-                                    <Sparkles size={10} className="animate-pulse" /> Esperando escaneo...
-                                </div>
-                            </motion.div>
+                        /* ── ACTIVE QR ── */
+                        <motion.div key="active" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="p-6">
+                            <div className="text-center">
+                                <motion.div
+                                    initial={{ scale: 0.8, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    className="bg-white border-2 border-slate-100 dark:border-slate-800 rounded-[2.5rem] p-5 inline-block mb-4 shadow-xl relative"
+                                >
+                                    <QRCodeSVG value={qrToken} size={190} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+                                    {/* Scanning indicator */}
+                                    <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-primary dark:bg-blue-500 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.1em] flex items-center gap-2 shadow-xl whitespace-nowrap">
+                                        <Sparkles size={10} className="animate-pulse" /> Esperando escaneo...
+                                    </div>
+                                </motion.div>
 
-                            {/* Timer */}
-                            <div className="mt-8 mb-3 px-2">
-                                <div className="flex justify-between items-center text-[10px] text-slate-400 dark:text-slate-500 mb-2 uppercase tracking-widest font-black px-1">
-                                    <span className="flex items-center gap-1.5"><Clock size={12} /> Expira en</span>
-                                    <span className={`${secondsLeft <= 60 ? 'text-red-500 dark:text-red-400' : 'text-slate-800 dark:text-slate-200'} transition-colors`}>
-                                        {minutesLeft}:{secs.toString().padStart(2, '0')}
-                                    </span>
+                                {/* Timer */}
+                                <div className="mt-8 mb-3 px-2">
+                                    <div className="flex justify-between items-center text-[10px] text-slate-400 dark:text-slate-500 mb-2 uppercase tracking-widest font-black px-1">
+                                        <span className="flex items-center gap-1.5"><Clock size={12} /> Expira en</span>
+                                        <span className={`${secondsLeft <= 60 ? 'text-red-500 dark:text-red-400' : 'text-slate-800 dark:text-slate-200'} transition-colors`}>
+                                            {minutesLeft}:{secs.toString().padStart(2, '0')}
+                                        </span>
+                                    </div>
+                                    <div className="h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-transparent dark:border-white/5 shadow-inner">
+                                        <motion.div
+                                            className={`h-full rounded-full ${secondsLeft <= 60 ? 'bg-red-500 dark:bg-red-400' : 'bg-primary dark:bg-blue-500'}`}
+                                            style={{ width: `${progress}%` }}
+                                            transition={{ duration: 0.5 }}
+                                        />
+                                    </div>
                                 </div>
-                                <div className="h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden border border-transparent dark:border-white/5 shadow-inner">
-                                    <motion.div
-                                        className={`h-full rounded-full ${secondsLeft <= 60 ? 'bg-red-500 dark:bg-red-400' : 'bg-primary dark:bg-blue-500'}`}
-                                        style={{ width: `${progress}%` }}
-                                        transition={{ duration: 0.5 }}
-                                    />
-                                </div>
+
+                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-4 font-bold flex items-center justify-center gap-1.5">
+                                    <span className="opacity-50 tracking-widest uppercase">Token ID:</span>
+                                    <span className="font-mono text-slate-600 dark:text-slate-400">{qrToken.slice(0, 16).toLowerCase()}...</span>
+                                </p>
+
+                                <button onClick={generateToken} className="text-[10px] font-black uppercase tracking-widest text-primary dark:text-blue-400 flex items-center gap-2 mx-auto hover:underline active:opacity-70 transition-all">
+                                    <RefreshCw size={12} /> Forzar Regeneración
+                                </button>
                             </div>
-
-                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-4 font-bold flex items-center justify-center gap-1.5">
-                                <span className="opacity-50 tracking-widest uppercase">Token ID:</span>
-                                <span className="font-mono text-slate-600 dark:text-slate-400">{qrToken.slice(0, 16).toLowerCase()}...</span>
-                            </p>
-
-                            <button onClick={generateToken} className="text-[10px] font-black uppercase tracking-widest text-primary dark:text-blue-400 flex items-center gap-2 mx-auto hover:underline active:opacity-70 transition-all">
-                                <RefreshCw size={12} /> Forzar Regeneración
-                            </button>
-                        </div>
+                        </motion.div>
                     )}
-                </div>
+                </AnimatePresence>
             </div>
 
             {/* Steps */}

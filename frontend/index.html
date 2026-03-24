@@ -3,6 +3,19 @@
 
 <head>
   <meta charset="UTF-8" />
+  <!-- Theme init: runs BEFORE React, prevents dark flash -->
+  <script>
+    (function () {
+      var saved = localStorage.getItem('theme');
+      // Only go dark if user explicitly chose it. Never follow OS.
+      if (saved === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        if (!saved) localStorage.setItem('theme', 'light');
+      }
+    })();
+  </script>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,7 +25,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="google" content="notranslate" />
 
-  <title>frontend</title>
+  <title>Luxury Garage</title>
 </head>
 
 <body>

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScanLine, CheckCircle2, XCircle, Camera, Car, RefreshCw, KeyRound, User, History, Droplets, MapPin, Clock } from 'lucide-react';
 
-import { API_URL } from '../config';
+import api from '../../services/api';
 
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -22,6 +22,7 @@ type ScanResult = {
 export default function EmpleadoScanner({ user }: { user: any }) {
     const [result, setResult] = useState<ScanResult | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [scannedCount, setScannedCount] = useState(0);
     const [manualToken, setManualToken] = useState('');
     const [cameraError, setCameraError] = useState<string | null>(null);
     const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -86,15 +87,17 @@ export default function EmpleadoScanner({ user }: { user: any }) {
         setIsProcessing(true);
         setResult(null);
         try {
-            const res = await fetch(`${API_URL}/api/qr/scan`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token: token.trim(), employeeId: user?.id }),
+            const { data } = await api.post("/qr/scan", {
+                token: token.trim(),
+                employeeId: user?.id
             });
-            const data = await res.json();
             setResult(data);
-        } catch (_) {
-            setResult({ success: false, message: 'Error de conexión con el servidor.' });
+            if (data.success) {
+                setScannedCount(prev => prev + 1);
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.message || 'Error de conexión con el servidor.';
+            setResult({ success: false, message: errorMsg });
         } finally {
             setIsProcessing(false);
         }
@@ -211,7 +214,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                 </div>
                                 <div>
                                     <p className={`font-black tracking-tight text-lg italic ${result.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-                                        {result.success ? '¡ACCESO AUTORIZADO!' : 'ERROR EN VALIDACIÓN'}
+                                        {result.success ? 'QR DE LAVADO ESCANEADO EXITOSAMENTE' : 'ERROR EN VALIDACIÓN'}
                                     </p>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                                         {result.message}
@@ -244,6 +247,16 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* Counter notification inside success screen */}
+                                    {result.success && scannedCount > 0 && (
+                                        <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-500/10 border-2 border-emerald-500/30 rounded-2xl flex items-center justify-center gap-2 mb-4">
+                                            <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />
+                                            <span className="text-xs font-black uppercase text-emerald-700 dark:text-emerald-400 tracking-wider text-center">
+                                                Ya llevas escaneados {scannedCount} {scannedCount === 1 ? 'cliente' : 'clientes'}
+                                            </span>
+                                        </div>
+                                    )}
 
                                     {/* Vehicle details */}
                                     {result.client.vehicle && (

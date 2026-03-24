@@ -1,5 +1,13 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Bot, Activity, Users, Percent, Calendar,
+  Settings, RefreshCcw, Send, Megaphone,
+  Link, List, CheckCircle2, AlertCircle,
+  Copy, ExternalLink, MessageSquare, Mail,
+  Phone, Globe, Zap, Loader2, ShieldCheck,
+  ChevronRight, Search
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
@@ -11,7 +19,7 @@ export default function ArizarPanel() {
   const [testing, setTesting] = useState(false);
   const [tab, setTab] = useState('dashboard');
 
-  // Message form
+  // Message forms
   const [msgForm, setMsgForm] = useState({ userId: '', channel: 'whatsapp', message: '', subject: '' });
   const [broadcastForm, setBroadcastForm] = useState({ channel: 'whatsapp', message: '', subject: '', filter: 'active' });
   const [sending, setSending] = useState(false);
@@ -85,7 +93,6 @@ export default function ArizarPanel() {
 
   const handleBroadcast = async (e) => {
     e.preventDefault();
-    if (!confirm(`¿Enviar ${broadcastForm.channel.toUpperCase()} a todos los miembros ${broadcastForm.filter}?`)) return;
     setSending(true);
     try {
       const res = await api.post('/arizar/broadcast', broadcastForm);
@@ -106,281 +113,445 @@ export default function ArizarPanel() {
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
 
-  if (loading) return <div className="page-loading"><div className="loading-spinner" /></div>;
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <Loader2 size={40} className="text-primary animate-spin" />
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Iniciando Red Neuronal...</p>
+    </div>
+  );
 
   const tabs = [
-    { id: 'dashboard', label: '📊 Dashboard', icon: '📊' },
-    { id: 'messages', label: '💬 Mensajes', icon: '💬' },
-    { id: 'broadcast', label: '📢 Broadcast', icon: '📢' },
-    { id: 'links', label: '🔗 Links', icon: '🔗' },
-    { id: 'logs', label: '📋 Logs', icon: '📋' },
+    { id: 'dashboard', label: 'Estatus', icon: <Bot size={16} /> },
+    { id: 'messages', label: 'Mensajería', icon: <MessageSquare size={16} /> },
+    { id: 'broadcast', label: 'Difusión', icon: <Megaphone size={16} /> },
+    { id: 'links', label: 'Captación', icon: <Link size={16} /> },
+    { id: 'logs', label: 'Auditoría', icon: <List size={16} /> },
   ];
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="page-content">
-      <div className="page-header">
-        <h1>🤖 ARIZAR IA — CRM</h1>
-        <p style={{ color: 'var(--text-muted)' }}>Integración completa con el ecosistema CRM</p>
-      </div>
+    <div className="page-content">
+      {/* Header */}
+      <header className="admin-page-header">
+        <div>
+          <h1 className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/30">
+              <Bot size={24} />
+            </div>
+            ARIZAR IA — CRM
+          </h1>
+          <p>Motor de Crecimiento y Automatización de Clientes</p>
+        </div>
+        <div className="flex gap-2">
+          <button className="admin-btn-outline" onClick={() => { loadStatus(); loadLogs(); toast.success('Sincronizado'); }}>
+            <RefreshCcw size={14} className={syncing ? 'animate-spin' : ''} /> Refrescar
+          </button>
+          <button className="admin-btn-primary" onClick={handleSyncAll} disabled={syncing}>
+            <Zap size={14} /> Sincronizar Todo
+          </button>
+        </div>
+      </header>
 
-      {/* Tabs */}
-      <div className="tabs" style={{ marginBottom: '24px' }}>
+      {/* Modern Tabs */}
+      <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl w-fit mb-8 border border-slate-200 dark:border-white/5">
         {tabs.map(t => (
-          <button key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
-            {t.label}
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`
+              flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all
+              ${tab === t.id
+                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm border border-slate-200 dark:border-white/10'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}
+            `}
+          >
+            {t.icon} {t.label}
           </button>
         ))}
       </div>
 
       <AnimatePresence mode="wait">
-        {/* ═══════ DASHBOARD TAB ═══════ */}
-        {tab === 'dashboard' && (
-          <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            {/* Status Cards */}
-            <div className="stats-grid" style={{ marginBottom: '24px' }}>
-              <div className="stat-card">
-                <div className="stat-icon" style={{ background: status?.configured ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' }}>
-                  {status?.configured ? '🟢' : '🔴'}
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.2 }}
+        >
+          {/* ═══════ DASHBOARD TAB ═══════ */}
+          {tab === 'dashboard' && (
+            <div className="space-y-8">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="admin-card">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className={`p-3 rounded-2xl ${status?.configured ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                      <Activity size={20} />
+                    </div>
+                    <span className={`admin-badge ${status?.apiStatus === 'connected' ? 'admin-badge-success' : 'admin-badge-danger'}`}>
+                      {status?.apiStatus === 'connected' ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Estado de Conexión</p>
+                  <p className="text-xl font-black italic text-slate-900 dark:text-white uppercase">
+                    {status?.configured ? 'Integrado' : 'Sin Configurar'}
+                  </p>
                 </div>
-                <div className="stat-value">{status?.apiStatus === 'connected' ? 'Online' : status?.configured ? 'Config OK' : 'No Config'}</div>
-                <div className="stat-label">Estado API</div>
+
+                <div className="admin-card">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-500">
+                      <Users size={20} />
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Contactos Sincronizados</p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-2xl font-black italic text-slate-900 dark:text-white">{status?.contacts?.synced || 0}</p>
+                    <p className="text-xs font-bold text-slate-400">/ {status?.contacts?.total || 0}</p>
+                  </div>
+                </div>
+
+                <div className="admin-card">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 rounded-2xl bg-purple-500/10 text-purple-500">
+                      <Percent size={20} />
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Ratio de Sync</p>
+                  <p className="text-2xl font-black italic text-purple-500">{status?.contacts?.percentage || 0}%</p>
+                </div>
+
+                <div className="admin-card">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-500">
+                      <Calendar size={20} />
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Turnos Registrados</p>
+                  <p className="text-2xl font-black italic text-slate-900 dark:text-white">{status?.appointments || 0}</p>
+                </div>
               </div>
-              <div className="stat-card">
-                <div className="stat-icon">📇</div>
-                <div className="stat-value">{status?.contacts?.synced || 0}<span style={{ fontSize: '0.5em', color: 'var(--text-muted)' }}>/{status?.contacts?.total || 0}</span></div>
-                <div className="stat-label">Contactos Sincronizados</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon">📊</div>
-                <div className="stat-value">{status?.contacts?.percentage || 0}%</div>
-                <div className="stat-label">% Sincronización</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-icon">📅</div>
-                <div className="stat-value">{status?.appointments || 0}</div>
-                <div className="stat-label">Turnos Totales</div>
+
+              {/* API Detail Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="admin-card space-y-6">
+                  <div className="flex items-center gap-3">
+                    <Settings size={18} className="text-primary" />
+                    <h3 className="text-sm font-black uppercase tracking-widest">Identificadores ARIZAR</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 flex items-center justify-between">
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Location ID</p>
+                        <p className="text-xs font-bold text-slate-900 dark:text-white font-mono">{status?.locationId || 'PENDIENTE'}</p>
+                      </div>
+                      <button onClick={() => { navigator.clipboard.writeText(status?.locationId); toast.success('Copiado'); }} className="text-slate-400 hover:text-primary"><Copy size={14} /></button>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 flex items-center justify-between">
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Calendar ID</p>
+                        <p className="text-xs font-bold text-slate-900 dark:text-white font-mono">{status?.calendarId || 'PENDIENTE'}</p>
+                      </div>
+                      <button onClick={() => { navigator.clipboard.writeText(status?.calendarId); toast.success('Copiado'); }} className="text-slate-400 hover:text-primary"><Copy size={14} /></button>
+                    </div>
+                    <div className="p-4 rounded-2xl border border-primary/20 bg-primary/5 flex items-center justify-between">
+                      <div>
+                        <p className="text-[9px] font-black text-primary uppercase tracking-widest">Webhook Status</p>
+                        <p className="text-xs font-bold text-primary font-mono truncate max-w-[200px]">{status?.webhookUrl}</p>
+                      </div>
+                      <ShieldCheck size={20} className="text-primary" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="admin-card space-y-6">
+                  <div className="flex items-center gap-3">
+                    <Zap size={18} className="text-amber-500" />
+                    <h3 className="text-sm font-black uppercase tracking-widest">Acciones Rápidas</h3>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3">
+                    <button onClick={handleTestConnection} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-white/5 hover:border-primary transition-all group">
+                      <div className="flex items-center gap-3">
+                        <Bot size={18} className="text-slate-400 group-hover:text-primary" />
+                        <span className="text-xs font-black uppercase tracking-widest">Probar Conexión API</span>
+                      </div>
+                      <ChevronRight size={14} className="text-slate-400" />
+                    </button>
+                    <button onClick={handleRegisterWebhooks} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-white/5 hover:border-emerald-500 transition-all group">
+                      <div className="flex items-center gap-3">
+                        <Globe size={18} className="text-slate-400 group-hover:text-emerald-500" />
+                        <span className="text-xs font-black uppercase tracking-widest">Refrescar Webhooks</span>
+                      </div>
+                      <ChevronRight size={14} className="text-slate-400" />
+                    </button>
+                    <div className="p-6 rounded-3xl bg-amber-500/5 border border-dashed border-amber-500/20 text-center space-y-2">
+                      <AlertCircle size={24} className="text-amber-500 mx-auto" />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Sincronización Crítica</p>
+                      <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest leading-relaxed">Se recomienda sincronizar contactos <br /> cada vez que se realice una carga masiva.</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Config Info */}
-            <div className="card" style={{ marginBottom: '24px' }}>
-              <h3>⚙️ Configuración</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
-                <div style={{ padding: '12px', background: 'var(--glass-bg)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                  <small style={{ color: 'var(--text-muted)' }}>Location ID</small>
-                  <p style={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>{status?.locationId || '⚠️ Pendiente'}</p>
-                </div>
-                <div style={{ padding: '12px', background: 'var(--glass-bg)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                  <small style={{ color: 'var(--text-muted)' }}>Calendar ID</small>
-                  <p style={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>{status?.calendarId || '⚠️ Pendiente'}</p>
-                </div>
-                <div style={{ padding: '12px', background: 'var(--glass-bg)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                  <small style={{ color: 'var(--text-muted)' }}>Pipeline ID</small>
-                  <p style={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>{status?.pipelineId || '⚠️ Pendiente'}</p>
-                </div>
-                <div style={{ padding: '12px', background: 'var(--glass-bg)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                  <small style={{ color: 'var(--text-muted)' }}>Webhook URL</small>
-                  <p style={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all', color: 'var(--cyan)' }}>{status?.webhookUrl}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              <button className="btn btn-primary" onClick={handleTestConnection} disabled={testing}>
-                {testing ? '⏳ Probando...' : '🔌 Probar Conexión'}
-              </button>
-              <button className="btn btn-primary" onClick={handleSyncAll} disabled={syncing}>
-                {syncing ? '⏳ Sincronizando...' : '🔄 Sync Todos los Contactos'}
-              </button>
-              <button className="btn btn-secondary" onClick={handleRegisterWebhooks}>
-                🪝 Registrar Webhooks
-              </button>
-              <button className="btn btn-secondary" onClick={() => { loadStatus(); loadLogs(); toast.success('Datos actualizados'); }}>
-                🔃 Refrescar
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ═══════ MESSAGES TAB ═══════ */}
-        {tab === 'messages' && (
-          <motion.div key="messages" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="card">
-              <h3>💬 Enviar Mensaje Individual</h3>
-              <form onSubmit={handleSendMessage} style={{ marginTop: '16px' }}>
-                <div className="form-group">
-                  <label className="form-label">Cliente</label>
-                  <select className="form-input" value={msgForm.userId} onChange={e => setMsgForm({...msgForm, userId: e.target.value})} required>
-                    <option value="">Seleccionar cliente...</option>
-                    {members.map(m => (
-                      <option key={m.id} value={m.id}>{m.firstName} {m.lastName} — {m.email} {m.arizarContactId ? '✅' : '⚠️'}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Canal</label>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+          {/* ═══════ MESSAGES TAB ═══════ */}
+          {tab === 'messages' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="md:col-span-2 admin-card space-y-8">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-widest mb-1">Nueva Comunicación</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Envío individual directo</p>
+                  </div>
+                  <div className="flex gap-2">
                     {['whatsapp', 'sms', 'email'].map(ch => (
-                      <button key={ch} type="button" className={`btn ${msgForm.channel === ch ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => setMsgForm({...msgForm, channel: ch})} style={{ flex: 1, textTransform: 'capitalize' }}>
-                        {ch === 'whatsapp' ? '💬' : ch === 'sms' ? '📱' : '📧'} {ch}
+                      <button
+                        key={ch}
+                        onClick={() => setMsgForm({ ...msgForm, channel: ch })}
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${msgForm.channel === ch ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-110' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}
+                      >
+                        {ch === 'whatsapp' ? <MessageSquare size={16} /> : ch === 'sms' ? <Phone size={16} /> : <Mail size={16} />}
                       </button>
                     ))}
                   </div>
                 </div>
-                {msgForm.channel === 'email' && (
-                  <div className="form-group">
-                    <label className="form-label">Asunto</label>
-                    <input className="form-input" value={msgForm.subject} onChange={e => setMsgForm({...msgForm, subject: e.target.value})} placeholder="Asunto del email" />
-                  </div>
-                )}
-                <div className="form-group">
-                  <label className="form-label">Mensaje</label>
-                  <textarea className="form-input" rows={4} value={msgForm.message} onChange={e => setMsgForm({...msgForm, message: e.target.value})} required
-                    placeholder="Escribí tu mensaje... Usá {{nombre}} para personalizar" />
-                </div>
-                <button type="submit" className="btn btn-primary" disabled={sending}>
-                  {sending ? '⏳ Enviando...' : '🚀 Enviar'}
-                </button>
-              </form>
-            </div>
-          </motion.div>
-        )}
 
-        {/* ═══════ BROADCAST TAB ═══════ */}
-        {tab === 'broadcast' && (
-          <motion.div key="broadcast" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="card">
-              <h3>📢 Envío Masivo</h3>
-              <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>Envía un mensaje a todos los miembros con contacto CRM vinculado. Usá <code style={{ color: 'var(--cyan)' }}>{'{{nombre}}'}</code> para personalizar.</p>
-              <form onSubmit={handleBroadcast}>
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">Canal</label>
-                    <select className="form-input" value={broadcastForm.channel} onChange={e => setBroadcastForm({...broadcastForm, channel: e.target.value})}>
-                      <option value="whatsapp">💬 WhatsApp</option>
-                      <option value="sms">📱 SMS</option>
-                      <option value="email">📧 Email</option>
-                    </select>
-                  </div>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">Filtro</label>
-                    <select className="form-input" value={broadcastForm.filter} onChange={e => setBroadcastForm({...broadcastForm, filter: e.target.value})}>
-                      <option value="active">Miembros Activos</option>
-                      <option value="all">Todos</option>
-                    </select>
-                  </div>
-                </div>
-                {broadcastForm.channel === 'email' && (
-                  <div className="form-group">
-                    <label className="form-label">Asunto</label>
-                    <input className="form-input" value={broadcastForm.subject} onChange={e => setBroadcastForm({...broadcastForm, subject: e.target.value})} placeholder="Asunto del email" />
-                  </div>
-                )}
-                <div className="form-group">
-                  <label className="form-label">Mensaje</label>
-                  <textarea className="form-input" rows={5} value={broadcastForm.message} onChange={e => setBroadcastForm({...broadcastForm, message: e.target.value})} required
-                    placeholder="Hola {{nombre}}, tenemos una oferta especial para vos..." />
-                </div>
-                <button type="submit" className="btn btn-primary" disabled={sending}>
-                  {sending ? '⏳ Enviando...' : '📢 Enviar Broadcast'}
-                </button>
-              </form>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ═══════ LINKS TAB ═══════ */}
-        {tab === 'links' && (
-          <motion.div key="links" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="card" style={{ marginBottom: '24px' }}>
-              <h3>🔗 Link de Registro</h3>
-              <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>
-                Compartí este link con clientes para que se registren directamente en el portal.
-              </p>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '12px', background: 'var(--glass-bg)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                <input className="form-input" value={registrationLink} readOnly style={{ flex: 1, margin: 0, border: 'none', background: 'transparent' }} />
-                <button className="btn btn-primary" onClick={copyLink}>📋 Copiar</button>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-                <button className="btn btn-primary" onClick={shareWhatsApp} style={{ background: '#25D366' }}>
-                  💬 Compartir por WhatsApp
-                </button>
-              </div>
-            </div>
-
-            <div className="card">
-              <h3>📱 Vías de Entrada de Clientes</h3>
-              <div style={{ marginTop: '12px' }}>
-                {[
-                  { icon: '💬', title: 'WhatsApp → ARIZAR IA', desc: 'Bot automático captura lead → pago → auto-crear usuario', status: '✅ Activo (via webhook)' },
-                  { icon: '🔗', title: 'Link de Registro', desc: 'Empleado/admin comparte link → cliente se registra → sync CRM', status: '✅ Activo' },
-                  { icon: '👤', title: 'Crear desde Admin', desc: 'Admin/empleado crea cliente manualmente → envía credenciales por WhatsApp', status: '✅ Activo' },
-                  { icon: '🌐', title: 'Landing de ARIZAR IA', desc: 'Funnel de venta → pago → webhook auto-crea usuario', status: '✅ Activo (via webhook)' },
-                  { icon: '📝', title: 'Formulario Web', desc: 'Form submission webhook → auto-tag como lead', status: '✅ Activo (via webhook)' },
-                ].map((item, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '16px', padding: '16px', borderBottom: i < 4 ? '1px solid var(--glass-border)' : 'none', alignItems: 'center' }}>
-                    <span style={{ fontSize: '1.5rem' }}>{item.icon}</span>
-                    <div style={{ flex: 1 }}>
-                      <strong>{item.title}</strong>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '2px 0 0' }}>{item.desc}</p>
+                <form onSubmit={handleSendMessage} className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="admin-label">Seleccionar Miembro</label>
+                    <div className="relative">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <select
+                        className="admin-input pl-12"
+                        value={msgForm.userId}
+                        onChange={e => setMsgForm({ ...msgForm, userId: e.target.value })}
+                        required
+                      >
+                        <option value="">Buscar socio...</option>
+                        {members.map(m => (
+                          <option key={m.id} value={m.id}>{m.firstName} {m.lastName} — {m.email}</option>
+                        ))}
+                      </select>
                     </div>
-                    <span style={{ color: 'var(--success)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{item.status}</span>
                   </div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
 
-        {/* ═══════ LOGS TAB ═══════ */}
-        {tab === 'logs' && (
-          <motion.div key="logs" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3>📋 Logs de Sincronización</h3>
-                <button className="btn btn-secondary btn-sm" onClick={loadLogs}>🔃 Refrescar</button>
+                  {msgForm.channel === 'email' && (
+                    <div className="space-y-2">
+                      <label className="admin-label">Asunto del Email</label>
+                      <input className="admin-input" value={msgForm.subject} onChange={e => setMsgForm({ ...msgForm, subject: e.target.value })} placeholder="Ej: Confirmación de Turno" />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="admin-label">Contenido del Mensaje</label>
+                    <textarea
+                      className="admin-input min-h-[160px] resize-none pt-4"
+                      value={msgForm.message}
+                      onChange={e => setMsgForm({ ...msgForm, message: e.target.value })}
+                      required
+                      placeholder="Hola {{nombre}}, tu turno para hoy a las {{hora}} está confirmado."
+                    />
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Etiquetas disponibles: {'{{nombre}}'}, {'{{monto}}'}, {'{{fecha}}'}</p>
+                  </div>
+
+                  <button type="submit" className="admin-btn-primary w-full py-4" disabled={sending}>
+                    {sending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                    {sending ? 'PROCESANDO ENVÍO...' : 'ENVIAR MENSAJE AHORA'}
+                  </button>
+                </form>
               </div>
-              {logs.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '32px' }}>No hay logs de sincronización aún</p>
-              ) : (
-                <div className="table-container">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th>Acción</th>
-                        <th>Entidad</th>
-                        <th>Usuario</th>
-                        <th>Detalles</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {logs.map(log => (
-                        <tr key={log.id}>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{new Date(log.createdAt).toLocaleString('es-PY', { timeZone: 'America/Asuncion' })}</td>
-                          <td>
-                            <span className={`badge ${log.action.includes('error') ? 'badge-danger' : 'badge-success'}`}>
-                              {log.action}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: '0.85rem' }}>{log.entity}</td>
-                          <td style={{ fontSize: '0.85rem' }}>{log.user?.firstName} {log.user?.lastName}</td>
-                          <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {JSON.stringify(log.details).substring(0, 80)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+
+              <div className="space-y-6">
+                <div className="admin-card">
+                  <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-6">Guía de Canales</h4>
+                  <div className="space-y-6">
+                    <div className="flex gap-4">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+                        <MessageSquare size={18} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-black uppercase italic tracking-tighter">WhatsApp</p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-0.5 leading-normal uppercase">Ideal para recordatorios urgentes y promociones directas.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-4">
+                      <div className="w-10 h-10 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                        <Mail size={18} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-black uppercase italic tracking-tighter">Email Marketing</p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-0.5 leading-normal uppercase">Novedades semanales y estados de cuenta.</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
-          </motion.div>
-        )}
+          )}
+
+          {/* ═══════ BROADCAST TAB ═══════ */}
+          {tab === 'broadcast' && (
+            <div className="max-w-4xl mx-auto space-y-8">
+              <div className="admin-card border-primary/20 bg-primary/5 text-center p-12 space-y-4">
+                <Megaphone size={40} className="text-primary mx-auto" />
+                <h2 className="text-2xl font-black italic tracking-tighter uppercase italic">Transmisión Masiva</h2>
+                <p className="max-w-md mx-auto text-xs font-bold text-slate-500 uppercase tracking-widest leading-relaxed">
+                  Envía notificaciones a toda tu base de datos de manera simultánea a través de ARIZAR CRM.
+                </p>
+              </div>
+
+              <div className="admin-card">
+                <form onSubmit={handleBroadcast} className="space-y-8">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="admin-label">Red de Envío</label>
+                      <select className="admin-select" value={broadcastForm.channel} onChange={e => setBroadcastForm({ ...broadcastForm, channel: e.target.value })}>
+                        <option value="whatsapp">WhatsApp Business</option>
+                        <option value="sms">SMS Marketing</option>
+                        <option value="email">Email Campaign</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="admin-label">Segmentación</label>
+                      <select className="admin-select" value={broadcastForm.filter} onChange={e => setBroadcastForm({ ...broadcastForm, filter: e.target.value })}>
+                        <option value="active">Solo Miembros Activos</option>
+                        <option value="all">Toda la Base de Datos</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="admin-label">Mensaje de Campaña</label>
+                    <textarea
+                      className="admin-input min-h-[200px]"
+                      value={broadcastForm.message}
+                      onChange={e => setBroadcastForm({ ...broadcastForm, message: e.target.value })}
+                      required
+                      placeholder="Lanzamos nuestra nueva colección de servicios..."
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-6 rounded-3xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle2 size={24} className="text-emerald-500" />
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-widest">Validación de Lote</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tu campaña alcanzará a aproximadamente 120 personas.</p>
+                      </div>
+                    </div>
+                    <button type="submit" className="admin-btn-primary px-10" disabled={sending}>
+                      {sending ? 'EJECUTANDO DIFUSIÓN...' : 'LANZAR CAMPAÑA'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ LINKS TAB ═══════ */}
+          {tab === 'links' && (
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="admin-card space-y-6">
+                  <h3 className="text-sm font-black uppercase tracking-widest">Enlace de Auto-Registro</h3>
+                  <p className="text-[11px] font-bold text-slate-500 leading-relaxed uppercase tracking-widest">
+                    Comparte este enlace en tus redes sociales o estados para que los clientes se registren y se vinculen automáticamente a tu CRM.
+                  </p>
+
+                  <div className="group relative">
+                    <input
+                      className="admin-input pr-12 font-mono text-xs text-primary bg-primary/5 border-primary/20"
+                      value={registrationLink}
+                      readOnly
+                    />
+                    <button
+                      onClick={copyLink}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-400 hover:text-primary hover:border-primary transition-all shadow-sm"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button onClick={shareWhatsApp} className="flex-1 py-4 bg-[#25D366] text-white rounded-2xl flex items-center justify-center gap-2 font-black uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">
+                      <MessageSquare size={16} /> Compartir por WhatsApp
+                    </button>
+                  </div>
+                </div>
+
+                <div className="admin-card space-y-6">
+                  <h3 className="text-sm font-black uppercase tracking-widest">Embudos de Entrada</h3>
+                  <div className="space-y-3">
+                    {[
+                      { icon: <MessageSquare className="text-emerald-500" />, title: 'WhatsApp Automation', status: 'ACTIVO' },
+                      { icon: <Globe className="text-blue-500" />, title: 'Landing de Ventas', status: 'ACTIVO' },
+                      { icon: <ExternalLink className="text-purple-500" />, title: 'Referidos VIP', status: 'ACTIVO' },
+                    ].map((item, i) => (
+                      <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5">
+                        <div className="flex items-center gap-3">
+                          {item.icon}
+                          <span className="text-xs font-black uppercase tracking-widest">{item.title}</span>
+                        </div>
+                        <span className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em]">{item.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ LOGS TAB ═══════ */}
+          {tab === 'logs' && (
+            <div className="space-y-6">
+              <div className="table-container">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Operación</th>
+                      <th>Entidad</th>
+                      <th>Originador</th>
+                      <th>Detalles del Nodo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.map((log, i) => (
+                      <motion.tr
+                        key={log.id}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: i * 0.01 }}
+                      >
+                        <td className="text-[10px] font-mono font-bold text-slate-400">
+                          {new Date(log.createdAt).toLocaleString()}
+                        </td>
+                        <td>
+                          <span className={`admin-badge ${log.action.includes('error') ? 'admin-badge-danger' : 'admin-badge-success'}`}>
+                            {log.action}
+                          </span>
+                        </td>
+                        <td className="text-xs font-black uppercase tracking-widest">{log.entity}</td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-[8px] font-black">
+                              {log.user?.firstName?.[0]}
+                            </div>
+                            <span className="text-xs font-bold">{log.user?.firstName} {log.user?.lastName}</span>
+                          </div>
+                        </td>
+                        <td className="max-w-[200px] truncate text-[10px] font-mono text-slate-400">
+                          {JSON.stringify(log.details)}
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </motion.div>
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }

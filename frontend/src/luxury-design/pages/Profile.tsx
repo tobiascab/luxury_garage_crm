@@ -19,10 +19,18 @@ import {
   Eye,
   EyeOff,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Edit2,
+  Star,
+  FileText,
+  Download,
+  Receipt,
+  Calendar,
+  Clock,
 } from 'lucide-react';
 
-import { API_URL } from '../config';
+import api from '../../services/api';
+import BottomSheet from '../components/BottomSheet';
 
 interface ProfileProps {
   user: any;
@@ -38,8 +46,8 @@ export default function Profile({ user, onLogout, onUpdate }: ProfileProps) {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'datos': return <PersonalInfo user={user} onUpdate={onUpdate} />;
-      case 'pagos': return <PaymentMethods methods={user.paymentMethods} userId={user.id} onUpdate={onUpdate} />;
-      case 'vehiculos': return <MyVehicles vehicles={user.vehicles} />;
+      case 'pagos': return <PaymentMethods methods={user.paymentMethods || []} userId={user.id} onUpdate={onUpdate} user={user} />;
+      case 'vehiculos': return <MyVehicles userId={user.id} initialVehicles={user.vehicles || []} onUpdate={onUpdate} />;
       case 'seguridad': return <SecuritySettings userId={user.id} onLogout={onLogout} />;
       default: return null;
     }
@@ -129,7 +137,7 @@ function PersonalInfo({ user, onUpdate }: { user: any, onUpdate: () => void }) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/users/${user.id}`, {
+      const res = await fetch(`/api/members/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, phone, address })
@@ -218,15 +226,32 @@ function StatusItem({ label, value }: { label: string, value: string }) {
   );
 }
 
-function PaymentMethods({ methods, userId, onUpdate }: { methods: any[], userId: number, onUpdate: () => void }) {
+function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], userId: number, onUpdate: () => void, user: any }) {
+  const [subTab, setSubTab] = useState<'tarjetas' | 'facturas'>('tarjetas');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newCard, setNewCard] = useState({ number: '', name: '', expiry: '' });
   const [isAdding, setIsAdding] = useState(false);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+
+  useEffect(() => {
+    if (subTab === 'facturas') loadInvoices();
+  }, [subTab]);
+
+  const loadInvoices = async () => {
+    setLoadingInvoices(true);
+    try {
+      const res = await api.get('/appointments');
+      const all = Array.isArray(res.data?.data) ? res.data.data : [];
+      setInvoices(all);
+    } catch { setInvoices([]); }
+    finally { setLoadingInvoices(false); }
+  };
 
   const handleDelete = async (cardId: number) => {
     if (!confirm('¿Deseas eliminar esta tarjeta?')) return;
     try {
-      const res = await fetch(`${API_URL}/api/users/payments/${cardId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/users/payments/${cardId}`, { method: 'DELETE' });
       if (res.ok) onUpdate();
     } catch (e) { alert('Error al eliminar'); }
   };
@@ -238,163 +263,495 @@ function PaymentMethods({ methods, userId, onUpdate }: { methods: any[], userId:
     try {
       const card_type = newCard.number.startsWith('4') ? 'Visa' : 'Mastercard';
       const last4 = newCard.number.slice(-4);
-      const res = await fetch(`${API_URL}/api/users/${userId}/payments`, {
+      const res = await fetch(`/api/users/${userId}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          card_type,
-          last4,
-          holder_name: newCard.name.toUpperCase(),
-          expiry_date: newCard.expiry
-        })
+        body: JSON.stringify({ card_type, last4, holder_name: newCard.name.toUpperCase(), expiry_date: newCard.expiry })
       });
-      if (res.ok) {
-        onUpdate();
-        setShowAddModal(false);
-        setNewCard({ number: '', name: '', expiry: '' });
-      }
-    } catch (e) { alert('Error de conexión'); } finally {
-      setIsAdding(false);
-    }
+      if (res.ok) { onUpdate(); setShowAddModal(false); setNewCard({ number: '', name: '', expiry: '' }); }
+    } catch { alert('Error de conexión'); } finally { setIsAdding(false); }
+  };
+
+  const printInvoice = (inv: any) => {
+    const dt = new Date(inv.startTime ?? inv.booking_date);
+    const dateStr = dt.toLocaleDateString('es-PY', { day: 'numeric', month: 'long', year: 'numeric' });
+    const invoiceNum = `LG-${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, '0')}-${inv.id?.slice(-4).toUpperCase()}`;
+    const precio = inv.service?.basePriceGs
+      ? `₲ ${Number(inv.service.basePriceGs).toLocaleString('es-PY')}`
+      : 'Incluido en membresía';
+    const clientName = user?.name ?? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim();
+
+    const html = `<!DOCTYPE html><html lang="es">
+<head><meta charset="UTF-8"><title>Factura ${invoiceNum}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Inter, sans-serif; padding: 40px; color: #0f172a; max-width: 680px; margin: 0 auto; }
+  .header { display:flex; justify-content:space-between; align-items:flex-start; padding-bottom:24px; border-bottom:3px solid #1d4ed8; margin-bottom:32px; }
+  .brand { font-size:22px; font-weight:900; letter-spacing:-0.5px; color:#1d4ed8; }
+  .brand span { color:#0f172a; }
+  .invoice-num { font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:2px; }
+  .invoice-num strong { display:block; font-size:20px; font-weight:900; color:#0f172a; letter-spacing:-0.5px; margin-top:4px; }
+  .section { margin-bottom:24px; }
+  .label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:2px; color:#94a3b8; margin-bottom:4px; }
+  .value { font-size:14px; font-weight:600; color:#0f172a; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  .table { width:100%; border-collapse:collapse; margin:24px 0; }
+  .table th { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:#64748b; padding:8px 12px; text-align:left; border-bottom:1px solid #e2e8f0; }
+  .table td { padding:14px 12px; font-size:14px; font-weight:600; border-bottom:1px solid #f1f5f9; }
+  .table td.amount { font-weight:900; font-size:16px; color:#1d4ed8; }
+  .total-row { background:#f8fafc; }
+  .total-row td { font-weight:900; font-size:16px; }
+  .status { display:inline-block; background:#dcfce7; color:#16a34a; font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; padding:4px 10px; border-radius:20px; }
+  .footer { margin-top:48px; padding-top:24px; border-top:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; }
+  .footer p { font-size:11px; color:#94a3b8; }
+  @media print { body { padding: 20px; } }
+</style></head>
+<body>
+  <div class="header">
+    <div>
+      <div class="brand">LUXURY<span> GARAGE</span></div>
+      <p style="font-size:12px;color:#64748b;margin-top:6px;">luxurygarage.arizar-ia.cloud</p>
+    </div>
+    <div style="text-align:right">
+      <div class="invoice-num">Factura<strong>${invoiceNum}</strong></div>
+      <p style="font-size:12px;color:#64748b;margin-top:4px;">${dateStr}</p>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="section">
+      <div class="label">Emitido a</div>
+      <div class="value" style="font-weight:700;font-size:16px;">${clientName}</div>
+      <div class="value" style="color:#64748b;font-size:13px;">${user?.email ?? ''}</div>
+      <div class="value" style="color:#64748b;font-size:13px;">${user?.phone ?? ''}</div>
+    </div>
+    <div class="section">
+      <div class="label">Estado</div>
+      <span class="status">${inv.status === 'COMPLETED' ? 'Completado' : inv.status}</span>
+    </div>
+  </div>
+  <table class="table">
+    <thead><tr><th>Descripción</th><th>Categoría</th><th>Duración</th><th style="text-align:right">Importe</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>${inv.service?.name ?? 'Servicio'}</td>
+        <td>${inv.service?.category ?? '-'}</td>
+        <td>${inv.service?.durationMinutes ? inv.service.durationMinutes + ' min' : '-'}</td>
+        <td class="amount" style="text-align:right">${precio}</td>
+      </tr>
+      <tr class="total-row">
+        <td colspan="3" style="text-align:right;font-size:12px;color:#64748b;">TOTAL</td>
+        <td class="amount" style="text-align:right">${precio}</td>
+      </tr>
+    </tbody>
+  </table>
+  ${inv.notes ? `<div class="section"><div class="label">Notas</div><div class="value">${inv.notes}</div></div>` : ''}
+  <div class="footer">
+    <p>Luxury Garage &copy; 2025 &mdash; Powered by ARIZAR IA</p>
+    <p>Generado el ${new Date().toLocaleDateString('es-PY')}</p>
+  </div>
+</body></html>`;
+
+    const win = window.open('', '_blank', 'width=800,height=700');
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.onload = () => { win.print(); };
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
-        <h3 className="font-headline text-2xl font-black text-slate-900 dark:text-white">Mis Tarjetas</h3>
+    <div className="space-y-5">
+      {/* Sub-tabs */}
+      <div className="flex gap-2">
         <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-3 px-6 py-3 bg-primary dark:bg-blue-500 text-white rounded-2xl font-black text-xs hover:shadow-lg transition-all"
+          onClick={() => setSubTab('tarjetas')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs transition-all border ${subTab === 'tarjetas'
+            ? 'bg-primary dark:bg-blue-500 text-white border-transparent shadow-md shadow-primary/20'
+            : 'bg-white dark:bg-slate-900/40 text-slate-500 dark:text-slate-400 border-slate-100 dark:border-slate-800'
+            }`}
         >
-          <Plus size={18} /> AÑADIR NUEVA
+          <CreditCard size={13} /> Mis Tarjetas
+        </button>
+        <button
+          onClick={() => setSubTab('facturas')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs transition-all border ${subTab === 'facturas'
+            ? 'bg-primary dark:bg-blue-500 text-white border-transparent shadow-md shadow-primary/20'
+            : 'bg-white dark:bg-slate-900/40 text-slate-500 dark:text-slate-400 border-slate-100 dark:border-slate-800'
+            }`}
+        >
+          <Receipt size={13} /> Mis Facturas
         </button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {methods.map((method) => (
-          <motion.div
-            key={method.id}
-            whileHover={{ y: -5 }}
-            className={`relative p-8 rounded-[2rem] text-white overflow-hidden shadow-xl ${method.is_default ? 'bg-gradient-to-br from-[#1a365d] to-[#0d1b2e]' : 'bg-gradient-to-br from-[#2d3748] to-[#1a202c]'
-              } group border border-white/5`}
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-            <div className="flex justify-between items-start mb-12">
-              <div className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-lg text-[10px] font-black tracking-widest border border-white/10">
-                {method.card_type.toUpperCase()}
-              </div>
-              <button onClick={() => handleDelete(method.id)} className="opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-red-500/20 hover:bg-red-500 rounded-xl">
-                <Trash2 size={16} />
-              </button>
-            </div>
-            <p className="text-xl font-bold tracking-[0.2em] mb-12 truncate">•••• •••• •••• {method.last4}</p>
-            <div className="flex justify-between items-end">
-              <div>
-                <p className="text-[7px] font-bold uppercase opacity-50 mb-1 tracking-widest">Titular</p>
-                <p className="text-[11px] font-black truncate">{method.holder_name}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[7px] font-bold uppercase opacity-50 mb-1 tracking-widest">Expira</p>
-                <p className="text-[11px] font-black">{method.expiry_date}</p>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
 
-      {/* Add Card Modal */}
-      <AnimatePresence>
-        {showAddModal && (
-          <div className="fixed inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl border border-slate-100 dark:border-slate-800"
+      {subTab === 'tarjetas' && (
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">{methods.length} tarjeta{methods.length !== 1 ? 's' : ''} guardada{methods.length !== 1 ? 's' : ''}</p>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary dark:bg-blue-500 text-white rounded-xl font-black text-xs shadow-md shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all"
             >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-headline text-xl font-black text-slate-900 dark:text-white">Añadir Tarjeta</h3>
-                <button onClick={() => setShowAddModal(false)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700">
-                  <X size={20} className="text-slate-600 dark:text-slate-400" />
-                </button>
-              </div>
-              <form onSubmit={handleAddCard} className="space-y-5">
-                <div>
-                  <label className="text-[10px] font-bold tracking-widest uppercase text-slate-400 dark:text-slate-500">Número de Tarjeta</label>
-                  <input
-                    type="text"
-                    placeholder="0000 0000 0000 0000"
-                    maxLength={16}
-                    value={newCard.number}
-                    onChange={(e) => setNewCard({ ...newCard, number: e.target.value.replace(/\D/g, '') })}
-                    className="w-full mt-1 px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-primary/20 dark:focus:ring-blue-500/20 font-bold dark:text-white"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-bold tracking-widest uppercase text-slate-400 dark:text-slate-500">Titular</label>
-                    <input
-                      type="text"
-                      placeholder="Nombre"
-                      value={newCard.name}
-                      onChange={(e) => setNewCard({ ...newCard, name: e.target.value })}
-                      className="w-full mt-1 px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-primary/20 dark:focus:ring-blue-500/20 font-bold dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold tracking-widest uppercase text-slate-400 dark:text-slate-500">Expira</label>
-                    <input
-                      type="text"
-                      placeholder="MM/YY"
-                      maxLength={5}
-                      value={newCard.expiry}
-                      onChange={(e) => setNewCard({ ...newCard, expiry: e.target.value })}
-                      className="w-full mt-1 px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-primary/20 dark:focus:ring-blue-500/20 font-bold dark:text-white"
-                    />
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={isAdding}
-                  className="w-full py-4 mt-4 bg-primary dark:bg-blue-500 text-white rounded-xl font-black uppercase tracking-widest text-sm hover:shadow-lg transition-all"
-                >
-                  {isAdding ? 'Guardando...' : 'Guardar Tarjeta'}
-                </button>
-              </form>
-            </motion.div>
+              <Plus size={14} /> Añadir Nueva
+            </button>
           </div>
-        )}
-      </AnimatePresence>
+          {methods.length === 0 ? (
+            <div className="text-center py-14 bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800">
+              <CreditCard size={28} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+              <p className="text-sm font-bold text-slate-400">No tenés tarjetas guardadas</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {methods.map((method) => (
+                <motion.div
+                  key={method.id}
+                  whileHover={{ y: -4 }}
+                  className={`relative p-7 rounded-[2rem] text-white overflow-hidden shadow-xl group border border-white/5 ${method.is_default
+                    ? 'bg-gradient-to-br from-[#1a365d] to-[#0d1b2e]'
+                    : 'bg-gradient-to-br from-[#2d3748] to-[#1a202c]'
+                    }`}
+                >
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                  <div className="flex justify-between items-start mb-10">
+                    <div className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-lg text-[10px] font-black tracking-widest border border-white/10">{method.card_type?.toUpperCase()}</div>
+                    <button onClick={() => handleDelete(method.id)} className="opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-red-500/20 hover:bg-red-500 rounded-xl">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <p className="text-lg font-bold tracking-[0.2em] mb-10">•••• •••• •••• {method.last4}</p>
+                  <div className="flex justify-between items-end">
+                    <div><p className="text-[7px] font-bold uppercase opacity-50 mb-1">Titular</p><p className="text-xs font-black truncate">{method.holder_name}</p></div>
+                    <div className="text-right"><p className="text-[7px] font-bold uppercase opacity-50 mb-1">Expira</p><p className="text-xs font-black">{method.expiry_date}</p></div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+
+          {/* Add Card Bottom sheet */}
+          <BottomSheet isOpen={showAddModal} onClose={() => setShowAddModal(false)}>
+            <div className="px-5 pb-2 flex items-center justify-between">
+              <h3 className="font-black text-lg text-slate-900 dark:text-white">Añadir Tarjeta</h3>
+              <button onClick={() => setShowAddModal(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
+            </div>
+            <form onSubmit={handleAddCard} className="px-5 pb-8 pt-3 space-y-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 block mb-1.5">Número de Tarjeta</label>
+                <input type="text" placeholder="0000 0000 0000 0000" maxLength={16} value={newCard.number} onChange={(e) => setNewCard({ ...newCard, number: e.target.value.replace(/\D/g, '') })} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-primary/20" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 block mb-1.5">Titular</label>
+                  <input type="text" placeholder="Nombre" value={newCard.name} onChange={(e) => setNewCard({ ...newCard, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 block mb-1.5">Expira</label>
+                  <input type="text" placeholder="MM/YY" maxLength={5} value={newCard.expiry} onChange={(e) => setNewCard({ ...newCard, expiry: e.target.value })} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+              </div>
+              <button type="submit" disabled={isAdding} className="w-full py-4 bg-primary dark:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20 active:scale-95 transition-all disabled:opacity-70">
+                {isAdding ? 'Guardando...' : 'Guardar Tarjeta'}
+              </button>
+            </form>
+          </BottomSheet>
+        </>
+      )}
+
+      {subTab === 'facturas' && (
+        <div className="space-y-3">
+          {/* Banner informativo */}
+          <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-500/10 rounded-2xl border border-blue-100 dark:border-blue-500/20">
+            <Receipt size={16} className="text-primary dark:text-blue-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-black text-primary dark:text-blue-400">Facturación Automática</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">Muy pronto las facturas se generarán automáticamente al completar cada servicio. Por ahora podés descargar las de tus servicios completados.</p>
+            </div>
+          </div>
+
+          {loadingInvoices ? (
+            <div className="flex justify-center py-10"><Loader2 className="animate-spin text-primary" size={24} /></div>
+          ) : invoices.length === 0 ? (
+            <div className="text-center py-14 bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800">
+              <FileText size={28} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+              <p className="text-sm font-bold text-slate-400">No hay facturas disponibles aún</p>
+            </div>
+          ) : (
+            invoices.map((inv, i) => {
+              const dt = new Date(inv.startTime ?? inv.booking_date);
+              const invoiceNum = `LG-${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, '0')}-${inv.id?.slice(-4).toUpperCase()}`;
+              const precio = inv.service?.basePriceGs
+                ? `₲ ${Number(inv.service.basePriceGs).toLocaleString('es-PY')}`
+                : 'Membresía';
+              const statusColors: Record<string, string> = {
+                COMPLETED: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10',
+                CONFIRMED: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10',
+                CANCELLED: 'text-red-500 bg-red-50 dark:bg-red-500/10',
+                PENDING: 'text-slate-500 bg-slate-100 dark:bg-slate-800',
+              };
+              const statusLabel: Record<string, string> = { COMPLETED: 'Completado', CONFIRMED: 'Confirmado', CANCELLED: 'Cancelado', PENDING: 'Pendiente', IN_PROGRESS: 'En Curso' };
+              return (
+                <motion.div
+                  key={inv.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.04 }}
+                  className="bg-white dark:bg-slate-900/40 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 flex items-center gap-4"
+                >
+                  <div className="w-10 h-10 bg-primary/10 dark:bg-blue-500/20 rounded-2xl flex items-center justify-center text-primary dark:text-blue-400 shrink-0">
+                    <FileText size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-black text-sm text-slate-900 dark:text-white truncate">{inv.service?.name ?? 'Servicio'}</p>
+                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${statusColors[inv.status] ?? 'text-slate-500 bg-slate-100'}`}>
+                        {statusLabel[inv.status] ?? inv.status}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5 uppercase tracking-widest">{invoiceNum}</p>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-slate-500 dark:text-slate-400 font-bold">
+                      <span className="flex items-center gap-1"><Calendar size={10} /> {dt.toLocaleDateString('es-PY', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                      <span className="flex items-center gap-1 text-primary dark:text-blue-400 font-black">{precio}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => printInvoice(inv)}
+                    title="Descargar / Imprimir Factura"
+                    className="w-10 h-10 rounded-2xl bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400 flex items-center justify-center hover:bg-primary hover:text-white dark:hover:bg-blue-500 dark:hover:text-white transition-all shrink-0 active:scale-90"
+                  >
+                    <Download size={16} />
+                  </button>
+                </motion.div>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function MyVehicles({ vehicles }: { vehicles: any[] }) {
+function MyVehicles({ userId, initialVehicles, onUpdate }: { userId: string; initialVehicles: any[]; onUpdate: () => void }) {
+  const [vehicles, setVehicles] = useState<any[]>(initialVehicles);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const defaultForm = { brand: '', model: '', year: new Date().getFullYear(), licensePlate: '', color: '', mileage: '', notes: '' };
+  const [form, setForm] = useState(defaultForm);
+
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+
+  const refresh = async () => {
+    const res = await api.get('/vehicles');
+    const list = Array.isArray(res.data?.data) ? res.data.data : [];
+    setVehicles(list);
+    onUpdate();
+  };
+
+  const openAdd = () => {
+    setEditing(null);
+    setForm(defaultForm);
+    setShowModal(true);
+  };
+
+  const openEdit = (v: any) => {
+    setEditing(v);
+    setForm({ brand: v.brand ?? '', model: v.model ?? '', year: v.year ?? new Date().getFullYear(), licensePlate: v.licensePlate ?? '', color: v.color ?? '', mileage: v.mileage ?? '', notes: v.notes ?? '' });
+    setShowModal(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      if (editing) {
+        await api.put(`/vehicles/${editing.id}`, form);
+        showToast('Vehículo actualizado ✓');
+      } else {
+        await api.post('/vehicles', form);
+        showToast('Vehículo agregado ✓');
+      }
+      setShowModal(false);
+      await refresh();
+    } catch (e: any) {
+      showToast(e?.response?.data?.message ?? 'Error al guardar');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿Eliminar este vehículo?')) return;
+    try {
+      await api.delete(`/vehicles/${id}`);
+      showToast('Vehículo eliminado');
+      await refresh();
+    } catch { showToast('Error al eliminar'); }
+  };
+
+  const handleSetPrimary = async (id: string) => {
+    try {
+      await api.put(`/vehicles/${id}/primary`, {});
+      showToast('Vehículo principal actualizado ✓');
+      await refresh();
+    } catch { showToast('Error'); }
+  };
+
+  const inputCls = "w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-3 font-bold text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-primary/20 transition-all outline-none";
+  const labelCls = "block text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5";
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {vehicles.map((v) => (
-        <div key={v.id} className="bg-white dark:bg-slate-900/40 rounded-[2.5rem] overflow-hidden shadow-xl border border-slate-100 dark:border-slate-800 group transition-colors">
-          <div className="relative h-48">
-            <img src={v.image_url} alt={v.model} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-            <div className="absolute top-4 right-4 px-3 py-1 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md rounded-full text-[10px] font-black text-primary dark:text-blue-400">
-              {v.status}
-            </div>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">{vehicles.length} vehículo{vehicles.length !== 1 ? 's' : ''} registrado{vehicles.length !== 1 ? 's' : ''}</p>
+        <button
+          onClick={openAdd}
+          className="flex items-center gap-2 px-4 py-2.5 bg-primary dark:bg-blue-500 text-white rounded-xl font-black text-xs shadow-md shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all"
+        >
+          <Plus size={14} /> Agregar Vehículo
+        </button>
+      </div>
+
+      {/* Vehicle Cards */}
+      {vehicles.length === 0 ? (
+        <div className="text-center py-16 bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800">
+          <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <Car size={28} className="text-slate-300 dark:text-slate-600" />
           </div>
-          <div className="p-8">
-            <h4 className="font-bold text-xl mb-1 dark:text-white">{v.model}</h4>
-            <p className="text-slate-400 text-sm mb-6">Placa: <span className="text-slate-900 dark:text-slate-200 font-bold">{v.plate}</span></p>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl">
-                <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Kilometraje</p>
-                <p className="text-lg font-black dark:text-white">{v.mileage}</p>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl">
-                <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Color</p>
-                <p className="text-lg font-black dark:text-white">{v.color}</p>
-              </div>
-            </div>
-          </div>
+          <p className="font-bold text-slate-400 dark:text-slate-500 text-sm">No tenés vehículos registrados</p>
+          <button onClick={openAdd} className="mt-4 text-primary dark:text-blue-400 font-black text-xs uppercase tracking-widest hover:underline">
+            + Agregar tu primer vehículo
+          </button>
         </div>
-      ))}
+      ) : (
+        <div className="space-y-3">
+          {vehicles.map(v => (
+            <motion.div
+              key={v.id}
+              layout
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`bg-white dark:bg-slate-900/40 rounded-[1.5rem] border transition-colors overflow-hidden ${v.isPrimary ? 'border-primary/30 dark:border-blue-500/30' : 'border-slate-100 dark:border-slate-800'
+                }`}
+            >
+              {/* Card Header */}
+              <div className={`flex items-start gap-4 p-4 ${v.isPrimary ? 'bg-primary/5 dark:bg-blue-500/5' : ''}`}>
+                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${v.isPrimary ? 'bg-primary dark:bg-blue-500 text-white shadow-lg shadow-primary/25' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                  }`}>
+                  <Car size={20} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-black text-sm text-slate-900 dark:text-white truncate">
+                      {v.brand} {v.model} {v.year ? `(${v.year})` : ''}
+                    </h4>
+                    {v.isPrimary && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400 rounded-full text-[9px] font-black uppercase tracking-widest shrink-0">
+                        <Star size={8} fill="currentColor" /> Principal
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                    {v.licensePlate && <span className="text-xs font-bold text-slate-500 dark:text-slate-400">🪧 {v.licensePlate}</span>}
+                    {v.color && <span className="text-xs font-bold text-slate-500 dark:text-slate-400">🎨 {v.color}</span>}
+                    {v.mileage && <span className="text-xs font-bold text-slate-500 dark:text-slate-400">📍 {Number(v.mileage).toLocaleString()} km</span>}
+                  </div>
+                  {v.notes && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 italic truncate">{v.notes}</p>}
+                </div>
+              </div>
+
+              {/* Card Actions */}
+              <div className="flex border-t border-slate-50 dark:border-slate-800">
+                {!v.isPrimary && (
+                  <button
+                    onClick={() => handleSetPrimary(v.id)}
+                    className="flex-1 py-3 flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-primary dark:hover:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all"
+                  >
+                    <Star size={12} /> Marcar principal
+                  </button>
+                )}
+                <button
+                  onClick={() => openEdit(v)}
+                  className="flex-1 py-3 flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-primary dark:hover:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all border-l border-slate-50 dark:border-slate-800"
+                >
+                  <Edit2 size={12} /> Editar
+                </button>
+                <button
+                  onClick={() => handleDelete(v.id)}
+                  className="flex-1 py-3 flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all border-l border-slate-50 dark:border-slate-800"
+                >
+                  <Trash2 size={12} /> Eliminar
+                </button>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[400] bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-5 py-3 rounded-2xl text-xs font-black shadow-2xl"
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Add / Edit BottomSheet */}
+      <BottomSheet isOpen={showModal} onClose={() => setShowModal(false)}>
+        <div className="px-5 pb-2 flex items-center justify-between">
+          <h3 className="font-black text-lg text-slate-900 dark:text-white">
+            {editing ? 'Editar Vehículo' : 'Agregar Vehículo'}
+          </h3>
+          <button onClick={() => setShowModal(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSave} className="px-5 pb-8 pt-3 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Marca *</label>
+              <input required className={inputCls} placeholder="Toyota" value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />
+            </div>
+            <div>
+              <label className={labelCls}>Modelo *</label>
+              <input required className={inputCls} placeholder="Hilux" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
+            </div>
+            <div>
+              <label className={labelCls}>Año</label>
+              <input type="number" min={1980} max={2030} className={inputCls} placeholder="2023" value={form.year} onChange={e => setForm({ ...form, year: parseInt(e.target.value) })} />
+            </div>
+            <div>
+              <label className={labelCls}>Chapa / Placa *</label>
+              <input required className={inputCls} placeholder="ABC 123" value={form.licensePlate} onChange={e => setForm({ ...form, licensePlate: e.target.value.toUpperCase() })} />
+            </div>
+            <div>
+              <label className={labelCls}>Color</label>
+              <input className={inputCls} placeholder="Blanco" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} />
+            </div>
+            <div>
+              <label className={labelCls}>Kilometraje</label>
+              <input type="number" min={0} className={inputCls} placeholder="50000" value={form.mileage} onChange={e => setForm({ ...form, mileage: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Notas adicionales</label>
+            <textarea rows={2} className={`${inputCls} resize-none`} placeholder="Ej: vidrios polarizados, techo solar..." value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+          </div>
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="w-full py-4 mt-1 bg-primary dark:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20 active:scale-95 transition-all disabled:opacity-70 flex items-center justify-center gap-2"
+          >
+            {isSaving ? <Loader2 className="animate-spin" size={16} /> : <><Save size={15} /> {editing ? 'Guardar Cambios' : 'Agregar Vehículo'}</>}
+          </button>
+        </form>
+      </BottomSheet>
     </div>
   );
 }
@@ -410,7 +767,7 @@ function SecuritySettings({ userId, onLogout }: { userId: number, onLogout: () =
     if (!passwords.current || !passwords.new) return alert('Completa todos los campos');
     setIsUpdating(true);
     try {
-      const res = await fetch(`${API_URL}/api/users/${userId}/password`, {
+      const res = await fetch(`/api/users/${userId}/password`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword: passwords.current, newPassword: passwords.new })

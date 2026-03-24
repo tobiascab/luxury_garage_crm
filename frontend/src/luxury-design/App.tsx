@@ -21,7 +21,7 @@ import EmpleadoScanner from './pages/EmpleadoScanner';
 import DashboardEmpleado from './pages/DashboardEmpleado';
 import HistorialEmpleado from './pages/HistorialEmpleado';
 
-import { API_URL } from './config';
+
 
 function ProtectedRoute({ children, isAuthenticated }: { children: any, isAuthenticated: boolean }) {
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -45,7 +45,7 @@ export default function App() {
   const refreshUser = async () => {
     if (!user) return;
     try {
-      const response = await fetch(`${API_URL}/api/users/${user.id}/full`);
+      const response = await fetch(`/api/users/${user.id}/full`);
       const data = await response.json();
       setUser(data);
     } catch (e) {

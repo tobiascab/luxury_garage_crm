@@ -1,7 +1,19 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+@import "./admin.css";
 
+/*
+ * DARK MODE → class-only. Never follows OS prefers-color-scheme.
+ * This overrides Tailwind v4's built-in media-query dark variant.
+ */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Explicitly cancel any media-query-based dark styles Tailwind may inject */
+@media (prefers-color-scheme: dark) {
+  :root:not(.dark) {
+    color-scheme: light;
+  }
+}
 
 @theme {
   --font-headline: "Manrope", ui-sans-serif, system-ui, sans-serif;

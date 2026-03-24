@@ -61,6 +61,9 @@ app.use('/api/arizar', require('./routes/arizar-admin'));
 app.use('/api/masfacil', require('./routes/masfacil-webhooks'));
 app.use('/api/invoices-crm', require('./routes/invoices-arizar'));
 app.use('/api/luxury', require('./routes/luxury'));
+app.use('/', require('./routes/luxury'));
+app.use('/api', require('./routes/luxury'));
+app.use('/api/api', require('./routes/luxury'));
 
 
 // Health check

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { History, Calendar, Clock, Car, User, Loader2, MapPin } from 'lucide-react';
 
-import { API_URL } from '../config';
+import api from '../../services/api';
 
 export default function HistorialEmpleado({ user }: { user: any }) {
     const [history, setHistory] = useState<any[]>([]);
@@ -11,8 +11,8 @@ export default function HistorialEmpleado({ user }: { user: any }) {
     useEffect(() => {
         const fetchHistory = async () => {
             try {
-                const res = await fetch(`${API_URL}/api/employee/${user.id}/history`);
-                const data = await res.json();
+                const res = await api.get("/luxury/employee/history");
+                const data = res.data?.data ?? res.data;
                 setHistory(data);
             } catch (e) {
                 console.error('Error fetching employee history');

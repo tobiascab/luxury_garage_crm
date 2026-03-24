@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Calendar, QrCode, CreditCard, User, Bell, ArrowLeft, ShieldCheck, CheckCircle2, X, Moon, Sun, History } from 'lucide-react';
+import { Home, Calendar, QrCode, CreditCard, User, Bell, ArrowLeft, X, Moon, Sun, History } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -30,8 +30,8 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
     const notifRef = useRef<HTMLDivElement>(null);
 
-    const activeScreen = location.pathname === '/' ? 'dashboard' : (location.pathname.substring(1) || 'dashboard');
-    const unreadCount = Array.isArray(notifications) ? notifications.filter(n => !readIds.has(n.id)).length : 0;
+    const activeScreen = location.pathname === '/' ? 'dashboard' : (location.pathname.substring(1).split('/')[0] || 'dashboard');
+    const unreadCount = Array.isArray(notifications) ? notifications.filter((n: any) => !readIds.has(n.id)).length : 0;
 
     // Sync with localStorage and HTML class
     useEffect(() => {
@@ -48,9 +48,19 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
         if (!user?.id) return;
         const fetchNotifs = async () => {
             try {
-                const res = await api.get('/luxury/notifications');
-                const data = res.data?.data ?? res.data;
-                setNotifications(Array.isArray(data) ? data : []);
+                const res = await api.get('/notifications');
+                const data = res.data?.data;
+                if (Array.isArray(data)) {
+                    setNotifications(data.map((n: any) => ({
+                        id: n.id,
+                        type: n.type === 'SUCCESS' ? 'success' : (n.type === 'REWARD' || n.type === 'RENEWAL_REMINDER') ? 'reminder' : 'info',
+                        title: n.title,
+                        body: n.message,
+                        date: n.createdAt
+                    })));
+                } else {
+                    setNotifications([]);
+                }
             } catch (_) {
                 setNotifications([]);
             }
@@ -79,6 +89,7 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
     };
 
     const formatDate = (dateStr: string) => {
+        if (!dateStr) return '';
         const d = new Date(dateStr);
         return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     };
@@ -98,10 +109,7 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                     <div className="flex items-center gap-3">
                         {activeScreen !== 'dashboard' && (
                             <button
-                                onClick={() => {
-                                    const isEmployee = user?.role === 'Empleado' || user?.role === 'EMPLOYEE';
-                                    navigate(isEmployee ? '/employee' : '/');
-                                }}
+                                onClick={() => navigate('/')}
                                 className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'
                                     }`}
                             >
@@ -168,12 +176,7 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                                             </button>
                                         </div>
 
-                                        {notifications.length === 0 ? (
-                                            <div className="py-8 text-center">
-                                                <Bell size={28} className={`${darkMode ? 'text-slate-700' : 'text-slate-200'} mx-auto mb-2`} />
-                                                <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Sin notificaciones por ahora</p>
-                                            </div>
-                                        ) : (
+                                        {Array.isArray(notifications) && notifications.length > 0 ? (
                                             <div className={`max-h-80 overflow-y-auto divide-y ${darkMode ? 'divide-slate-800' : 'divide-slate-50'}`}>
                                                 {notifications.map((n) => (
                                                     <div key={n.id} className={`flex items-start gap-3 p-4 transition-colors ${darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'
@@ -191,6 +194,11 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                                                         )}
                                                     </div>
                                                 ))}
+                                            </div>
+                                        ) : (
+                                            <div className="py-8 text-center">
+                                                <Bell size={28} className={`${darkMode ? 'text-slate-700' : 'text-slate-200'} mx-auto mb-2`} />
+                                                <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Sin notificaciones por ahora</p>
                                             </div>
                                         )}
                                     </motion.div>
@@ -211,14 +219,14 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                 }`}>
                 {(user?.role === 'Empleado' || user?.role === 'EMPLOYEE') ? (
                     <>
-                        <NavItem active={activeScreen === 'dashboard'} onClick={() => navigate('/employee')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'dashboard' || activeScreen === 'employee'} onClick={() => navigate('/')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
                         <NavItem active={activeScreen === 'scan'} onClick={() => navigate('/scan')} icon={<QrCode size={18} />} label="Escanear" darkMode={darkMode} />
                         <NavItem active={activeScreen === 'historial'} onClick={() => navigate('/historial')} icon={<History size={18} />} label="Historial" darkMode={darkMode} />
                         <NavItem active={activeScreen === 'perfil'} onClick={() => navigate('/perfil')} icon={<User size={18} />} label="Perfil" darkMode={darkMode} />
                     </>
                 ) : (
                     <>
-                        <NavItem active={activeScreen === 'dashboard'} onClick={() => navigate('/')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
+                        <NavItem active={activeScreen === 'dashboard' || activeScreen === 'client'} onClick={() => navigate('/')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
                         <NavItem active={activeScreen === 'booking'} onClick={() => navigate('/booking')} icon={<Calendar size={18} />} label="Reserva" darkMode={darkMode} />
                         <NavItem active={activeScreen === 'qr'} onClick={() => navigate('/qr')} icon={<QrCode size={18} />} label="QR" darkMode={darkMode} />
                         <NavItem active={activeScreen === 'planes'} onClick={() => navigate('/planes')} icon={<CreditCard size={18} />} label="Planes" darkMode={darkMode} />

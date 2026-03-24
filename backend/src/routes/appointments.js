@@ -24,7 +24,7 @@ router.get('/', authenticate, async (req, res, next) => {
     if (req.user.role === 'CLIENT') where.userId = req.user.id;
     if (req.user.role === 'EMPLOYEE') where.employeeId = req.user.id;
     if (status) where.status = status.toUpperCase();
-    if (date) { const d = new Date(date); where.date = { gte: new Date(d.setHours(0,0,0,0)), lte: new Date(d.setHours(23,59,59,999)) }; }
+    if (date) { const d = new Date(date); where.date = { gte: new Date(d.setHours(0, 0, 0, 0)), lte: new Date(d.setHours(23, 59, 59, 999)) }; }
 
     const appointments = await req.prisma.appointment.findMany({
       where, include: { user: { select: { id: true, firstName: true, lastName: true, phone: true } }, vehicle: true, service: true, serviceRecord: true },
@@ -38,7 +38,7 @@ router.get('/', authenticate, async (req, res, next) => {
 router.post('/', authenticate, async (req, res, next) => {
   try {
     const { vehicleId, serviceId, date, startTime, notes } = req.body;
-    
+
     // Validate active membership
     const membership = await req.prisma.membership.findFirst({ where: { userId: req.user.id, status: 'ACTIVE' }, include: { plan: true } });
     if (!membership) return res.status(403).json({ success: false, message: 'Necesitás una membresía activa para agendar' });
@@ -46,7 +46,15 @@ router.post('/', authenticate, async (req, res, next) => {
     const service = await req.prisma.service.findUnique({ where: { id: serviceId } });
     if (!service) return res.status(404).json({ success: false, message: 'Servicio no encontrado' });
 
-    const start = new Date(startTime);
+    // ── Timezone fix ────────────────────────────────────────────────────────
+    // Frontend sends "2026-03-26T09:00:00" (no TZ) → parsed as UTC by Node.js
+    // Paraguay is UTC-4 → must append offset so ARIZAR receives correct local time
+    const localStartTime = startTime.includes('+') || startTime.includes('Z') || /T.*-\d{2}:\d{2}$/.test(startTime)
+      ? startTime
+      : `${startTime}-04:00`;   // Paraguay Standard Time (UTC-4)
+    // ────────────────────────────────────────────────────────────────────────
+
+    const start = new Date(localStartTime);
     const end = new Date(start.getTime() + service.durationMinutes * 60000);
 
     // Crear evento en ARIZAR IA
@@ -58,14 +66,19 @@ router.post('/', authenticate, async (req, res, next) => {
       try {
         const arizarEvent = await arizarService.createAppointment({
           contactId: user.arizarContactId,
-          startTime: start.toISOString(),
+          startTime: localStartTime,
           endTime: end.toISOString(),
-          title: `${service.name} - ${vehicle?.brand || ''} ${vehicle?.model || ''} ${vehicle?.licensePlate || ''}`,
+          title: `${service.name} - ${vehicle?.brand || ''} ${vehicle?.model || ''} ${vehicle?.licensePlate || ''}`.trim(),
           notes: notes || '',
         });
-        arizarAppointmentId = arizarEvent?.event?.id || arizarEvent?.id || null;
+        arizarAppointmentId = arizarEvent?.id || arizarEvent?.event?.id || null;
+        if (arizarAppointmentId) {
+          console.log(`✅ ARIZAR CAL: Cita creada OK id=${arizarAppointmentId}`);
+        } else {
+          console.warn(`⚠️ ARIZAR CAL: createAppointment retornó null (sin arizarContactId o error silencioso)`);
+        }
       } catch (err) {
-        console.error('Error creando cita en ARIZAR IA:', err.message);
+        console.error('Error creando cita en ARIZAR IA:', err.response?.data || err.message);
       }
     }
 
@@ -82,6 +95,7 @@ router.post('/', authenticate, async (req, res, next) => {
     res.status(201).json({ success: true, data: appointment });
   } catch (err) { next(err); }
 });
+
 
 // PUT /api/appointments/:id/start — Empleado inicia servicio
 router.put('/:id/start', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'), async (req, res, next) => {

@@ -25,6 +25,8 @@ import PromotionsManager from './pages/admin/PromotionsManager';
 import ReviewsAdmin from './pages/admin/ReviewsAdmin';
 import InventoryManager from './pages/admin/InventoryManager';
 import SettingsPage from './pages/admin/SettingsPage';
+import AuditLogs from './pages/admin/AuditLogs';
+import ArizarPanel from './pages/admin/ArizarPanel';
 import Notifications from './pages/shared/Notifications';
 
 // Luxury Client & Employee Pages (from LUXURY/src)
@@ -101,7 +103,14 @@ function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" /></div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/login" replace />;
+  if (roles) {
+    const uRole = (user.role || '').toUpperCase();
+    const allowed = roles.map(r => r.toUpperCase());
+    const isEmployee = uRole === 'EMPLEADO' || uRole === 'EMPLOYEE';
+    if (!allowed.includes(uRole) && !(isEmployee && allowed.includes('EMPLOYEE'))) {
+      return <Navigate to="/login" replace />;
+    }
+  }
   return children;
 }
 
@@ -165,6 +174,8 @@ function AppRoutes() {
         <Route path="inventory" element={<InventoryManager />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="notifications" element={<Notifications />} />
+        <Route path="logs" element={<AuditLogs />} />
+        <Route path="crm" element={<ArizarPanel />} />
       </Route>
 
       {/* ── Catch-all ── */}

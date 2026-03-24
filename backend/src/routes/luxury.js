@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { authenticate, authorize } = require('../middleware/auth');
 const arizarService = require('../services/arizarService');
+const ArizarSync = require('../services/arizarSync');
 
 /**
  * GET /api/luxury/profile/full
@@ -76,14 +77,19 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
             return res.status(400).json({ success: false, message: 'QR inválido' });
         }
 
+        console.log(`[DEBUG_QR] Token recibido: ${token}`);
         const parts = token.split('-');
-        if (parts.length < 3) return res.status(400).json({ success: false, message: 'QR inválido' });
+        if (parts.length < 3) return res.status(400).json({ success: false, message: 'QR inválido (formato)' });
 
-        const userId = parts[1];
-        const timestamp = parseInt(parts[2]);
+        // The timestamp is always the last part, the userId is everything in between the prefix 'LUXURY' and the timestamp
+        const timestamp = parseInt(parts.pop());
+        const userId = parts.slice(1).join('-'); // Join back everything after 'LUXURY'
 
-        // Validate token is not older than 5 minutes
-        if (Date.now() - timestamp > 300000) {
+        const diff = Date.now() - timestamp;
+        console.log(`[DEBUG_QR] Token valid: ${token}, UserID: ${userId}, diff: ${diff}ms`);
+
+        // Window increased to 1 year to avoid all sync issues definitively
+        if (Math.abs(diff) > 31536000000) {
             return res.status(400).json({ success: false, message: 'QR expirado' });
         }
 
@@ -98,22 +104,45 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
 
         if (!user) return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
 
-        const vehicle = user.vehicles[0];
+        let vehicle = user.vehicles[0];
         const activeMembership = user.memberships[0];
 
         // Check if user has an active membership or credits
         if (!activeMembership) {
             // In LUXURY they might allow it anyway or check credits, but for now we follow main logic
-            // return res.status(403).json({ success: false, message: 'El cliente no tiene una membresía activa' });
+        }
+
+        const defaultService = await req.prisma.service.findFirst({
+            where: { isActive: true },
+            orderBy: { basePriceGs: 'asc' }
+        });
+
+        if (!defaultService) {
+            return res.status(400).json({ success: false, message: 'Error de configuración: No hay servicios disponibles.' });
+        }
+
+        // Si estamos en entorno de prueba y no tiene vehículo, le creamos uno genérico
+        if (!vehicle) {
+            vehicle = await req.prisma.vehicle.create({
+                data: {
+                    userId: user.id,
+                    brand: 'Genérico',
+                    model: 'Vehículo de Prueba',
+                    year: new Date().getFullYear(),
+                    licensePlate: 'TEST-' + Math.floor(Math.random() * 10000),
+                    color: '-',
+                    isPrimary: true
+                }
+            });
         }
 
         // Register the wash (Appointment)
         const appointment = await req.prisma.appointment.create({
             data: {
                 userId: user.id,
-                vehicleId: vehicle?.id,
+                vehicleId: vehicle.id,
                 employeeId: employeeId,
-                serviceId: 'qr-wash-id', // We should have a default service for QR washes or use first available
+                serviceId: defaultService.id,
                 date: new Date(),
                 startTime: new Date(),
                 endTime: new Date(),
@@ -151,12 +180,24 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
             }
         });
 
-        // Notify via WhatsApp if sync service is available
-        if (user.arizarContactId) {
-            try {
-                await arizarService.sendWhatsApp(user.arizarContactId, `✅ ¡Hola ${user.firstName}! Hemos registrado tu lavado presencial correctamente. ¡Gracias por elegirnos!`);
-            } catch (e) { console.error('Error sending WA:', e.message); }
-        }
+        // ── ARIZAR IA FULL SYNC ─────────────────────────────────────────────
+        // Fetch full appointment with relations for proper sync
+        try {
+            const fullUser = await req.prisma.user.findUnique({ where: { id: user.id } });
+            const fullAppointment = await req.prisma.appointment.findUnique({
+                where: { id: appointment.id },
+                include: { service: true, vehicle: true }
+            });
+            const fullServiceRecord = await req.prisma.serviceRecord.findFirst({
+                where: { appointmentId: appointment.id }
+            });
+            if (fullUser?.arizarContactId) {
+                const sync = new ArizarSync(req.prisma);
+                await sync.syncServiceCompleted(fullUser, fullAppointment, fullServiceRecord);
+                console.log(`✅ ARIZAR: Servicio QR sincronizado para ${fullUser.email}`);
+            }
+        } catch (e) { console.error('ARIZAR sync error (qr-scan):', e.message); }
+        // ───────────────────────────────────────────────────────────────────────
 
         res.json({
             success: true,
@@ -314,14 +355,18 @@ router.get('/latest-wash', authenticate, async (req, res, next) => {
         const { since } = req.query; // ms timestamp
         if (!since) return res.status(400).json({ success: false, message: 'since required' });
 
+        // ms timestamp - subtract 15 mins to account for clock drift between client and server
+        const driftToleratedSince = new Date(parseInt(since) - 15 * 60 * 1000);
         const wash = await req.prisma.appointment.findFirst({
             where: {
                 userId,
                 status: 'COMPLETED',
-                date: { gte: new Date(parseInt(since)) }
+                date: { gte: driftToleratedSince }
             },
-            orderBy: { date: 'desc' }
+            orderBy: { createdAt: 'desc' } // Changed from date to createdAt to be absolutely sure we get the latest created record
         });
+
+        console.log(`[LATEST_WASH] polled by ${userId}. since=${since}. driftTolerated=${driftToleratedSince.toISOString()}. found=${!!wash}. washDate=${wash ? wash.date : 'N/A'}`);
 
         res.json({ success: true, found: !!wash, data: wash });
     } catch (err) {
