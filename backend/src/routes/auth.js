@@ -2,7 +2,13 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { authenticate, authorize } = require('../middleware/auth');
+const { authLimiter, loginLockout } = require('../middleware/security');
 const ArizarSync = require('../services/arizarSync');
+
+// Apply strict rate limiter on all auth write endpoints
+router.post('/login', authLimiter);
+router.post('/public-register', authLimiter);
+
 
 // POST /api/auth/login
 router.post('/login', async (req, res, next) => {
@@ -10,21 +16,44 @@ router.post('/login', async (req, res, next) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ success: false, message: 'Email y contraseña requeridos' });
 
+    // ── Lockout check ────────────────────────────────────────────────────
+    if (loginLockout.isLocked(email)) {
+      const mins = loginLockout.minutesLeft(email);
+      return res.status(429).json({ success: false, message: `Cuenta bloqueada temporalmente. Intentá de nuevo en ${mins} minuto(s).` });
+    }
+
     const user = await req.prisma.user.findUnique({ where: { email }, include: { memberships: { where: { status: 'ACTIVE' }, include: { plan: true }, orderBy: { createdAt: 'desc' }, take: 1 } } });
-    if (!user) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
-    if (!user.isActive) return res.status(403).json({ success: false, message: 'Cuenta suspendida' });
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+    // ── Always run bcrypt to avoid timing attacks ─────────────────────────
+    const dummyHash = '$2a$12$invalidhashtopreventtimingattack1234567890';
+    const valid = user
+      ? await bcrypt.compare(password, user.passwordHash)
+      : await bcrypt.compare(password, dummyHash).then(() => false);
 
+    if (!user || !valid) {
+      loginLockout.recordFailure(email);
+      return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ success: false, message: 'Cuenta suspendida. Contactá al administrador.' });
+    }
+
+    // ── Success ───────────────────────────────────────────────────────────
+    loginLockout.clearFailures(email);
     await req.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
 
     const { passwordHash, ...userData } = user;
     res.json({ success: true, data: { token, user: userData } });
   } catch (err) { next(err); }
 });
+
 
 // POST /api/auth/register — Internal (webhook/admin) registration
 router.post('/register', async (req, res, next) => {
@@ -112,8 +141,16 @@ router.post('/public-register', async (req, res, next) => {
     if (!email || !password || !firstName || !lastName) {
       return res.status(400).json({ success: false, message: 'Completá todos los campos' });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ success: false, message: 'La contraseña debe tener al menos 6 caracteres' });
+    // ── Password strength ────────────────────────────────────────────────
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, message: 'La contraseña debe tener al menos 8 caracteres' });
+    }
+    if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return res.status(400).json({ success: false, message: 'La contraseña debe incluir al menos una letra y un número' });
+    }
+    // ── Email format ─────────────────────────────────────────────────────
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, message: 'Formato de email inválido' });
     }
 
     const exists = await req.prisma.user.findUnique({ where: { email } });

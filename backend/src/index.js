@@ -9,34 +9,87 @@ const { PrismaPg } = require('@prisma/adapter-pg');
 const { Pool } = require('pg');
 const { errorHandler } = require('./middleware/errorHandler');
 const { initJobs } = require('./jobs/membershipJobs');
+const {
+  generalLimiter,
+  speedLimiter,
+  requestId,
+  hppProtection,
+} = require('./middleware/security');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 const app = express();
 
-// Middleware
-app.use(helmet());
+// ── 1. Request ID (traceability) ──────────────────────────────────────────
+app.use(requestId);
+
+// ── 2. Security headers (Helmet) ──────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],   // needed for Vite
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: 'same-origin' },
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+  xssFilter: true,
+  noSniff: true,
+  hidePoweredBy: true,
+}));
+
+// ── 3. CORS ───────────────────────────────────────────────────────────────
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? process.env.FRONTEND_URL
+    ? (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      console.warn(`🚫 CORS bloqueado: ${origin}`);
+      cb(new Error('CORS: origen no permitido'));
+    }
     : (origin, cb) => cb(null, true),
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
 }));
-app.use(morgan('dev'));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded files
+// ── 4. HTTP Parameter Pollution ───────────────────────────────────────────
+app.use(hppProtection);
+
+// ── 5. Body parsing (strict limits) ──────────────────────────────────────
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// ── 6. Logging ────────────────────────────────────────────────────────────
+app.use(morgan('dev'));
+
+// ── 7. General rate limiter + slow-down (on all /api/* routes) ───────────
+app.use('/api', generalLimiter);
+app.use('/api', speedLimiter);
+
+// ── 8. Static files ───────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Make prisma available on requests
+// ── 9. Prisma on request ──────────────────────────────────────────────────
 app.use((req, res, next) => {
   req.prisma = prisma;
   next();
 });
 
-// Routes
+// ── Routes ────────────────────────────────────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/plans', require('./routes/plans'));
 app.use('/api/services', require('./routes/services'));
@@ -56,36 +109,33 @@ app.use('/api/audit', require('./routes/audit'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/credits', require('./routes/credits'));
 app.use('/api/inventory', require('./routes/inventory'));
-app.use('/api/arizar/oauth', require('./routes/arizar-oauth')); // Must be BEFORE arizar-admin
+app.use('/api/arizar/oauth', require('./routes/arizar-oauth'));
 app.use('/api/arizar', require('./routes/arizar-admin'));
 app.use('/api/masfacil', require('./routes/masfacil-webhooks'));
 app.use('/api/invoices-crm', require('./routes/invoices-arizar'));
 app.use('/api/luxury', require('./routes/luxury'));
 app.use('/', require('./routes/luxury'));
 app.use('/api', require('./routes/luxury'));
-app.use('/api/api', require('./routes/luxury'));
 
-
-// Health check
+// ── Health check ──────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'Luxury Garage API', timestamp: new Date().toISOString() });
 });
 
-// Centralized error handler (MUST be after routes)
+// ── Error handler ─────────────────────────────────────────────────────────
 app.use(errorHandler);
 
-// 404
+// ── 404 — no leakamos rutas internas ─────────────────────────────────────
 app.use((req, res) => {
-  res.status(404).json({ success: false, message: `Ruta no encontrada: ${req.method} ${req.path}` });
+  res.status(404).json({ success: false, message: 'Recurso no encontrado' });
 });
 
+// ── Start ─────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3002;
 
 const server = app.listen(PORT, () => {
   console.log(`🚗 Luxury Garage API corriendo en puerto ${PORT}`);
   console.log(`📊 Entorno: ${process.env.NODE_ENV || 'development'}`);
-
-  // Initialize cron jobs
   initJobs(prisma);
 });
 
@@ -95,4 +145,3 @@ process.on('SIGTERM', async () => {
   await prisma.$disconnect();
   process.exit(0);
 });
-
