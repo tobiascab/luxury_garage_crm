@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Calendar, QrCode, CreditCard, User, Bell, ArrowLeft, X, Moon, Sun, History } from 'lucide-react';
+import {
+    Home, Calendar, QrCode, CreditCard, User,
+    Bell, ArrowLeft, X, Moon, Sun, History
+} from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -24,27 +27,27 @@ interface MainLayoutProps {
 const CLIENT_TABS = ['/', '/booking', '/qr', '/planes', '/perfil'];
 const EMPLOYEE_TABS = ['/', '/scan', '/historial', '/perfil'];
 
-const NAV_CLIENT: { path: string; Icon: any; label: string }[] = [
-    { path: '/', Icon: require('lucide-react').Home, label: 'Inicio' },
-    { path: '/booking', Icon: require('lucide-react').Calendar, label: 'Reserva' },
-    { path: '/qr', Icon: require('lucide-react').QrCode, label: 'QR' },
-    { path: '/planes', Icon: require('lucide-react').CreditCard, label: 'Planes' },
-    { path: '/perfil', Icon: require('lucide-react').User, label: 'Perfil' },
+const NAV_CLIENT = [
+    { path: '/', Icon: Home, label: 'Inicio' },
+    { path: '/booking', Icon: Calendar, label: 'Reserva' },
+    { path: '/qr', Icon: QrCode, label: 'QR' },
+    { path: '/planes', Icon: CreditCard, label: 'Planes' },
+    { path: '/perfil', Icon: User, label: 'Perfil' },
 ];
 
-const NAV_EMPLOYEE: { path: string; Icon: any; label: string }[] = [
-    { path: '/', Icon: require('lucide-react').Home, label: 'Inicio' },
-    { path: '/scan', Icon: require('lucide-react').QrCode, label: 'Escanear' },
-    { path: '/historial', Icon: require('lucide-react').History, label: 'Historial' },
-    { path: '/perfil', Icon: require('lucide-react').User, label: 'Perfil' },
+const NAV_EMPLOYEE = [
+    { path: '/', Icon: Home, label: 'Inicio' },
+    { path: '/scan', Icon: QrCode, label: 'Escanear' },
+    { path: '/historial', Icon: History, label: 'Historial' },
+    { path: '/perfil', Icon: User, label: 'Perfil' },
 ];
 
-const MIN_SWIPE = 50;   // px to trigger navigation
-const MAX_SWIPE_Y = 60;   // if vertical drag > this, ignore horizontal
+const MIN_SWIPE = 50;
+const MAX_SWIPE_Y = 80;
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function MainLayout({ children }: MainLayoutProps) {
-    const { fullUser, loading: userLoading, refreshProfile } = useLuxuryUser();
+    const { fullUser, refreshProfile } = useLuxuryUser();
     const { logout } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
@@ -52,7 +55,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const isEmployee = fullUser?.role === 'Empleado' || fullUser?.role === 'EMPLOYEE';
     const TABS = isEmployee ? EMPLOYEE_TABS : CLIENT_TABS;
     const NAV_ITEMS = isEmployee ? NAV_EMPLOYEE : NAV_CLIENT;
-
     const currentIdx = TABS.indexOf(location.pathname);
     const isTabRoute = currentIdx !== -1;
 
@@ -71,15 +73,15 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
     useEffect(() => {
         if (!fullUser?.id) return;
-        const fetch = async () => {
+        const fetchN = async () => {
             try {
                 const res = await api.get('/luxury/notifications');
                 const data = res.data?.data ?? res.data;
                 setNotifications(Array.isArray(data) ? data : []);
             } catch { setNotifications([]); }
         };
-        fetch();
-        const iv = setInterval(fetch, 30000);
+        fetchN();
+        const iv = setInterval(fetchN, 30000);
         return () => clearInterval(iv);
     }, [fullUser?.id]);
 
@@ -103,65 +105,36 @@ export default function MainLayout({ children }: MainLayoutProps) {
             : t === 'reminder' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400'
                 : 'bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400';
 
-    // ── Swipe navigation (Option A — navigate + slide animation) ──────────────
+    // ── Swipe detection ───────────────────────────────────────────────────────
     const touchStartX = useRef(0);
     const touchStartY = useRef(0);
     const touchStartTime = useRef(0);
-    const isDragging = useRef(false);
 
     const handleTouchStart = (e: React.TouchEvent) => {
-        if (!isTabRoute) return;
         touchStartX.current = e.touches[0].clientX;
         touchStartY.current = e.touches[0].clientY;
         touchStartTime.current = Date.now();
-        isDragging.current = true;
     };
 
     const handleTouchEnd = (e: React.TouchEvent) => {
-        if (!isTabRoute || !isDragging.current) return;
-        isDragging.current = false;
-
+        if (!isTabRoute) return;
         const diffX = e.changedTouches[0].clientX - touchStartX.current;
         const diffY = e.changedTouches[0].clientY - touchStartY.current;
         const elapsed = Date.now() - touchStartTime.current;
 
-        // Only register fast, mostly-horizontal swipes
-        if (Math.abs(diffY) > MAX_SWIPE_Y || elapsed > 500) return;
-        if (Math.abs(diffX) < MIN_SWIPE) return;
+        if (Math.abs(diffY) > MAX_SWIPE_Y) return;   // mostly vertical → ignore
+        if (Math.abs(diffX) < MIN_SWIPE) return;   // too short
+        if (elapsed > 500) return;   // too slow
 
         const nextIdx = diffX < 0
             ? Math.min(currentIdx + 1, TABS.length - 1)
             : Math.max(currentIdx - 1, 0);
 
-        if (nextIdx !== currentIdx) {
-            setSwipeDir(diffX < 0 ? 'left' : 'right');
-            navigate(TABS[nextIdx]);
-        }
+        if (nextIdx !== currentIdx) navigate(TABS[nextIdx]);
     };
 
-    // ── Slide animation direction ─────────────────────────────────────────────
-    const [swipeDir, setSwipeDir] = useState<'left' | 'right' | null>(null);
-
-    const variants = {
-        enter: (dir: 'left' | 'right' | null) => ({ x: dir === 'left' ? '100%' : dir === 'right' ? '-100%' : 0, opacity: 0 }),
-        center: { x: 0, opacity: 1 },
-        exit: (dir: 'left' | 'right' | null) => ({ x: dir === 'left' ? '-100%' : dir === 'right' ? '100%' : 0, opacity: 0 }),
-    };
-
-    // Reset swipeDir after navigation so nav clicks animate from center
-    useEffect(() => {
-        const timer = setTimeout(() => setSwipeDir(null), 350);
-        return () => clearTimeout(timer);
-    }, [location.pathname]);
-
-    // Nav click: determine direction relative to current tab
-    const goTo = (path: string) => {
-        const nextIdx = TABS.indexOf(path);
-        if (nextIdx !== -1 && nextIdx !== currentIdx) {
-            setSwipeDir(nextIdx > currentIdx ? 'left' : 'right');
-        }
-        navigate(path);
-    };
+    // ── Nav click ─────────────────────────────────────────────────────────────
+    const goTo = (path: string) => navigate(path);
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
@@ -170,9 +143,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
             {/* ── Header ── */}
             <header className={`fixed top-0 w-full z-50 px-4 py-3 border-b transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/80 border-slate-800' : 'bg-white/80 border-slate-100'} backdrop-blur-xl`}>
                 <div className="max-w-md mx-auto flex justify-between items-center">
+
                     <div className="flex items-center gap-3">
                         {!isTabRoute && (
-                            <button onClick={() => navigate('/')} className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'}`}>
+                            <button
+                                onClick={() => navigate('/')}
+                                className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'}`}
+                            >
                                 <ArrowLeft size={18} />
                             </button>
                         )}
@@ -189,15 +166,23 @@ export default function MainLayout({ children }: MainLayoutProps) {
                     <h1 className={`text-lg font-black tracking-tighter italic font-headline ${darkMode ? 'text-blue-400' : 'text-primary'}`}>LUXURY GARAGE</h1>
 
                     <div className="flex items-center gap-2">
-                        <button onClick={() => setDarkMode(d => !d)} className={`p-1.5 transition-colors rounded-full ${darkMode ? 'text-amber-400 hover:bg-slate-800' : 'text-slate-400 hover:bg-slate-100'}`}>
+                        <button
+                            onClick={() => setDarkMode(d => !d)}
+                            className={`p-1.5 transition-colors rounded-full ${darkMode ? 'text-amber-400 hover:bg-slate-800' : 'text-slate-400 hover:bg-slate-100'}`}
+                        >
                             {darkMode ? <Sun size={18} /> : <Moon size={18} />}
                         </button>
 
                         <div className="relative" ref={notifRef}>
-                            <button onClick={handleBell} className={`p-1.5 transition-colors relative ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-primary'}`}>
+                            <button
+                                onClick={handleBell}
+                                className={`p-1.5 transition-colors relative ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-primary'}`}
+                            >
                                 <Bell size={18} />
                                 {unreadCount > 0 && (
-                                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border border-white">{unreadCount}</span>
+                                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border border-white">
+                                        {unreadCount}
+                                    </span>
                                 )}
                             </button>
 
@@ -244,33 +229,18 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 </div>
             </header>
 
-            {/* ── Main Content — with swipe capture ── */}
+            {/* ── Main content — swipe captured here ── */}
             <main
-                className="pt-16 pb-24"
+                className="pt-16 px-4 max-w-md mx-auto pb-24"
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
             >
-                <div className="px-4 max-w-md mx-auto">
-                    <AnimatePresence mode="wait" custom={swipeDir}>
-                        <motion.div
-                            key={location.pathname}
-                            custom={swipeDir}
-                            variants={variants}
-                            initial="enter"
-                            animate="center"
-                            exit="exit"
-                            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-                            className="w-full"
-                        >
-                            {children}
-                        </motion.div>
-                    </AnimatePresence>
-                </div>
+                {children}
             </main>
 
             {/* ── Bottom Navigation ── */}
             <nav className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 rounded-t-3xl transition-all duration-300 shadow-[0_-8px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'}`}>
-                {NAV_ITEMS.map((item, idx) => (
+                {NAV_ITEMS.map(item => (
                     <NavItem
                         key={item.path}
                         active={location.pathname === item.path}
@@ -286,18 +256,24 @@ export default function MainLayout({ children }: MainLayoutProps) {
 }
 
 // ── NavItem ────────────────────────────────────────────────────────────────
-function NavItem({ active, onClick, icon, label, darkMode }: {
-    active: boolean; onClick: () => void; icon: React.ReactNode; label: string; darkMode: boolean;
-}) {
+function NavItem({
+    active, onClick, icon, label, darkMode,
+}: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; darkMode: boolean }) {
     return (
         <button
             onClick={onClick}
-            className={`flex flex-col items-center justify-center transition-all duration-300 active:scale-95 group ${active ? (darkMode ? 'text-blue-400 scale-105' : 'text-primary scale-105') : 'text-slate-400 hover:text-slate-600'}`}
+            className={`flex flex-col items-center justify-center transition-all duration-300 active:scale-95 group ${active ? (darkMode ? 'text-blue-400 scale-105' : 'text-primary scale-105') : 'text-slate-400 hover:text-slate-600'
+                }`}
         >
-            <div className={`p-1.5 rounded-xl transition-all duration-300 ${active ? (darkMode ? 'bg-blue-500/10' : 'bg-primary/10') : (darkMode ? 'group-hover:bg-slate-800' : 'group-hover:bg-slate-50')}`}>
+            <div className={`p-1.5 rounded-xl transition-all duration-300 ${active
+                    ? (darkMode ? 'bg-blue-500/10' : 'bg-primary/10')
+                    : (darkMode ? 'group-hover:bg-slate-800' : 'group-hover:bg-slate-50')
+                }`}>
                 {icon}
             </div>
-            <span className={`text-[8px] font-bold uppercase tracking-widest mt-0.5 transition-opacity ${active ? 'opacity-100' : 'opacity-50'}`}>{label}</span>
+            <span className={`text-[8px] font-bold uppercase tracking-widest mt-0.5 transition-opacity ${active ? 'opacity-100' : 'opacity-50'}`}>
+                {label}
+            </span>
         </button>
     );
 }
