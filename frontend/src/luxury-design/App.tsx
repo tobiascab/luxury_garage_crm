@@ -4,26 +4,18 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 // Layouts
 import MainLayout from './layouts/MainLayout';
 
-// Pages
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+// Non-tab pages (rendered as children of MainLayout)
 import Garage from './pages/Garage';
-import Booking from './pages/Booking';
-import Profile from './pages/Profile';
-import Planes from './pages/Planes';
 import Billetera from './pages/Billetera';
 import Referidos from './pages/Referidos';
 import ServiciosExtra from './pages/ServiciosExtra';
-import QRPass from './pages/QRPass';
-import EmpleadoScanner from './pages/EmpleadoScanner';
 
-// Admin/Employee Pages
-import DashboardEmpleado from './pages/DashboardEmpleado';
-import HistorialEmpleado from './pages/HistorialEmpleado';
+// Auth
+import Login from './pages/Login';
 
+import api from '../services/api';
 
-
-function ProtectedRoute({ children, isAuthenticated }: { children: any, isAuthenticated: boolean }) {
+function ProtectedRoute({ children, isAuthenticated }: { children: any; isAuthenticated: boolean }) {
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return children;
 }
@@ -45,9 +37,8 @@ export default function App() {
   const refreshUser = async () => {
     if (!user) return;
     try {
-      const response = await fetch(`/api/users/${user.id}/full`);
-      const data = await response.json();
-      setUser(data);
+      const res = await api.get('/auth/me');
+      if (res.data?.data) setUser(res.data.data);
     } catch (e) {
       console.error('Error refreshing user');
     }
@@ -56,40 +47,36 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={
-          !isAuthenticated ? <Login onLogin={handleLogin} /> : <Navigate to="/" replace />
-        } />
+        {/* Auth */}
+        <Route
+          path="/login"
+          element={!isAuthenticated ? <Login onLogin={handleLogin} /> : <Navigate to="/" replace />}
+        />
 
-        <Route path="/*" element={
-          <ProtectedRoute isAuthenticated={isAuthenticated}>
-            <MainLayout user={user}>
-              <Routes>
-                {user?.role === 'Empleado' ? (
-                  <>
-                    <Route path="/" element={<DashboardEmpleado user={user} />} />
-                    <Route path="/scan" element={<EmpleadoScanner user={user} />} />
-                    <Route path="/historial" element={<HistorialEmpleado user={user} />} />
-                    <Route path="/perfil" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </>
-                ) : (
-                  <>
-                    <Route path="/" element={<Dashboard user={user} />} />
-                    <Route path="/garage" element={<Garage />} />
-                    <Route path="/qr" element={<QRPass user={user} />} />
-                    <Route path="/booking" element={<Booking user={user} onBookingComplete={refreshUser} />} />
-                    <Route path="/planes" element={<Planes user={user} />} />
-                    <Route path="/perfil" element={<Profile user={user} onLogout={handleLogout} onUpdate={refreshUser} />} />
-                    <Route path="/billetera" element={<Billetera />} />
-                    <Route path="/referidos" element={<Referidos user={user} />} />
-                    <Route path="/servicios-extra" element={<ServiciosExtra />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </>
-                )}
-              </Routes>
-            </MainLayout>
-          </ProtectedRoute>
-        } />
+        {/* Protected app */}
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <MainLayout
+                user={user}
+                onLogout={handleLogout}
+                onBookingComplete={refreshUser}
+                onUpdate={refreshUser}
+              >
+                {/* Only NON-TAB routes go here — MainLayout handles tab pages via slider */}
+                <Routes>
+                  <Route path="/garage" element={<Garage />} />
+                  <Route path="/billetera" element={<Billetera />} />
+                  <Route path="/referidos" element={<Referidos user={user} />} />
+                  <Route path="/servicios-extra" element={<ServiciosExtra />} />
+                  {/* Tab routes fallback — MainLayout renders them, no redirect needed */}
+                  <Route path="*" element={null} />
+                </Routes>
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );

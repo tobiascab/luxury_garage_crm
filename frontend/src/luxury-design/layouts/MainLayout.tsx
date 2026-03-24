@@ -1,11 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Calendar, QrCode, CreditCard, User, Bell, ArrowLeft, ShieldCheck, CheckCircle2, X, Moon, Sun, History } from 'lucide-react';
+import {
+    Home, Calendar, QrCode, CreditCard, User,
+    Bell, ArrowLeft, X, Moon, Sun, History
+} from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// ── Page imports for slider ────────────────────────────────────────────────
+import Dashboard from '../pages/Dashboard';
+import Booking from '../pages/Booking';
+import QRPass from '../pages/QRPass';
+import Planes from '../pages/Planes';
+import Profile from '../pages/Profile';
+import DashboardEmpleado from '../pages/DashboardEmpleado';
+import EmpleadoScanner from '../pages/EmpleadoScanner';
+import HistorialEmpleado from '../pages/HistorialEmpleado';
 
 import api from '../../services/api';
 import { useLuxuryUser } from '../context/LuxuryUserContext';
 
+// ── Types ──────────────────────────────────────────────────────────────────
 interface Notification {
     id: string;
     type: 'success' | 'info' | 'reminder';
@@ -15,35 +29,57 @@ interface Notification {
 }
 
 interface MainLayoutProps {
-    children: React.ReactNode;
+    children?: React.ReactNode;
     user?: any;
+    onLogout?: () => void;
+    onBookingComplete?: () => void;
+    onUpdate?: () => void;
 }
 
-export default function MainLayout({ children, user: userProp }: MainLayoutProps) {
+// ── Tab definitions ────────────────────────────────────────────────────────
+const CLIENT_TABS = [
+    { path: '/', Icon: Home, label: 'Inicio' },
+    { path: '/booking', Icon: Calendar, label: 'Reserva' },
+    { path: '/qr', Icon: QrCode, label: 'QR' },
+    { path: '/planes', Icon: CreditCard, label: 'Planes' },
+    { path: '/perfil', Icon: User, label: 'Perfil' },
+];
+
+const EMPLOYEE_TABS = [
+    { path: '/', Icon: Home, label: 'Inicio' },
+    { path: '/scan', Icon: QrCode, label: 'Escanear' },
+    { path: '/historial', Icon: History, label: 'Historial' },
+    { path: '/perfil', Icon: User, label: 'Perfil' },
+];
+
+const MIN_SWIPE = 40;
+
+// ── MainLayout ─────────────────────────────────────────────────────────────
+export default function MainLayout({
+    children, user: userProp, onLogout, onBookingComplete, onUpdate
+}: MainLayoutProps) {
     const { fullUser } = useLuxuryUser();
     const user = userProp ?? fullUser;
     const navigate = useNavigate();
     const location = useLocation();
+
+    const isEmployee = user?.role === 'Empleado' || user?.role === 'EMPLOYEE';
+    const TABS = isEmployee ? EMPLOYEE_TABS : CLIENT_TABS;
+    const N = TABS.length;
+
+    // ── Dark mode ────────────────────────────────────────────────────────────
+    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+    useEffect(() => {
+        localStorage.setItem('theme', darkMode ? 'dark' : 'light');
+        document.documentElement.classList.toggle('dark', darkMode);
+    }, [darkMode]);
+
+    // ── Notifications ────────────────────────────────────────────────────────
     const [showNotifs, setShowNotifs] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [readIds, setReadIds] = useState<Set<string>>(new Set());
-    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
     const notifRef = useRef<HTMLDivElement>(null);
 
-    const activeScreen = location.pathname === '/' ? 'dashboard' : (location.pathname.substring(1) || 'dashboard');
-    const unreadCount = Array.isArray(notifications) ? notifications.filter(n => !readIds.has(n.id)).length : 0;
-
-    // Sync with localStorage and HTML class
-    useEffect(() => {
-        localStorage.setItem('theme', darkMode ? 'dark' : 'light');
-        if (darkMode) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-    }, [darkMode]);
-
-    // Fetch notifications on mount and every 30 seconds
     useEffect(() => {
         if (!user?.id) return;
         const fetchNotifs = async () => {
@@ -51,76 +87,198 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                 const res = await api.get('/luxury/notifications');
                 const data = res.data?.data ?? res.data;
                 setNotifications(Array.isArray(data) ? data : []);
-            } catch (_) {
-                setNotifications([]);
-            }
+            } catch { setNotifications([]); }
         };
         fetchNotifs();
-        const interval = setInterval(fetchNotifs, 30000);
-        return () => clearInterval(interval);
+        const iv = setInterval(fetchNotifs, 30000);
+        return () => clearInterval(iv);
     }, [user?.id]);
 
-    // Close on outside click
     useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        const h = (e: MouseEvent) => {
+            if (notifRef.current && !notifRef.current.contains(e.target as Node))
                 setShowNotifs(false);
-            }
         };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
+        document.addEventListener('mousedown', h);
+        return () => document.removeEventListener('mousedown', h);
     }, []);
 
-    const handleBellClick = () => {
-        setShowNotifs(prev => !prev);
-        if (!showNotifs) {
-            setReadIds(new Set(notifications.map(n => n.id)));
+    const unreadCount = notifications.filter(n => !readIds.has(n.id)).length;
+    const handleBell = () => {
+        setShowNotifs(p => !p);
+        if (!showNotifs) setReadIds(new Set(notifications.map(n => n.id)));
+    };
+    const formatDate = (d: string) =>
+        new Date(d).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const typeColor = (t: string) =>
+        t === 'success' ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+            : t === 'reminder' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                : 'bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400';
+
+    // ── Tab routing ──────────────────────────────────────────────────────────
+    const tabIdx = TABS.findIndex(t => t.path === location.pathname);
+    const isTabRoute = tabIdx !== -1;
+
+    const activeRef = useRef(Math.max(0, tabIdx));
+    const [activeTab, setActiveTab] = useState(Math.max(0, tabIdx));
+
+    // ── Slider ref ───────────────────────────────────────────────────────────
+    const sliderRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    const applyTranslate = (idx: number, animated: boolean) => {
+        const el = sliderRef.current;
+        if (!el) return;
+        el.style.transition = animated
+            ? 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
+            : 'none';
+        el.style.transform = `translateX(-${idx * (100 / N)}%)`;
+    };
+
+    // Initial position (no animation)
+    useEffect(() => {
+        if (isTabRoute) applyTranslate(activeRef.current, false);
+    }, []); // eslint-disable-line
+
+    // Sync when URL changes (back button, external navigate)
+    useEffect(() => {
+        const idx = TABS.findIndex(t => t.path === location.pathname);
+        if (idx !== -1 && idx !== activeRef.current) {
+            activeRef.current = idx;
+            setActiveTab(idx);
+            applyTranslate(idx, true);
+        }
+    }, [location.pathname]); // eslint-disable-line
+
+    const goToTab = (idx: number) => {
+        if (idx < 0 || idx >= N) return;
+        activeRef.current = idx;
+        setActiveTab(idx);
+        applyTranslate(idx, true);
+        navigate(TABS[idx].path, { replace: true });
+    };
+
+    // ── Touch state ──────────────────────────────────────────────────────────
+    const touchStartX = useRef(0);
+    const touchStartY = useRef(0);
+    const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
+    const isDragging = useRef(false);
+
+    // iOS requires non-passive touchmove listener to call preventDefault
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const onMove = (e: TouchEvent) => {
+            if (directionLocked.current === 'horizontal') e.preventDefault();
+        };
+        el.addEventListener('touchmove', onMove, { passive: false });
+        return () => el.removeEventListener('touchmove', onMove);
+    }, []);
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if (!isTabRoute) return;
+        touchStartX.current = e.touches[0].clientX;
+        touchStartY.current = e.touches[0].clientY;
+        directionLocked.current = null;
+        isDragging.current = true;
+        applyTranslate(activeRef.current, false); // kill any running transition
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (!isTabRoute || !isDragging.current) return;
+        const diffX = e.touches[0].clientX - touchStartX.current;
+        const diffY = e.touches[0].clientY - touchStartY.current;
+
+        if (!directionLocked.current && (Math.abs(diffX) > 10 || Math.abs(diffY) > 10)) {
+            directionLocked.current = Math.abs(diffX) > Math.abs(diffY) ? 'horizontal' : 'vertical';
+        }
+        if (directionLocked.current !== 'horizontal') return;
+
+        const idx = activeRef.current;
+        const base = idx * (100 / N);
+        // Elastic resistance at edges
+        const adj = (idx === 0 && diffX > 0) || (idx === N - 1 && diffX < 0)
+            ? diffX * 0.25
+            : diffX;
+
+        if (sliderRef.current) {
+            sliderRef.current.style.transition = 'none';
+            sliderRef.current.style.transform = `translateX(calc(-${base}% + ${adj}px))`;
         }
     };
 
-    const formatDate = (dateStr: string) => {
-        const d = new Date(dateStr);
-        return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (!isTabRoute || !isDragging.current) return;
+        isDragging.current = false;
+
+        if (directionLocked.current !== 'horizontal') {
+            directionLocked.current = null;
+            return;
+        }
+        directionLocked.current = null;
+
+        const diffX = e.changedTouches[0].clientX - touchStartX.current;
+        const idx = activeRef.current;
+
+        if (Math.abs(diffX) >= MIN_SWIPE) {
+            goToTab(diffX < 0 ? Math.min(idx + 1, N - 1) : Math.max(idx - 1, 0));
+        } else {
+            applyTranslate(idx, true); // snap back
+        }
     };
 
-    const typeColor = (type: string) => {
-        if (type === 'success') return 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400';
-        if (type === 'reminder') return 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400';
-        return 'bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400';
+    const handleTouchCancel = () => {
+        isDragging.current = false;
+        directionLocked.current = null;
+        applyTranslate(activeRef.current, true);
     };
 
+    // ── Render individual tab panel ──────────────────────────────────────────
+    const renderPanel = (path: string) => {
+        const noop = () => { };
+        const logout = onLogout || noop;
+        const update = onUpdate || noop;
+        const booked = onBookingComplete || noop;
+
+        if (!isEmployee) {
+            if (path === '/') return <Dashboard user={user} />;
+            if (path === '/booking') return <Booking user={user} onBookingComplete={booked} />;
+            if (path === '/qr') return <QRPass user={user} />;
+            if (path === '/planes') return <Planes user={user} />;
+            if (path === '/perfil') return <Profile user={user} onLogout={logout} onUpdate={update} />;
+        } else {
+            if (path === '/') return <DashboardEmpleado user={user} />;
+            if (path === '/scan') return <EmpleadoScanner user={user} />;
+            if (path === '/historial') return <HistorialEmpleado user={user} />;
+            if (path === '/perfil') return <Profile user={user} onLogout={logout} onUpdate={update} />;
+        }
+        return null;
+    };
+
+    // ── Layout ───────────────────────────────────────────────────────────────
     return (
-        <div className={`min-h-screen transition-colors duration-500 pb-24 ${darkMode ? 'dark bg-[#0f172a]' : 'bg-background'}`}>
-            {/* Top Navigation Bar */}
-            <header className={`fixed top-0 w-full z-50 px-4 py-3 border-b transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/80 border-slate-800' : 'bg-white/80 border-slate-100'
-                } backdrop-blur-xl`}>
+        <div className={`h-[100dvh] flex flex-col transition-colors duration-500 overflow-hidden ${darkMode ? 'dark bg-[#0f172a]' : 'bg-background'}`}>
+
+            {/* ── Header ── */}
+            <header className={`flex-shrink-0 z-50 px-4 py-3 border-b transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/90 border-slate-800' : 'bg-white/90 border-slate-100'} backdrop-blur-xl`}>
                 <div className="max-w-md mx-auto flex justify-between items-center">
                     <div className="flex items-center gap-3">
-                        {activeScreen !== 'dashboard' && (
+                        {!isTabRoute && (
                             <button
-                                onClick={() => {
-                                    const isEmployee = user?.role === 'Empleado' || user?.role === 'EMPLOYEE';
-                                    navigate(isEmployee ? '/employee' : '/');
-                                }}
-                                className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'
-                                    }`}
+                                onClick={() => navigate(isEmployee ? '/' : '/')}
+                                className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'}`}
                             >
                                 <ArrowLeft size={18} />
                             </button>
                         )}
                         <div className="flex items-center gap-2">
-                            <div className={`w-8 h-8 rounded-full overflow-hidden border-2 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-primary-container border-white'
-                                }`}>
+                            <div className={`w-8 h-8 rounded-full overflow-hidden border-2 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-primary-container border-white'}`}>
                                 <img
-                                    src={user?.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100"}
+                                    src={user?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100'}
                                     alt="Profile"
                                     className="w-full h-full object-cover"
                                     referrerPolicy="no-referrer"
                                 />
-                            </div>
-                            <div className="hidden md:block">
-                                <p className={`text-[9px] font-bold tracking-widest uppercase ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Estado del Miembro</p>
-                                <p className={`text-xs font-bold ${darkMode ? 'text-blue-400' : 'text-primary'}`}>{user?.role || "VIP de Lujo"}</p>
                             </div>
                         </div>
                     </div>
@@ -128,18 +286,16 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                     <h1 className={`text-lg font-black tracking-tighter italic font-headline ${darkMode ? 'text-blue-400' : 'text-primary'}`}>LUXURY GARAGE</h1>
 
                     <div className="flex items-center gap-2">
-                        {/* Theme Toggle */}
                         <button
-                            onClick={() => setDarkMode(!darkMode)}
+                            onClick={() => setDarkMode(d => !d)}
                             className={`p-1.5 transition-colors rounded-full ${darkMode ? 'text-amber-400 hover:bg-slate-800' : 'text-slate-400 hover:bg-slate-100'}`}
                         >
                             {darkMode ? <Sun size={18} /> : <Moon size={18} />}
                         </button>
 
-                        {/* Bell with notification panel */}
                         <div className="relative" ref={notifRef}>
                             <button
-                                onClick={handleBellClick}
+                                onClick={handleBell}
                                 className={`p-1.5 transition-colors relative ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-primary'}`}
                             >
                                 <Bell size={18} />
@@ -150,7 +306,6 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                                 )}
                             </button>
 
-                            {/* Notification Dropdown */}
                             <AnimatePresence>
                                 {showNotifs && (
                                     <motion.div
@@ -158,16 +313,12 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                                         animate={{ opacity: 1, y: 0, scale: 1 }}
                                         exit={{ opacity: 0, y: 6, scale: 0.97 }}
                                         transition={{ duration: 0.15 }}
-                                        className={`absolute right-0 top-10 w-80 rounded-3xl shadow-2xl border z-[200] overflow-hidden ${darkMode ? 'bg-[#1e293b] border-slate-700' : 'bg-white border-slate-100'
-                                            }`}
+                                        className={`absolute right-0 top-10 w-80 rounded-3xl shadow-2xl border z-[200] overflow-hidden ${darkMode ? 'bg-[#1e293b] border-slate-700' : 'bg-white border-slate-100'}`}
                                     >
                                         <div className={`flex items-center justify-between px-4 py-3 border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'}`}>
                                             <h3 className={`font-black text-sm ${darkMode ? 'text-white' : 'text-slate-900'}`}>Notificaciones</h3>
-                                            <button onClick={() => setShowNotifs(false)} className="text-slate-300 hover:text-slate-500">
-                                                <X size={16} />
-                                            </button>
+                                            <button onClick={() => setShowNotifs(false)} className="text-slate-300 hover:text-slate-500"><X size={16} /></button>
                                         </div>
-
                                         {notifications.length === 0 ? (
                                             <div className="py-8 text-center">
                                                 <Bell size={28} className={`${darkMode ? 'text-slate-700' : 'text-slate-200'} mx-auto mb-2`} />
@@ -175,9 +326,8 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                                             </div>
                                         ) : (
                                             <div className={`max-h-80 overflow-y-auto divide-y ${darkMode ? 'divide-slate-800' : 'divide-slate-50'}`}>
-                                                {notifications.map((n) => (
-                                                    <div key={n.id} className={`flex items-start gap-3 p-4 transition-colors ${darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'
-                                                        } ${!readIds.has(n.id) ? (darkMode ? 'bg-blue-500/10' : 'bg-primary/2') : ''}`}>
+                                                {notifications.map(n => (
+                                                    <div key={n.id} className={`flex items-start gap-3 p-4 transition-colors ${darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'} ${!readIds.has(n.id) ? (darkMode ? 'bg-blue-500/10' : 'bg-primary/5') : ''}`}>
                                                         <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-sm ${typeColor(n.type)}`}>
                                                             {n.type === 'success' ? '✅' : n.type === 'reminder' ? '⏰' : '🔔'}
                                                         </div>
@@ -186,9 +336,7 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                                                             <p className={`text-[11px] mt-0.5 leading-snug ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{n.body}</p>
                                                             <p className={`text-[9px] mt-1 ${darkMode ? 'text-slate-600' : 'text-slate-300'}`}>{formatDate(n.date)}</p>
                                                         </div>
-                                                        {!readIds.has(n.id) && (
-                                                            <div className="w-2 h-2 bg-primary dark:bg-blue-400 rounded-full shrink-0 mt-1" />
-                                                        )}
+                                                        {!readIds.has(n.id) && <div className="w-2 h-2 bg-primary dark:bg-blue-400 rounded-full shrink-0 mt-1" />}
                                                     </div>
                                                 ))}
                                             </div>
@@ -201,48 +349,83 @@ export default function MainLayout({ children, user: userProp }: MainLayoutProps
                 </div>
             </header>
 
-            {/* Main Content Area */}
-            <main className="pt-16 px-4 max-w-md mx-auto">
-                {children}
-            </main>
+            {/* ── Content ── */}
+            {isTabRoute ? (
+                /* SLIDER MODE */
+                <div
+                    ref={containerRef}
+                    className="flex-1 overflow-hidden relative"
+                    style={{ touchAction: 'pan-y pinch-zoom' }}
+                    onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
+                    onTouchCancel={handleTouchCancel}
+                >
+                    <div
+                        ref={sliderRef}
+                        style={{
+                            display: 'flex',
+                            width: `${N * 100}%`,
+                            height: '100%',
+                            willChange: 'transform',
+                        }}
+                    >
+                        {TABS.map(tab => (
+                            <div
+                                key={tab.path}
+                                style={{
+                                    width: `${100 / N}%`,
+                                    flexShrink: 0,
+                                    height: '100%',
+                                    overflowY: 'auto',
+                                    WebkitOverflowScrolling: 'touch' as any,
+                                    paddingTop: '1rem',
+                                    paddingBottom: '5.5rem',
+                                    paddingLeft: '1rem',
+                                    paddingRight: '1rem',
+                                }}
+                            >
+                                <div className="max-w-md mx-auto">
+                                    {renderPanel(tab.path)}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : (
+                /* NORMAL MODE (billetera, referidos, etc.) */
+                <div className="flex-1 overflow-y-auto px-4 pt-4 pb-28 w-full max-w-md mx-auto">
+                    {children}
+                </div>
+            )}
 
-            {/* Bottom Navigation Bar */}
-            <nav className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 rounded-t-3xl transition-all duration-300 shadow-[0_-8px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'
-                }`}>
-                {(user?.role === 'Empleado' || user?.role === 'EMPLOYEE') ? (
-                    <>
-                        <NavItem active={activeScreen === 'dashboard'} onClick={() => navigate('/employee')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'scan'} onClick={() => navigate('/scan')} icon={<QrCode size={18} />} label="Escanear" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'historial'} onClick={() => navigate('/historial')} icon={<History size={18} />} label="Historial" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'perfil'} onClick={() => navigate('/perfil')} icon={<User size={18} />} label="Perfil" darkMode={darkMode} />
-                    </>
-                ) : (
-                    <>
-                        <NavItem active={activeScreen === 'dashboard'} onClick={() => navigate('/')} icon={<Home size={18} />} label="Inicio" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'booking'} onClick={() => navigate('/booking')} icon={<Calendar size={18} />} label="Reserva" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'qr'} onClick={() => navigate('/qr')} icon={<QrCode size={18} />} label="QR" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'planes'} onClick={() => navigate('/planes')} icon={<CreditCard size={18} />} label="Planes" darkMode={darkMode} />
-                        <NavItem active={activeScreen === 'perfil'} onClick={() => navigate('/perfil')} icon={<User size={18} />} label="Perfil" darkMode={darkMode} />
-                    </>
-                )}
+            {/* ── Bottom Nav ── */}
+            <nav className={`flex-shrink-0 w-full max-w-md mx-auto flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'}`}>
+                {TABS.map((tab, idx) => (
+                    <NavItem
+                        key={tab.path}
+                        active={activeTab === idx}
+                        onClick={() => goToTab(idx)}
+                        icon={<tab.Icon size={18} />}
+                        label={tab.label}
+                        darkMode={darkMode}
+                    />
+                ))}
             </nav>
         </div>
     );
 }
 
-function NavItem({ active, onClick, icon, label, darkMode }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, darkMode: boolean }) {
+// ── NavItem ────────────────────────────────────────────────────────────────
+function NavItem({ active, onClick, icon, label, darkMode }: {
+    active: boolean; onClick: () => void; icon: React.ReactNode; label: string; darkMode: boolean;
+}) {
     return (
         <button
             onClick={onClick}
-            className={`flex flex-col items-center justify-center transition-all duration-300 active:scale-95 group ${active
-                ? (darkMode ? 'text-blue-400 scale-105' : 'text-primary scale-105')
-                : 'text-slate-400 hover:text-slate-600'
-                }`}
+            className={`flex flex-col items-center justify-center transition-all duration-300 active:scale-95 group ${active ? (darkMode ? 'text-blue-400 scale-105' : 'text-primary scale-105') : 'text-slate-400 hover:text-slate-600'}`}
         >
-            <div className={`p-1.5 rounded-xl transition-all duration-300 ${active
-                ? (darkMode ? 'bg-blue-500/10' : 'bg-primary/10')
-                : (darkMode ? 'group-hover:bg-slate-800' : 'group-hover:bg-slate-50')
-                }`}>
+            <div className={`p-1.5 rounded-xl transition-all duration-300 ${active ? (darkMode ? 'bg-blue-500/10' : 'bg-primary/10') : (darkMode ? 'group-hover:bg-slate-800' : 'group-hover:bg-slate-50')}`}>
                 {icon}
             </div>
             <span className={`text-[8px] font-bold uppercase tracking-widest mt-0.5 transition-opacity ${active ? 'opacity-100' : 'opacity-50'}`}>{label}</span>
