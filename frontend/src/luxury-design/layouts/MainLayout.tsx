@@ -109,22 +109,38 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const touchStartX = useRef(0);
     const touchStartY = useRef(0);
     const touchStartTime = useRef(0);
+    const inHScroll = useRef(false); // true if touch started inside horizontal scroll
 
     const handleTouchStart = (e: React.TouchEvent) => {
         touchStartX.current = e.touches[0].clientX;
         touchStartY.current = e.touches[0].clientY;
         touchStartTime.current = Date.now();
+
+        // Walk up the DOM: if any ancestor has overflow-x scroll/auto AND is actually scrollable → skip
+        let el = e.target as HTMLElement | null;
+        let found = false;
+        for (let i = 0; i < 10 && el && el !== e.currentTarget as any; i++) {
+            const ox = window.getComputedStyle(el).overflowX;
+            if ((ox === 'auto' || ox === 'scroll') && el.scrollWidth > el.clientWidth) {
+                found = true;
+                break;
+            }
+            el = el.parentElement;
+        }
+        inHScroll.current = found;
     };
 
     const handleTouchEnd = (e: React.TouchEvent) => {
         if (!isTabRoute) return;
+        if (inHScroll.current) return; // let the inner carousel handle it
+
         const diffX = e.changedTouches[0].clientX - touchStartX.current;
         const diffY = e.changedTouches[0].clientY - touchStartY.current;
         const elapsed = Date.now() - touchStartTime.current;
 
-        if (Math.abs(diffY) > MAX_SWIPE_Y) return;   // mostly vertical → ignore
-        if (Math.abs(diffX) < MIN_SWIPE) return;   // too short
-        if (elapsed > 500) return;   // too slow
+        if (Math.abs(diffY) > MAX_SWIPE_Y) return;
+        if (Math.abs(diffX) < MIN_SWIPE) return;
+        if (elapsed > 500) return;
 
         const nextIdx = diffX < 0
             ? Math.min(currentIdx + 1, TABS.length - 1)
