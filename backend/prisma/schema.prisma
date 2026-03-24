@@ -71,6 +71,8 @@ model Membership {
   user                 User             @relation(fields: [userId], references: [id])
   payments             Payment[]
 
+  @@index([userId])
+  @@index([status])
   @@map("memberships")
 }
 
@@ -90,6 +92,7 @@ model Vehicle {
   appointments Appointment[]
   user         User          @relation(fields: [userId], references: [id])
 
+  @@index([userId])
   @@map("vehicles")
 }
 
@@ -132,6 +135,9 @@ model Appointment {
   vehicle             Vehicle           @relation(fields: [vehicleId], references: [id])
   serviceRecord       ServiceRecord?
 
+  @@index([userId])
+  @@index([userId, startTime])
+  @@index([status])
   @@map("appointments")
 }
 
@@ -195,6 +201,7 @@ model Credit {
   createdAt   DateTime  @default(now()) @map("created_at")
   user        User      @relation(fields: [userId], references: [id])
 
+  @@index([userId])
   @@map("credits")
 }
 
@@ -212,6 +219,8 @@ model Payment {
   membership          Membership?   @relation(fields: [membershipId], references: [id])
   user                User          @relation(fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([membershipId])
   @@map("payments")
 }
 
@@ -258,6 +267,8 @@ model Notification {
   createdAt DateTime  @default(now()) @map("created_at")
   user      User      @relation(fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([userId, isRead])
   @@map("notifications")
 }
 
