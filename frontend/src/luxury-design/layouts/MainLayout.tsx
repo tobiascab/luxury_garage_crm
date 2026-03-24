@@ -1,20 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-    Home, Calendar, QrCode, CreditCard, User,
-    Bell, ArrowLeft, X, Moon, Sun, History
-} from 'lucide-react';
+import { Home, Calendar, QrCode, CreditCard, User, Bell, ArrowLeft, X, Moon, Sun, History } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// ── Page imports for slider ────────────────────────────────────────────────
-import Dashboard from '../pages/Dashboard';
-import Booking from '../pages/Booking';
-import QRPass from '../pages/QRPass';
-import Planes from '../pages/Planes';
-import Profile from '../pages/Profile';
-import DashboardEmpleado from '../pages/DashboardEmpleado';
-import EmpleadoScanner from '../pages/EmpleadoScanner';
-import HistorialEmpleado from '../pages/HistorialEmpleado';
 
 import api from '../../services/api';
 import { useLuxuryUser } from '../context/LuxuryUserContext';
@@ -30,45 +17,44 @@ interface Notification {
 }
 
 interface MainLayoutProps {
-    children?: React.ReactNode; // <Outlet /> from App.jsx — used for non-tab routes
+    children?: React.ReactNode;
 }
 
 // ── Tab definitions ────────────────────────────────────────────────────────
-const CLIENT_TABS = [
-    { path: '/', Icon: Home, label: 'Inicio' },
-    { path: '/booking', Icon: Calendar, label: 'Reserva' },
-    { path: '/qr', Icon: QrCode, label: 'QR' },
-    { path: '/planes', Icon: CreditCard, label: 'Planes' },
-    { path: '/perfil', Icon: User, label: 'Perfil' },
+const CLIENT_TABS = ['/', '/booking', '/qr', '/planes', '/perfil'];
+const EMPLOYEE_TABS = ['/', '/scan', '/historial', '/perfil'];
+
+const NAV_CLIENT: { path: string; Icon: any; label: string }[] = [
+    { path: '/', Icon: require('lucide-react').Home, label: 'Inicio' },
+    { path: '/booking', Icon: require('lucide-react').Calendar, label: 'Reserva' },
+    { path: '/qr', Icon: require('lucide-react').QrCode, label: 'QR' },
+    { path: '/planes', Icon: require('lucide-react').CreditCard, label: 'Planes' },
+    { path: '/perfil', Icon: require('lucide-react').User, label: 'Perfil' },
 ];
 
-const EMPLOYEE_TABS = [
-    { path: '/', Icon: Home, label: 'Inicio' },
-    { path: '/scan', Icon: QrCode, label: 'Escanear' },
-    { path: '/historial', Icon: History, label: 'Historial' },
-    { path: '/perfil', Icon: User, label: 'Perfil' },
+const NAV_EMPLOYEE: { path: string; Icon: any; label: string }[] = [
+    { path: '/', Icon: require('lucide-react').Home, label: 'Inicio' },
+    { path: '/scan', Icon: require('lucide-react').QrCode, label: 'Escanear' },
+    { path: '/historial', Icon: require('lucide-react').History, label: 'Historial' },
+    { path: '/perfil', Icon: require('lucide-react').User, label: 'Perfil' },
 ];
 
-const MIN_SWIPE = 40;
+const MIN_SWIPE = 50;   // px to trigger navigation
+const MAX_SWIPE_Y = 60;   // if vertical drag > this, ignore horizontal
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function MainLayout({ children }: MainLayoutProps) {
-    // ── Auth & user from context (LuxuryUserProvider wraps this in App.jsx) ─
     const { fullUser, loading: userLoading, refreshProfile } = useLuxuryUser();
     const { logout } = useAuth();
-    const user = fullUser;
-
     const navigate = useNavigate();
     const location = useLocation();
 
-    const isEmployee = user?.role === 'Empleado' || user?.role === 'EMPLOYEE';
+    const isEmployee = fullUser?.role === 'Empleado' || fullUser?.role === 'EMPLOYEE';
     const TABS = isEmployee ? EMPLOYEE_TABS : CLIENT_TABS;
-    const N = TABS.length;
+    const NAV_ITEMS = isEmployee ? NAV_EMPLOYEE : NAV_CLIENT;
 
-    // Determine initial tab index from current URL
-    const getTabIdx = (tabs: typeof CLIENT_TABS) => Math.max(0, tabs.findIndex(t => t.path === location.pathname));
-    const initialIdx = getTabIdx(isEmployee ? EMPLOYEE_TABS : CLIENT_TABS);
-
+    const currentIdx = TABS.indexOf(location.pathname);
+    const isTabRoute = currentIdx !== -1;
 
     // ── Dark mode ─────────────────────────────────────────────────────────────
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
@@ -84,23 +70,22 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const notifRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!user?.id) return;
-        const fetchNotifs = async () => {
+        if (!fullUser?.id) return;
+        const fetch = async () => {
             try {
                 const res = await api.get('/luxury/notifications');
                 const data = res.data?.data ?? res.data;
                 setNotifications(Array.isArray(data) ? data : []);
             } catch { setNotifications([]); }
         };
-        fetchNotifs();
-        const iv = setInterval(fetchNotifs, 30000);
+        fetch();
+        const iv = setInterval(fetch, 30000);
         return () => clearInterval(iv);
-    }, [user?.id]);
+    }, [fullUser?.id]);
 
     useEffect(() => {
         const h = (e: MouseEvent) => {
-            if (notifRef.current && !notifRef.current.contains(e.target as Node))
-                setShowNotifs(false);
+            if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotifs(false);
         };
         document.addEventListener('mousedown', h);
         return () => document.removeEventListener('mousedown', h);
@@ -118,177 +103,82 @@ export default function MainLayout({ children }: MainLayoutProps) {
             : t === 'reminder' ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400'
                 : 'bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400';
 
-    // ── Tab routing ───────────────────────────────────────────────────────────
-    const tabIdx = TABS.findIndex(t => t.path === location.pathname);
-    const isTabRoute = tabIdx !== -1;
-
-    const [activeTab, setActiveTab] = useState(initialIdx);
-
-    // ── Slider ref ────────────────────────────────────────────────────────────
-    const sliderRef = useRef<HTMLDivElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
-
-    // ── Slider style stored in state so initial position is correct on first paint ──
-    const [sliderStyle, setSliderStyle] = useState<React.CSSProperties>({
-        transform: `translateX(calc(-${initialIdx} * 100vw))`,
-        transition: 'none',
-    });
-
-    const applyTranslate = (idx: number, animated: boolean) => {
-        // Use 100vw units — immune to container width issues
-        const transform = `translateX(calc(-${idx} * 100vw))`;
-        const transition = animated ? 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)' : 'none';
-        // Update DOM immediately (no re-render lag)
-        if (sliderRef.current) {
-            sliderRef.current.style.transform = transform;
-            sliderRef.current.style.transition = transition;
-        }
-        // Update state so React re-renders preserve the position
-        setSliderStyle({ transform, transition });
-    };
-
-    // Sync when URL changes (back button, external navigate)
-    useEffect(() => {
-        const idx = TABS.findIndex(t => t.path === location.pathname);
-        if (idx !== -1 && idx !== activeTab) {
-            setActiveTab(idx);
-            activeTabRef.current = idx; // Keep ref in sync
-            applyTranslate(idx, true);
-        }
-    }, [location.pathname, activeTab, TABS]); // eslint-disable-line
-
-    const goToTab = (idx: number) => {
-        if (idx < 0 || idx >= N) return;
-        activeTabRef.current = idx;
-        setActiveTab(idx);
-        applyTranslate(idx, true);
-        navigate(TABS[idx].path, { replace: true });
-    };
-
-    // ── Touch state ──────────────────────────────────────────────────────────
-    const activeTabRef = useRef(initialIdx);  // kept in sync with activeTab, safe in touch closures
+    // ── Swipe navigation (Option A — navigate + slide animation) ──────────────
     const touchStartX = useRef(0);
     const touchStartY = useRef(0);
-    const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
+    const touchStartTime = useRef(0);
     const isDragging = useRef(false);
-
-
-    // Non-passive listener so we can preventDefault on horizontal swipe (iOS fix)
-    useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
-        const onMove = (e: TouchEvent) => {
-            if (directionLocked.current === 'horizontal') e.preventDefault();
-        };
-        el.addEventListener('touchmove', onMove, { passive: false });
-        return () => el.removeEventListener('touchmove', onMove);
-    }, []);
 
     const handleTouchStart = (e: React.TouchEvent) => {
         if (!isTabRoute) return;
         touchStartX.current = e.touches[0].clientX;
         touchStartY.current = e.touches[0].clientY;
-        directionLocked.current = null;
+        touchStartTime.current = Date.now();
         isDragging.current = true;
-        // kill any running transition so drag follows finger precisely
-        applyTranslate(activeTabRef.current, false);
-    };
-
-
-    const handleTouchMove = (e: React.TouchEvent) => {
-        if (!isTabRoute || !isDragging.current) return;
-        const diffX = e.touches[0].clientX - touchStartX.current;
-        const diffY = e.touches[0].clientY - touchStartY.current;
-
-        if (!directionLocked.current && (Math.abs(diffX) > 10 || Math.abs(diffY) > 10)) {
-            directionLocked.current = Math.abs(diffX) > Math.abs(diffY) ? 'horizontal' : 'vertical';
-        }
-        if (directionLocked.current !== 'horizontal') return;
-
-        const idx = activeTabRef.current;
-        // Use 100vw base + pixel drag offset
-        const adj = (idx === 0 && diffX > 0) || (idx === N - 1 && diffX < 0)
-            ? diffX * 0.25
-            : diffX;
-
-        if (sliderRef.current) {
-            sliderRef.current.style.transition = 'none';
-            sliderRef.current.style.transform = `translateX(calc(-${idx} * 100vw + ${adj}px))`;
-        }
     };
 
     const handleTouchEnd = (e: React.TouchEvent) => {
         if (!isTabRoute || !isDragging.current) return;
         isDragging.current = false;
-        if (directionLocked.current !== 'horizontal') { directionLocked.current = null; return; }
-        directionLocked.current = null;
 
         const diffX = e.changedTouches[0].clientX - touchStartX.current;
-        const idx = activeTabRef.current;
-        if (Math.abs(diffX) >= MIN_SWIPE) {
-            goToTab(diffX < 0 ? Math.min(idx + 1, N - 1) : Math.max(idx - 1, 0));
-        } else {
-            applyTranslate(idx, true);
+        const diffY = e.changedTouches[0].clientY - touchStartY.current;
+        const elapsed = Date.now() - touchStartTime.current;
+
+        // Only register fast, mostly-horizontal swipes
+        if (Math.abs(diffY) > MAX_SWIPE_Y || elapsed > 500) return;
+        if (Math.abs(diffX) < MIN_SWIPE) return;
+
+        const nextIdx = diffX < 0
+            ? Math.min(currentIdx + 1, TABS.length - 1)
+            : Math.max(currentIdx - 1, 0);
+
+        if (nextIdx !== currentIdx) {
+            setSwipeDir(diffX < 0 ? 'left' : 'right');
+            navigate(TABS[nextIdx]);
         }
     };
 
-    const handleTouchCancel = () => {
-        isDragging.current = false;
-        directionLocked.current = null;
-        applyTranslate(activeTabRef.current, true);
+    // ── Slide animation direction ─────────────────────────────────────────────
+    const [swipeDir, setSwipeDir] = useState<'left' | 'right' | null>(null);
+
+    const variants = {
+        enter: (dir: 'left' | 'right' | null) => ({ x: dir === 'left' ? '100%' : dir === 'right' ? '-100%' : 0, opacity: 0 }),
+        center: { x: 0, opacity: 1 },
+        exit: (dir: 'left' | 'right' | null) => ({ x: dir === 'left' ? '-100%' : dir === 'right' ? '100%' : 0, opacity: 0 }),
     };
 
+    // Reset swipeDir after navigation so nav clicks animate from center
+    useEffect(() => {
+        const timer = setTimeout(() => setSwipeDir(null), 350);
+        return () => clearTimeout(timer);
+    }, [location.pathname]);
 
-    // ── Render individual tab panel ───────────────────────────────────────────
-    const renderPanel = (path: string) => {
-        if (userLoading || !user) return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <div className="flex flex-col items-center gap-3">
-                    <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Cargando…</p>
-                </div>
-            </div>
-        );
-
-        const noop = () => { };
-        const logoutFn = logout || noop;
-        const updateFn = refreshProfile || noop;
-        const bookedFn = refreshProfile || noop;
-
-        if (!isEmployee) {
-            if (path === '/') return <Dashboard user={user} />;
-            if (path === '/booking') return <Booking user={user} onBookingComplete={bookedFn} />;
-            if (path === '/qr') return <QRPass user={user} />;
-            if (path === '/planes') return <Planes user={user} />;
-            if (path === '/perfil') return <Profile user={user} onLogout={logoutFn} onUpdate={updateFn} />;
-        } else {
-            if (path === '/') return <DashboardEmpleado user={user} />;
-            if (path === '/scan') return <EmpleadoScanner user={user} />;
-            if (path === '/historial') return <HistorialEmpleado user={user} />;
-            if (path === '/perfil') return <Profile user={user} onLogout={logoutFn} onUpdate={updateFn} />;
+    // Nav click: determine direction relative to current tab
+    const goTo = (path: string) => {
+        const nextIdx = TABS.indexOf(path);
+        if (nextIdx !== -1 && nextIdx !== currentIdx) {
+            setSwipeDir(nextIdx > currentIdx ? 'left' : 'right');
         }
-        return null;
+        navigate(path);
     };
 
-    // ── Layout ────────────────────────────────────────────────────────────────
+    // ── Render ────────────────────────────────────────────────────────────────
     return (
-        <div className={`h-[100dvh] flex flex-col transition-colors duration-500 overflow-hidden ${darkMode ? 'dark bg-[#0f172a]' : 'bg-background'}`}>
+        <div className={`min-h-screen transition-colors duration-500 ${darkMode ? 'dark bg-[#0f172a]' : 'bg-background'}`}>
 
             {/* ── Header ── */}
-            <header className={`flex-shrink-0 z-50 px-4 py-3 border-b transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/90 border-slate-800' : 'bg-white/90 border-slate-100'} backdrop-blur-xl`}>
+            <header className={`fixed top-0 w-full z-50 px-4 py-3 border-b transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/80 border-slate-800' : 'bg-white/80 border-slate-100'} backdrop-blur-xl`}>
                 <div className="max-w-md mx-auto flex justify-between items-center">
                     <div className="flex items-center gap-3">
                         {!isTabRoute && (
-                            <button
-                                onClick={() => navigate('/')}
-                                className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'}`}
-                            >
+                            <button onClick={() => navigate('/')} className={`p-1.5 rounded-full transition-colors active:scale-90 ${darkMode ? 'hover:bg-slate-800 text-blue-400' : 'hover:bg-slate-100 text-primary'}`}>
                                 <ArrowLeft size={18} />
                             </button>
                         )}
                         <div className={`w-8 h-8 rounded-full overflow-hidden border-2 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-primary-container border-white'}`}>
                             <img
-                                src={user?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100'}
+                                src={fullUser?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100'}
                                 alt="Profile"
                                 className="w-full h-full object-cover"
                                 referrerPolicy="no-referrer"
@@ -299,10 +189,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                     <h1 className={`text-lg font-black tracking-tighter italic font-headline ${darkMode ? 'text-blue-400' : 'text-primary'}`}>LUXURY GARAGE</h1>
 
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => setDarkMode(d => !d)}
-                            className={`p-1.5 transition-colors rounded-full ${darkMode ? 'text-amber-400 hover:bg-slate-800' : 'text-slate-400 hover:bg-slate-100'}`}
-                        >
+                        <button onClick={() => setDarkMode(d => !d)} className={`p-1.5 transition-colors rounded-full ${darkMode ? 'text-amber-400 hover:bg-slate-800' : 'text-slate-400 hover:bg-slate-100'}`}>
                             {darkMode ? <Sun size={18} /> : <Moon size={18} />}
                         </button>
 
@@ -310,9 +197,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                             <button onClick={handleBell} className={`p-1.5 transition-colors relative ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-primary'}`}>
                                 <Bell size={18} />
                                 {unreadCount > 0 && (
-                                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border border-white">
-                                        {unreadCount}
-                                    </span>
+                                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border border-white">{unreadCount}</span>
                                 )}
                             </button>
 
@@ -359,60 +244,39 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 </div>
             </header>
 
-            {/* ── Content ── */}
-            {isTabRoute ? (
-                /* SLIDER MODE — each panel is exactly 100vw wide (no %-of-container issues) */
-                <div
-                    ref={containerRef}
-                    className="flex-1 overflow-hidden relative"
-                    style={{ touchAction: 'pan-y pinch-zoom', width: '100vw' }}
-                    onTouchStart={handleTouchStart}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={handleTouchEnd}
-                    onTouchCancel={handleTouchCancel}
-                >
-                    <div
-                        ref={sliderRef}
-                        style={{ display: 'flex', height: '100%', willChange: 'transform', ...sliderStyle }}
-                    >
-                        {TABS.map(tab => (
-                            <div
-                                key={tab.path}
-                                style={{
-                                    width: '100vw',          // ← fixed viewport width, not % of slider
-                                    flexShrink: 0,
-                                    height: '100%',
-                                    overflowY: 'auto',
-                                    WebkitOverflowScrolling: 'touch' as any,
-                                    paddingTop: '1rem',
-                                    paddingBottom: '5.5rem',
-                                    paddingLeft: '1rem',
-                                    paddingRight: '1rem',
-                                }}
-                            >
-                                <div className="max-w-md mx-auto">
-                                    {renderPanel(tab.path)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+            {/* ── Main Content — with swipe capture ── */}
+            <main
+                className="pt-16 pb-24"
+                onTouchStart={handleTouchStart}
+                onTouchEnd={handleTouchEnd}
+            >
+                <div className="px-4 max-w-md mx-auto">
+                    <AnimatePresence mode="wait" custom={swipeDir}>
+                        <motion.div
+                            key={location.pathname}
+                            custom={swipeDir}
+                            variants={variants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                            className="w-full"
+                        >
+                            {children}
+                        </motion.div>
+                    </AnimatePresence>
                 </div>
-            ) : (
-                /* NORMAL MODE — non-tab routes (billetera, referidos, etc.) via <Outlet /> */
-                <div className="flex-1 overflow-y-auto px-4 pt-4 pb-28 w-full max-w-md mx-auto">
-                    {children}
-                </div>
-            )}
+            </main>
 
-            {/* ── Bottom Nav ── */}
-            <nav className={`flex-shrink-0 w-full max-w-md mx-auto flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 transition-all duration-300 shadow-[0_-4px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'}`}>
-                {TABS.map((tab, idx) => (
+            {/* ── Bottom Navigation ── */}
+            <nav className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 rounded-t-3xl transition-all duration-300 shadow-[0_-8px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'}`}>
+                {NAV_ITEMS.map((item, idx) => (
                     <NavItem
-                        key={tab.path}
-                        active={activeTab === idx}
-                        onClick={() => goToTab(idx)}
-                        icon={<tab.Icon size={18} />}
-                        label={tab.label}
+                        key={item.path}
+                        active={location.pathname === item.path}
+                        onClick={() => goTo(item.path)}
+                        icon={<item.Icon size={18} />}
+                        label={item.label}
                         darkMode={darkMode}
                     />
                 ))}
