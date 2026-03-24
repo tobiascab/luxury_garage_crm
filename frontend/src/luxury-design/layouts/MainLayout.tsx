@@ -130,12 +130,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
     // ── Slider style stored in state so initial position is correct on first paint ──
     const [sliderStyle, setSliderStyle] = useState<React.CSSProperties>({
-        transform: `translateX(-${initialIdx * (100 / N)}%)`,
+        transform: `translateX(calc(-${initialIdx} * 100vw))`,
         transition: 'none',
     });
 
     const applyTranslate = (idx: number, animated: boolean) => {
-        const transform = `translateX(-${idx * (100 / N)}%)`;
+        // Use 100vw units — immune to container width issues
+        const transform = `translateX(calc(-${idx} * 100vw))`;
         const transition = animated ? 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)' : 'none';
         // Update DOM immediately (no re-render lag)
         if (sliderRef.current) {
@@ -205,15 +206,14 @@ export default function MainLayout({ children }: MainLayoutProps) {
         if (directionLocked.current !== 'horizontal') return;
 
         const idx = activeTabRef.current;
-
-        const base = idx * (100 / N);
+        // Use 100vw base + pixel drag offset
         const adj = (idx === 0 && diffX > 0) || (idx === N - 1 && diffX < 0)
             ? diffX * 0.25
             : diffX;
 
         if (sliderRef.current) {
             sliderRef.current.style.transition = 'none';
-            sliderRef.current.style.transform = `translateX(calc(-${base}% + ${adj}px))`;
+            sliderRef.current.style.transform = `translateX(calc(-${idx} * 100vw + ${adj}px))`;
         }
     };
 
@@ -361,11 +361,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
             {/* ── Content ── */}
             {isTabRoute ? (
-                /* SLIDER MODE — all tab pages side by side */
+                /* SLIDER MODE — each panel is exactly 100vw wide (no %-of-container issues) */
                 <div
                     ref={containerRef}
                     className="flex-1 overflow-hidden relative"
-                    style={{ touchAction: 'pan-y pinch-zoom' }}
+                    style={{ touchAction: 'pan-y pinch-zoom', width: '100vw' }}
                     onTouchStart={handleTouchStart}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={handleTouchEnd}
@@ -373,14 +373,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 >
                     <div
                         ref={sliderRef}
-                        style={{ display: 'flex', width: `${N * 100}%`, height: '100%', willChange: 'transform', ...sliderStyle }}
+                        style={{ display: 'flex', height: '100%', willChange: 'transform', ...sliderStyle }}
                     >
-
                         {TABS.map(tab => (
                             <div
                                 key={tab.path}
                                 style={{
-                                    width: `${100 / N}%`,
+                                    width: '100vw',          // ← fixed viewport width, not % of slider
                                     flexShrink: 0,
                                     height: '100%',
                                     overflowY: 'auto',
