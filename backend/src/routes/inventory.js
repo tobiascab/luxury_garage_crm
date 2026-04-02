@@ -1,5 +1,18 @@
 const router = require('express').Router();
+const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
+const { validateBody } = require('../middleware/validate');
+
+// Validación de datos para crear/actualizar insumo
+const inventoryItemSchema = z.object({
+  name: z.string().min(1, 'Nombre requerido'),
+  category: z.string().default('GENERAL'),
+  unit: z.string().default('unidad'),
+  currentStock: z.number().int().nonnegative('Stock no puede ser negativo'),
+  minStockAlert: z.number().int().nonnegative('Alerta debe ser >= 0'),
+  costPerUnit: z.number().nonnegative('Costo debe ser >= 0'),
+  supplier: z.string().optional(),
+});
 
 // GET /api/inventory — listar insumos
 router.get('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
@@ -34,20 +47,17 @@ router.get('/alerts', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (re
 });
 
 // POST /api/inventory — crear insumo
-router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validateBody(inventoryItemSchema), async (req, res, next) => {
   try {
-    const { name, category, unit, currentStock, minStockAlert, costPerUnit, supplier } = req.body;
-    const item = await req.prisma.inventoryItem.create({
-      data: { name, category: category || 'GENERAL', unit: unit || 'unidad', currentStock: currentStock || 0, minStockAlert: minStockAlert || 5, costPerUnit: costPerUnit || 0, supplier: supplier || null },
-    });
+    const item = await req.prisma.inventoryItem.create({ data: req.validatedBody });
     res.status(201).json({ success: true, data: item });
   } catch (err) { next(err); }
 });
 
 // PUT /api/inventory/:id — actualizar insumo
-router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validateBody(inventoryItemSchema.partial()), async (req, res, next) => {
   try {
-    const item = await req.prisma.inventoryItem.update({ where: { id: req.params.id }, data: req.body });
+    const item = await req.prisma.inventoryItem.update({ where: { id: req.params.id }, data: req.validatedBody });
     res.json({ success: true, data: item });
   } catch (err) { next(err); }
 });

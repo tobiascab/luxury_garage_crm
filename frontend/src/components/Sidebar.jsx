@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, Target, Calendar, Sparkles,
   ClipboardList, HardHat, CircleDollarSign, BarChart3,
   Tag, Box, Car, Star, Bell, Settings, ScrollText,
-  Bot, LogOut, Menu, X, ChevronRight, Search
+  Bot, LogOut, Menu, X, ChevronRight, Search, ScanLine
 } from 'lucide-react';
 
 const adminMenu = [
@@ -22,6 +22,7 @@ const adminMenu = [
       { to: '/admin/services', icon: <Sparkles size={18} />, label: 'Servicios' },
       { to: '/admin/plans', icon: <ClipboardList size={18} />, label: 'Planes' },
       { to: '/admin/employees', icon: <HardHat size={18} />, label: 'Empleados' },
+      { to: '/admin/scans', icon: <ScanLine size={18} />, label: 'Escaneos' },
     ]
   },
   {
@@ -39,7 +40,7 @@ const adminMenu = [
       { to: '/admin/notifications', icon: <Bell size={18} />, label: 'Notificaciones' },
       { to: '/admin/settings', icon: <Settings size={18} />, label: 'Configuración' },
       { to: '/admin/logs', icon: <ScrollText size={18} />, label: 'Logs Sistema' },
-      { to: '/admin/crm', icon: <Bot size={18} />, label: 'ARIZAR CRM' },
+      { to: '/admin/crm', icon: <Bell size={18} />, label: 'Avisos Clientes' },
     ]
   },
 ];

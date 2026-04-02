@@ -1,5 +1,22 @@
 const router = require('express').Router();
+const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
+const { validateBody } = require('../middleware/validate');
+
+// Validación de datos para crear/actualizar plan
+const planSchema = z.object({
+  name: z.string().min(1, 'Nombre requerido'),
+  slug: z.string().min(1, 'Slug requerido'),
+  description: z.string().optional(),
+  priceGs: z.number().positive('Precio debe ser positivo'),
+  billingPeriod: z.enum(['monthly', 'quarterly', 'yearly']).default('monthly'),
+  servicesIncluded: z.number().int().nonnegative('Servicios debe ser >= 0'),
+  limitsJson: z.record(z.any()).optional(),
+  discountPercent: z.number().min(0).max(100).default(0),
+  features: z.array(z.string()).optional(),
+  sortOrder: z.number().int().default(0),
+  isActive: z.boolean().default(true),
+});
 
 // GET /api/plans — public
 router.get('/', async (req, res, next) => {
@@ -19,20 +36,17 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // POST /api/plans — admin
-router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validateBody(planSchema), async (req, res, next) => {
   try {
-    const { name, slug, description, priceGs, billingPeriod, servicesIncluded, limitsJson, discountPercent, features, sortOrder } = req.body;
-    const plan = await req.prisma.plan.create({
-      data: { name, slug, description, priceGs, billingPeriod: billingPeriod || 'monthly', servicesIncluded, limitsJson, discountPercent: discountPercent || 0, features, sortOrder: sortOrder || 0 }
-    });
+    const plan = await req.prisma.plan.create({ data: req.validatedBody });
     res.status(201).json({ success: true, data: plan });
   } catch (err) { next(err); }
 });
 
 // PUT /api/plans/:id — admin
-router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validateBody(planSchema.partial()), async (req, res, next) => {
   try {
-    const plan = await req.prisma.plan.update({ where: { id: req.params.id }, data: req.body });
+    const plan = await req.prisma.plan.update({ where: { id: req.params.id }, data: req.validatedBody });
     res.json({ success: true, data: plan });
   } catch (err) { next(err); }
 });

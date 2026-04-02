@@ -1,66 +1,96 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import React, { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 
 import './index.css';
 
-// Auth
+// Auth - Eager loaded (necesario para login)
 import LuxuryLogin from './luxury-design/pages/Login';
 import RegisterPage from './pages/RegisterPage';
 
-// Admin pages (kept as-is)
-import Sidebar from './components/Sidebar';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import MembersManager from './pages/admin/MembersManager';
-import LeadsManager from './pages/admin/LeadsManager';
-import AppointmentsCalendar from './pages/admin/AppointmentsCalendar';
-import ServicesManager from './pages/admin/ServicesManager';
-import PlansManager from './pages/admin/PlansManager';
-import EmployeesManager from './pages/admin/EmployeesManager';
-import FinanceDashboard from './pages/admin/FinanceDashboard';
-import Reports from './pages/admin/Reports';
-import VehiclesAdmin from './pages/admin/VehiclesAdmin';
-import PromotionsManager from './pages/admin/PromotionsManager';
-import ReviewsAdmin from './pages/admin/ReviewsAdmin';
-import InventoryManager from './pages/admin/InventoryManager';
-import SettingsPage from './pages/admin/SettingsPage';
-import AuditLogs from './pages/admin/AuditLogs';
-import ArizarPanel from './pages/admin/ArizarPanel';
-import Notifications from './pages/shared/Notifications';
-
-// Luxury Client & Employee Pages (from LUXURY/src)
+// Luxury Context - Eager loaded (necesario para shell)
 import { LuxuryUserProvider, useLuxuryUser } from './luxury-design/context/LuxuryUserContext';
 import LuxuryLayout from './luxury-design/layouts/MainLayout';
-import LuxuryDashboard from './luxury-design/pages/Dashboard';
-import LuxuryGarage from './luxury-design/pages/Garage';
-import LuxuryQRPass from './luxury-design/pages/QRPass';
-import LuxuryBooking from './luxury-design/pages/Booking';
-import LuxuryPlanes from './luxury-design/pages/Planes';
-import LuxuryProfile from './luxury-design/pages/Profile';
-import LuxuryWallet from './luxury-design/pages/Billetera';
-import LuxuryReferrals from './luxury-design/pages/Referidos';
-import LuxuryExtraServices from './luxury-design/pages/ServiciosExtra';
-import LuxuryEmployeeDashboard from './luxury-design/pages/DashboardEmpleado';
-import LuxuryEmployeeScanner from './luxury-design/pages/EmpleadoScanner';
-import LuxuryEmployeeHistory from './luxury-design/pages/HistorialEmpleado';
+
+// ═══════════════════════════════════════════════════════════════════
+// LAZY LOADED COMPONENTS - Se cargan solo cuando se navega a ellos
+// ═══════════════════════════════════════════════════════════════════
+
+// Admin pages - Lazy
+const Sidebar = lazy(() => import('./components/Sidebar'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const MembersManager = lazy(() => import('./pages/admin/MembersManager'));
+const LeadsManager = lazy(() => import('./pages/admin/LeadsManager'));
+const AppointmentsCalendar = lazy(() => import('./pages/admin/AppointmentsCalendar'));
+const ServicesManager = lazy(() => import('./pages/admin/ServicesManager'));
+const PlansManager = lazy(() => import('./pages/admin/PlansManager'));
+const EmployeesManager = lazy(() => import('./pages/admin/EmployeesManager'));
+const WashScans = lazy(() => import('./pages/admin/WashScans'));
+const FinanceDashboard = lazy(() => import('./pages/admin/FinanceDashboard'));
+const Reports = lazy(() => import('./pages/admin/Reports'));
+const VehiclesAdmin = lazy(() => import('./pages/admin/VehiclesAdmin'));
+const PromotionsManager = lazy(() => import('./pages/admin/PromotionsManager'));
+const ReviewsAdmin = lazy(() => import('./pages/admin/ReviewsAdmin'));
+const InventoryManager = lazy(() => import('./pages/admin/InventoryManager'));
+const SettingsPage = lazy(() => import('./pages/admin/SettingsPage'));
+const AuditLogs = lazy(() => import('./pages/admin/AuditLogs'));
+const ArizarPanel = lazy(() => import('./pages/admin/ArizarPanel'));
+const Notifications = lazy(() => import('./pages/shared/Notifications'));
+
+// Luxury Client & Employee Pages - Lazy
+const LuxuryDashboard = lazy(() => import('./luxury-design/pages/Dashboard'));
+const LuxuryGarage = lazy(() => import('./luxury-design/pages/Garage'));
+const LuxuryQRPass = lazy(() => import('./luxury-design/pages/QRPass'));
+const LuxuryBooking = lazy(() => import('./luxury-design/pages/Booking'));
+const LuxuryPlanes = lazy(() => import('./luxury-design/pages/Planes'));
+const LuxuryProfile = lazy(() => import('./luxury-design/pages/Profile'));
+const LuxuryWallet = lazy(() => import('./luxury-design/pages/Billetera'));
+const LuxuryReferrals = lazy(() => import('./luxury-design/pages/Referidos'));
+const LuxuryExtraServices = lazy(() => import('./luxury-design/pages/ServiciosExtra'));
+const LuxuryEmployeeDashboard = lazy(() => import('./luxury-design/pages/DashboardEmpleado'));
+const LuxuryEmployeeScanner = lazy(() => import('./luxury-design/pages/EmpleadoScanner'));
+const LuxuryEmployeeHistory = lazy(() => import('./luxury-design/pages/HistorialEmpleado'));
+const LuxuryTarjetas = lazy(() => import('./luxury-design/pages/Tarjetas'));
+
+// ═══════════════════════════════════════════════════════════════════
+// Loading Fallback Component
+// ═══════════════════════════════════════════════════════════════════
+function PageLoader() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-400">Cargando…</p>
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────
 // HOC that injects luxury user data into every page component
+// Optimizado: Renderiza el contenido inmediatamente sin bloquear
 // ─────────────────────────────────────────────────────────
 const withLuxury = (Component) => {
   return (props) => {
     const { fullUser, loading, refreshProfile } = useLuxuryUser();
     const { logout } = useAuth();
-    if (loading) {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-          <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-          <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-400 animate-pulse">Cargando…</p>
-        </div>
-      );
+
+    // Solo bloqueamos con el loader de pantalla completa si NO hay datos EN ABSOLUTO
+    // Si loading es true pero ya tenemos fullUser (de la caché), dejamos que renderice
+    if (loading && !fullUser) {
+      return <PageLoader />;
     }
-    return <Component user={fullUser} onLogout={logout} onUpdate={refreshProfile} onBookingComplete={refreshProfile} {...props} />;
+
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Component
+          user={fullUser}
+          onLogout={logout}
+          onUpdate={refreshProfile}
+          onBookingComplete={refreshProfile}
+          {...props}
+        />
+      </Suspense>
+    );
   };
 };
 
@@ -76,6 +106,7 @@ const LExtraServices = withLuxury(LuxuryExtraServices);
 const LEmployeeDash = withLuxury(LuxuryEmployeeDashboard);
 const LEmployeeScan = withLuxury(LuxuryEmployeeScanner);
 const LEmployeeHistory = withLuxury(LuxuryEmployeeHistory);
+const LTarjetas = withLuxury(LuxuryTarjetas);
 
 // ─────────────────────────────────────────────────────────
 // Sets the `luxury-experience` class on body and wraps
@@ -150,6 +181,7 @@ function AppRoutes() {
         <Route path="/referidos" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LReferrals /></ProtectedRoute>} />
         <Route path="/servicios-extra" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LExtraServices /></ProtectedRoute>} />
         <Route path="/perfil" element={<ProtectedRoute roles={['CLIENT', 'EMPLOYEE', 'ADMIN', 'SUPER_ADMIN']}><LProfile /></ProtectedRoute>} />
+        <Route path="/tarjetas" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LTarjetas /></ProtectedRoute>} />
 
         {/* Employee Routes — EXACT paths as in LUXURY/src */}
         <Route path="/employee" element={<ProtectedRoute roles={['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN']}><LEmployeeDash /></ProtectedRoute>} />
@@ -166,6 +198,7 @@ function AppRoutes() {
         <Route path="services" element={<ServicesManager />} />
         <Route path="plans" element={<PlansManager />} />
         <Route path="employees" element={<EmployeesManager />} />
+        <Route path="scans" element={<WashScans />} />
         <Route path="finance" element={<FinanceDashboard />} />
         <Route path="reports" element={<Reports />} />
         <Route path="vehicles" element={<VehiclesAdmin />} />

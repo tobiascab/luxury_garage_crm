@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const compression = require('compression');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
@@ -21,8 +22,12 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 const app = express();
 
+// Confiar en el proxy (Nginx) para que el rate-limiter identifique bien las IPs
+app.set('trust proxy', 1);
+
 // ── 1. Request ID (traceability) ──────────────────────────────────────────
 app.use(requestId);
+app.use(compression());
 
 // ── 2. Security headers (Helmet) ──────────────────────────────────────────
 app.use(helmet({
@@ -109,6 +114,7 @@ app.use('/api/audit', require('./routes/audit'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/credits', require('./routes/credits'));
 app.use('/api/inventory', require('./routes/inventory'));
+app.use('/api/scans', require('./routes/scans'));
 app.use('/api/arizar/oauth', require('./routes/arizar-oauth'));
 app.use('/api/arizar', require('./routes/arizar-admin'));
 app.use('/api/masfacil', require('./routes/masfacil-webhooks'));

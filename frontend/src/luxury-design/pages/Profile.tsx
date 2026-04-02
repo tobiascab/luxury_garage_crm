@@ -228,15 +228,46 @@ function StatusItem({ label, value }: { label: string, value: string }) {
 
 function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], userId: number, onUpdate: () => void, user: any }) {
   const [subTab, setSubTab] = useState<'tarjetas' | 'facturas'>('tarjetas');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newCard, setNewCard] = useState({ number: '', name: '', expiry: '' });
-  const [isAdding, setIsAdding] = useState(false);
+  const [cards, setCards] = useState<any[]>([]);
+  const [loadingCards, setLoadingCards] = useState(true);
+  const [registering, setRegistering] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [error, setError] = useState('');
+  const [needsCI, setNeedsCI] = useState(false);
+  const [ciInput, setCiInput] = useState('');
+  const [savingCI, setSavingCI] = useState(false);
+
+  const token = localStorage.getItem('luxury_token');
+  const headers: any = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const API = (window as any).__API_URL || '';
+
+  useEffect(() => {
+    loadCards();
+  }, []);
 
   useEffect(() => {
     if (subTab === 'facturas') loadInvoices();
   }, [subTab]);
+
+  const loadCards = async () => {
+    setLoadingCards(true);
+    try {
+      const [cardsRes, statusRes] = await Promise.all([
+        api.get('/payments/cards'),
+        api.get('/payments/status'),
+      ]);
+      const cardsData = cardsRes.data;
+      if (cardsData.success) setCards(cardsData.data || []);
+
+      const statusData = statusRes.data;
+      if (statusData.success && !statusData.data?.hasDocumentNumber) setNeedsCI(true);
+    } catch { /* silent */ }
+    setLoadingCards(false);
+  };
 
   const loadInvoices = async () => {
     setLoadingInvoices(true);
@@ -248,28 +279,72 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
     finally { setLoadingInvoices(false); }
   };
 
-  const handleDelete = async (cardId: number) => {
-    if (!confirm('¿Deseas eliminar esta tarjeta?')) return;
+  const saveCI = async () => {
+    if (!ciInput.trim() || ciInput.length < 5) return;
+    setSavingCI(true);
+    setError('');
     try {
-      const res = await fetch(`/api/users/payments/${cardId}`, { method: 'DELETE' });
-      if (res.ok) onUpdate();
-    } catch (e) { alert('Error al eliminar'); }
+      const res = await api.post('/payments/sync-customer', {
+        documentNumber: ciInput.trim(), documentType: 'CI'
+      });
+      const data = res.data;
+      if (data.success) { setNeedsCI(false); onUpdate(); }
+      else setError(data.message || 'Error');
+    } catch { setError('Error de conexión'); }
+    setSavingCI(false);
   };
 
-  const handleAddCard = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCard.number || !newCard.name || !newCard.expiry) return alert('Por favor, completa todos los campos.');
-    setIsAdding(true);
+  const registerCard = async () => {
+    setRegistering(true);
+    setError('');
     try {
-      const card_type = newCard.number.startsWith('4') ? 'Visa' : 'Mastercard';
-      const last4 = newCard.number.slice(-4);
-      const res = await fetch(`/api/users/${userId}/payments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card_type, last4, holder_name: newCard.name.toUpperCase(), expiry_date: newCard.expiry })
-      });
-      if (res.ok) { onUpdate(); setShowAddModal(false); setNewCard({ number: '', name: '', expiry: '' }); }
-    } catch { alert('Error de conexión'); } finally { setIsAdding(false); }
+      const res = await api.post('/payments/card/register');
+      const data = res.data;
+      if (data.success && data.data?.redirect_url) {
+        window.open(data.data.redirect_url, '_blank', 'noopener,noreferrer');
+        setTimeout(() => setRegistering(false), 2000);
+      } else {
+        setError(data.message || 'Error al registrar');
+        setRegistering(false);
+      }
+    } catch { setError('Error de conexión'); setRegistering(false); }
+  };
+
+  const syncCards = async () => {
+    setSyncing(true);
+    try {
+      const res = await api.post('/payments/card/sync');
+      const data = res.data;
+      if (data.success) setCards(data.data || []);
+    } catch { /* silent */ }
+    setSyncing(false);
+  };
+
+  const deleteCard = async (card: any) => {
+    setDeleting(true);
+    try {
+      const res = await api.delete(`/payments/card/${card.id}`);
+      const data = res.data;
+      if (data.success) setCards(prev => prev.filter(c => c.id !== card.id));
+    } catch { /* silent */ }
+    setDeleting(false);
+    setDeleteTarget(null);
+  };
+
+  const setPrimary = async (cardId: string) => {
+    try {
+      const res = await api.post('/payments/card/set-primary', { cardId });
+      const data = res.data;
+      if (data.success) setCards(prev => prev.map(c => ({ ...c, isPrimary: c.id === cardId })));
+    } catch { /* silent */ }
+  };
+
+  const getBrandGradient = (brand: string) => {
+    const b = brand?.toLowerCase() || '';
+    if (b.includes('visa')) return 'from-[#1a365d] to-[#0d2137]';
+    if (b.includes('master')) return 'from-[#8b1a1a] to-[#4a0e0e]';
+    if (b.includes('amex')) return 'from-[#1a4d6e] to-[#0d2b3e]';
+    return 'from-[#2d3748] to-[#1a202c]';
   };
 
   const printInvoice = (inv: any) => {
@@ -383,76 +458,155 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
         </button>
       </div>
 
+      {/* Error banner */}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 rounded-2xl p-3 flex items-center gap-2">
+          <AlertCircle size={14} className="text-red-500 shrink-0" />
+          <p className="text-xs text-red-700 dark:text-red-300 font-medium flex-1">{error}</p>
+          <button onClick={() => setError('')} className="text-red-400"><X size={14} /></button>
+        </div>
+      )}
+
       {subTab === 'tarjetas' && (
         <>
+          {/* CI required */}
+          {needsCI && (
+            <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Shield size={14} className="text-amber-600 dark:text-amber-400" />
+                <p className="font-bold text-xs text-amber-800 dark:text-amber-200">Cédula requerida para tarjetas</p>
+              </div>
+              <div className="flex gap-2 mt-2">
+                <input
+                  type="text" placeholder="Ej: 4567890" value={ciInput}
+                  onChange={(e) => setCiInput(e.target.value.replace(/\D/g, ''))}
+                  className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-500/30 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                />
+                <button onClick={saveCI} disabled={savingCI || ciInput.length < 5}
+                  className="px-4 py-2 rounded-xl bg-amber-500 text-white font-bold text-xs uppercase disabled:opacity-50 active:scale-95 transition-all"
+                >{savingCI ? '...' : 'Guardar'}</button>
+              </div>
+            </div>
+          )}
+
+          {/* Header */}
           <div className="flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">{methods.length} tarjeta{methods.length !== 1 ? 's' : ''} guardada{methods.length !== 1 ? 's' : ''}</p>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-primary dark:bg-blue-500 text-white rounded-xl font-black text-xs shadow-md shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all"
-            >
-              <Plus size={14} /> Añadir Nueva
-            </button>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">{cards.length} tarjeta{cards.length !== 1 ? 's' : ''} guardada{cards.length !== 1 ? 's' : ''}</p>
+            <div className="flex gap-2">
+              <button
+                onClick={syncCards}
+                disabled={syncing}
+                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase hover:border-primary/30 active:scale-95 transition-all"
+              >
+                <svg className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
+                Sincronizar
+              </button>
+              <button
+                onClick={registerCard}
+                disabled={registering || needsCI}
+                className="flex items-center gap-2 px-4 py-2.5 bg-primary dark:bg-blue-500 text-white rounded-xl font-black text-xs shadow-md shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all disabled:opacity-50"
+              >
+                <Plus size={14} /> Añadir Nueva
+              </button>
+            </div>
           </div>
-          {methods.length === 0 ? (
+
+          {/* Cards list */}
+          {loadingCards ? (
+            <div className="flex justify-center py-10"><Loader2 className="animate-spin text-primary" size={24} /></div>
+          ) : cards.length === 0 ? (
             <div className="text-center py-14 bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800">
               <CreditCard size={28} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <p className="text-sm font-bold text-slate-400">No tenés tarjetas guardadas</p>
+              <p className="text-[10px] text-slate-300 dark:text-slate-600 mt-1">Agregá una tarjeta de MasFazzil para pagar membresías</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {methods.map((method) => (
+              {cards.map((card) => (
                 <motion.div
-                  key={method.id}
+                  key={card.id}
                   whileHover={{ y: -4 }}
-                  className={`relative p-7 rounded-[2rem] text-white overflow-hidden shadow-xl group border border-white/5 ${method.is_default
-                    ? 'bg-gradient-to-br from-[#1a365d] to-[#0d1b2e]'
-                    : 'bg-gradient-to-br from-[#2d3748] to-[#1a202c]'
-                    }`}
+                  className={`relative p-7 rounded-[2rem] text-white overflow-hidden shadow-xl group border border-white/5 bg-gradient-to-br ${getBrandGradient(card.brand)}`}
                 >
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-                  <div className="flex justify-between items-start mb-10">
-                    <div className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-lg text-[10px] font-black tracking-widest border border-white/10">{method.card_type?.toUpperCase()}</div>
-                    <button onClick={() => handleDelete(method.id)} className="opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-red-500/20 hover:bg-red-500 rounded-xl">
+                  <div className="flex justify-between items-start mb-8">
+                    <div className="flex items-center gap-2">
+                      <div className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-lg text-[10px] font-black tracking-widest border border-white/10">
+                        {card.brand?.toUpperCase() || 'CARD'}
+                      </div>
+                      {card.isPrimary && (
+                        <div className="flex items-center gap-1 bg-emerald-500/20 backdrop-blur-sm px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-emerald-500/20 text-emerald-300">
+                          <Star size={8} fill="currentColor" /> Principal
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={() => setDeleteTarget(card)} className="opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-red-500/20 hover:bg-red-500 rounded-xl">
                       <Trash2 size={14} />
                     </button>
                   </div>
-                  <p className="text-lg font-bold tracking-[0.2em] mb-10">•••• •••• •••• {method.last4}</p>
+                  <p className="text-lg font-bold tracking-[0.2em] mb-8">•••• •••• •••• {card.maskedNumber?.slice(-4) || '****'}</p>
                   <div className="flex justify-between items-end">
-                    <div><p className="text-[7px] font-bold uppercase opacity-50 mb-1">Titular</p><p className="text-xs font-black truncate">{method.holder_name}</p></div>
-                    <div className="text-right"><p className="text-[7px] font-bold uppercase opacity-50 mb-1">Expira</p><p className="text-xs font-black">{method.expiry_date}</p></div>
+                    <div>
+                      <p className="text-[7px] font-bold uppercase opacity-50 mb-1">Tipo</p>
+                      <p className="text-xs font-black">{card.cardType || 'Tarjeta'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[7px] font-bold uppercase opacity-50 mb-1">Emisor</p>
+                      <p className="text-xs font-black">{card.issuer || card.brand}</p>
+                    </div>
+                    {!card.isPrimary && (
+                      <button
+                        onClick={() => setPrimary(card.id)}
+                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/10 transition-all"
+                      >
+                        Principal
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               ))}
             </div>
           )}
 
-          {/* Add Card Bottom sheet */}
-          <BottomSheet isOpen={showAddModal} onClose={() => setShowAddModal(false)}>
-            <div className="px-5 pb-2 flex items-center justify-between">
-              <h3 className="font-black text-lg text-slate-900 dark:text-white">Añadir Tarjeta</h3>
-              <button onClick={() => setShowAddModal(false)} className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
-            </div>
-            <form onSubmit={handleAddCard} className="px-5 pb-8 pt-3 space-y-4">
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 block mb-1.5">Número de Tarjeta</label>
-                <input type="text" placeholder="0000 0000 0000 0000" maxLength={16} value={newCard.number} onChange={(e) => setNewCard({ ...newCard, number: e.target.value.replace(/\D/g, '') })} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-primary/20" />
+          {/* Security note */}
+          <div className="bg-slate-50 dark:bg-slate-900/40 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 flex items-start gap-2">
+            <Shield size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
+              Tus datos de tarjeta se procesan de forma segura por MasFazzil (Cybersource/VISA). Luxury Garage nunca almacena datos completos de tu tarjeta.
+            </p>
+          </div>
+
+          {/* Delete confirmation */}
+          <AnimatePresence>
+            {deleteTarget && (
+              <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  onClick={() => setDeleteTarget(null)} className="absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm" />
+                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+                  className="relative z-10 bg-white dark:bg-slate-900 rounded-[2rem] p-6 w-full max-w-sm shadow-2xl">
+                  <div className="text-center mb-5">
+                    <div className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center mx-auto mb-3">
+                      <Trash2 size={24} className="text-red-500" />
+                    </div>
+                    <h3 className="font-bold text-lg text-slate-900 dark:text-white">¿Eliminar tarjeta?</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      {deleteTarget.brand} terminada en {deleteTarget.maskedNumber?.slice(-4)}
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => setDeleteTarget(null)}
+                      className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold text-xs uppercase tracking-widest active:scale-95 transition-all">
+                      Cancelar
+                    </button>
+                    <button onClick={() => deleteCard(deleteTarget)} disabled={deleting}
+                      className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold text-xs uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                      {deleting ? '...' : 'Eliminar'}
+                    </button>
+                  </div>
+                </motion.div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 block mb-1.5">Titular</label>
-                  <input type="text" placeholder="Nombre" value={newCard.name} onChange={(e) => setNewCard({ ...newCard, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-primary/20" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 block mb-1.5">Expira</label>
-                  <input type="text" placeholder="MM/YY" maxLength={5} value={newCard.expiry} onChange={(e) => setNewCard({ ...newCard, expiry: e.target.value })} className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl font-bold dark:text-white outline-none focus:ring-2 focus:ring-primary/20" />
-                </div>
-              </div>
-              <button type="submit" disabled={isAdding} className="w-full py-4 bg-primary dark:bg-blue-500 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20 active:scale-95 transition-all disabled:opacity-70">
-                {isAdding ? 'Guardando...' : 'Guardar Tarjeta'}
-              </button>
-            </form>
-          </BottomSheet>
+            )}
+          </AnimatePresence>
         </>
       )}
 
@@ -528,7 +682,6 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
     </div>
   );
 }
-
 function MyVehicles({ userId, initialVehicles, onUpdate }: { userId: string; initialVehicles: any[]; onUpdate: () => void }) {
   const [vehicles, setVehicles] = useState<any[]>(initialVehicles);
   const [isLoading, setIsLoading] = useState(false);

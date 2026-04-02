@@ -15,8 +15,12 @@ model User {
   lastName          String          @map("last_name")
   phone             String?
   avatarUrl         String?         @map("avatar_url")
+  documentNumber    String?         @map("document_number")
+  documentType      String?         @default("CI") @map("document_type")
   arizarContactId   String?         @map("arizar_contact_id")
+  masfazzilCustomerUuid String?     @unique @map("masfazzil_customer_uuid")
   isActive          Boolean         @default(true) @map("is_active")
+  isTestMode        Boolean         @default(false) @map("is_test_mode")
   lastLoginAt       DateTime?       @map("last_login_at")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -26,6 +30,7 @@ model User {
   memberships       Membership[]
   notifications     Notification[]
   payments          Payment[]
+  paymentCards      PaymentCard[]
   referralsReceived Referral[]      @relation("referred")
   referralsMade     Referral[]      @relation("referrer")
   reviews           Review[]
@@ -222,6 +227,23 @@ model Payment {
   @@index([userId])
   @@index([membershipId])
   @@map("payments")
+}
+
+model PaymentCard {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  masfazzilCardId   String   @unique @map("masfazzil_card_id")
+  alias             String?
+  maskedNumber      String   @map("masked_number")
+  brand             String
+  issuer            String?
+  cardType          String?  @map("card_type")
+  isPrimary         Boolean  @default(false) @map("is_primary")
+  createdAt         DateTime @default(now()) @map("created_at")
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("payment_cards")
 }
 
 model Promotion {

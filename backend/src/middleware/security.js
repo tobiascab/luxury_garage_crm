@@ -1,12 +1,12 @@
 const rateLimit = require('express-rate-limit');
-const slowDown  = require('express-slow-down');
-const hpp       = require('hpp');
-const crypto    = require('crypto');
+const slowDown = require('express-slow-down');
+const hpp = require('hpp');
+const crypto = require('crypto');
 
 // 1. General API limiter — 100 req / 15 min per IP
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 300, // Aumentado de 100 a 300
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Demasiadas solicitudes. Intentá de nuevo en unos minutos.' },
@@ -26,15 +26,15 @@ const authLimiter = rateLimit({
 // 3. Slow-down after 30 req
 const speedLimiter = slowDown({
   windowMs: 15 * 60 * 1000,
-  delayAfter: 30,
-  delayMs: (hits) => hits * 200,
-  maxDelayMs: 5000,
+  delayAfter: 150, // Aumentado de 30 a 150
+  delayMs: (hits) => (hits - 150) * 100, // Menor delay incremental
+  maxDelayMs: 2000, // Máximo 2 segundos en lugar de 5
 });
 
 // 4. In-memory login lockout (10 failures = 30 min block)
 const LOCKOUT_MAX = 10;
-const LOCKOUT_MS  = 30 * 60 * 1000;
-const failedMap   = new Map();
+const LOCKOUT_MS = 30 * 60 * 1000;
+const failedMap = new Map();
 
 setInterval(() => {
   const now = Date.now();

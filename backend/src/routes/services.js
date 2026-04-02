@@ -1,5 +1,19 @@
 const router = require('express').Router();
+const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
+const { validateBody } = require('../middleware/validate');
+
+// Validación de datos para crear/actualizar servicio
+const serviceSchema = z.object({
+  name: z.string().min(1, 'Nombre requerido'),
+  basePriceGs: z.number().positive('Precio debe ser positivo'),
+  durationMinutes: z.number().int().positive('Duración debe ser positiva'),
+  category: z.string().optional(),
+  description: z.string().optional(),
+  isAddon: z.boolean().default(false),
+  isActive: z.boolean().default(true),
+  sortOrder: z.number().int().default(0),
+});
 
 router.get('/', async (req, res, next) => {
   try {
@@ -20,16 +34,16 @@ router.get('/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validateBody(serviceSchema), async (req, res, next) => {
   try {
-    const service = await req.prisma.service.create({ data: req.body });
+    const service = await req.prisma.service.create({ data: req.validatedBody });
     res.status(201).json({ success: true, data: service });
   } catch (err) { next(err); }
 });
 
-router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validateBody(serviceSchema.partial()), async (req, res, next) => {
   try {
-    const service = await req.prisma.service.update({ where: { id: req.params.id }, data: req.body });
+    const service = await req.prisma.service.update({ where: { id: req.params.id }, data: req.validatedBody });
     res.json({ success: true, data: service });
   } catch (err) { next(err); }
 });

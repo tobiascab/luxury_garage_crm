@@ -143,9 +143,33 @@ router.put('/:id/complete', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_
       serviceRecord = await req.prisma.serviceRecord.update({ where: { id: record.id }, data: { completedAt: new Date(), durationMinutes: duration, notes, vehicleObservations } });
     }
 
-    // Increment usage
-    const membership = await req.prisma.membership.findFirst({ where: { userId: appointment.userId, status: 'ACTIVE' } });
-    if (membership) await req.prisma.membership.update({ where: { id: membership.id }, data: { servicesUsed: { increment: 1 } } });
+    // Increment usage with plan limit validation
+    const membership = await req.prisma.membership.findFirst({
+      where: { userId: appointment.userId, status: 'ACTIVE' },
+      include: { plan: true }
+    });
+    if (membership) {
+      // Validar que no exceda el límite de servicios del plan
+      if (membership.plan.servicesIncluded && membership.servicesUsed >= membership.plan.servicesIncluded) {
+        console.warn(`⚠️ Cliente ${appointment.userId} alcanzó límite de servicios (${membership.servicesUsed}/${membership.plan.servicesIncluded})`);
+        // Continúa registrando pero registra en auditoría
+        await req.prisma.auditLog.create({
+          data: {
+            entity: 'membership_overage',
+            action: 'SERVICE_LIMIT_EXCEEDED',
+            entityId: membership.id,
+            userId: appointment.userId,
+            details: { planServicesIncluded: membership.plan.servicesIncluded, servicesUsed: membership.servicesUsed }
+          }
+        });
+      } else {
+        // Incrementar solo si no excede límite
+        await req.prisma.membership.update({
+          where: { id: membership.id },
+          data: { servicesUsed: { increment: 1 } }
+        });
+      }
+    }
 
     // ═══ ARIZAR IA: Full sync on service completion ═══
     const sync = new ArizarSync(req.prisma);

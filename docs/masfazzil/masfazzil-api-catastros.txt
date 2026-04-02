@@ -1,0 +1,156 @@
+Documentación API Masfazzil - Pasarela de Pagos (Débitos y
+Catastro)
+Esta documentación detalla los procesos para la autenticación, registro de tarjetas, gestión de clientes y procesamiento de cobros a través de la API de Masfazzil .
+
+
+
+
+1. Autenticación (OAuth2)
+Antes de realizar cualquier operación, se debe obtener un token de acceso válido.
+
+       Endpoint: POST https://auth.masfazzil.com.py/oauth2/token
+       Body (x-www-form-urlencoded):
+               client_id : {{client_id}}
+               client_secret : {{client_secret}}
+               grant_type : client_credentials
+
+
+Response (Success)
+
+  {
+      "access_token": "eyJ0eXAiOiJKV1QiLCJhbGci...",
+      "expires_in": 3600,
+      "token_type": "Bearer"
+ }
+
+
+
+
+2. Registro de Tarjeta ( /card/register )
+Inicia el proceso de catastro de una tarjeta. Este endpoint genera una URL de redirección donde el usuario final ingresará sus datos de forma segura.
+
+       Endpoint: POST https://gateway.masfazzil.com.py/{{stage}}/api/v2/card/register
+       Headers:
+              Authorization: Bearer {{access_token}}
+              X-Client-Id: {{client_id}}
+
+
+Request Body
+
+  {
+      "merchant_uuid": "fa42059b-5297-448e-ac6e-dcf1e3ea8e8a",
+      "customer": {
+           "name": "Marce Alonso",
+           "email": "marcelo@vallo.com",
+           "document_number": "007352908340",
+           "document_type": "CPF",
+           "phone": "0981123433"
+      }
+ }
+
+
+
+Response (Success)
+
+  {
+      "success": true,
+      "status": "success",
+      "message": "Ok",
+      "data": {
+           "customer_uuid": "afd7deaf-e97a-453f-8319-bc03849f4266",
+           "redirect_url": "https://debitos.masfazzil.com.py/payments/cards/p/register?token=Q0oyOEgyUzYzVkRPQkRNRzJaUkNOQ0ozRw==&provider=upay"
+      }
+ }
+3. Listado de Tarjetas ( /card/list )
+Obtiene las tarjetas asociadas a un cliente específico utilizando su customer_uuid .
+
+       Endpoint: GET https://gateway.masfazzil.com.py/{{stage}}/api/v2/card/list
+       Query Params:
+              customer_uuid : afd7deaf-e97a-453f-8319-bc03849f4266
+       Headers:
+              Authorization: Bearer {{access_token}}
+              X-Client-Id: {{client_id}}
+
+
+Response (Success)
+
+  {
+      "success": true,
+      "status": "success",
+      "message": "ok",
+      "data": [
+           {
+                "id": "ae51a23e-e8d0-4433-9558-b4685e4e0dd8",
+                "alias": "Mastercard Débito terminada en 0545",
+                "number": "558549XXXXXX0545",
+                "brand": "Mastercard",
+                "issuer": "UENO BANK S.A.",
+                "type": "Débito",
+                "primary": false
+           }
+      ]
+ }
+
+
+
+
+4. Realizar Cobro ( /card/charge )
+
+Ejecuta una transacción financiera sobre una tarjeta previamente catastrada.
+
+       Endpoint: POST https://gateway.masfazzil.com.py/{{stage}}/api/v2/card/charge
+       Headers:
+              Authorization: Bearer {{access_token}}
+              X-Client-Id: {{client_id}}
+
+
+Request Body
+
+  {
+      "amount" : 1000.00,
+      "currency" : "PYG",
+      "description" : "Cuota IronGym",
+      "merchant_uuid": "fa42059b-5297-448e-ac6e-dcf1e3ea8e8a",
+      "merchant_reference" : "CUOTA233-26",
+      "card_id" : "ae51a23e-e8d0-4433-9558-b4685e4e0dd8",
+      "customer_uuid": "afd7deaf-e97a-453f-8319-bc03849f4266"
+ }
+
+
+
+Response (Success)
+  {
+      "success": true,
+      "status": "success",
+      "message": "Pagado",
+      "payment": {
+           "transaction_id": "ae17b7d3-84ea-4980-af94-535c7f3171b0",
+           "operation_detail_id": "b6d41525-b8e2-48c3-8316-2a97cb96c306",
+           "provider_reference": "da4e060f376c6734721d08127738b6f3604b733a51f15245674b6852a3af9805",
+           "status": "PAID"
+      }
+ }
+
+
+
+
+5. Eliminar Tarjeta ( /card )
+
+Elimina de forma permanente una tarjeta del registro del cliente.
+
+       Endpoint: DELETE https://gateway.masfazzil.com.py/{{stage}}/api/v2/card
+       Query Params:
+              card_id : ae51a23e-e8d0-4433-9558-b4685e4e0dd8
+       Headers:
+              Authorization: Bearer {{access_token}}
+              X-Client-Id: {{client_id}}
+
+
+Response (Success)
+
+  {
+      "success": true,
+      "status": "success",
+      "message": "Tarjeta Borrada"
+ }
+

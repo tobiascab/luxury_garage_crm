@@ -1,38 +1,61 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
 interface LuxuryUserContextType {
     fullUser: any;
     loading: boolean;
-    refreshProfile: () => Promise<void>;
+    refreshProfile: (force?: boolean) => Promise<void>;
 }
 
 const LuxuryUserContext = createContext<LuxuryUserContextType | undefined>(undefined);
+
+// Cache de 60 segundos para evitar cargas repetidas
+const CACHE_TTL = 60000;
 
 export function LuxuryUserProvider({ children }: { children: React.ReactNode }) {
     const { user } = useAuth();
     const [fullUser, setFullUser] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const cacheRef = useRef<{ data: any; timestamp: number } | null>(null);
+    const fetchingRef = useRef(false); // Previene llamadas simultáneas
 
-    const refreshProfile = async () => {
+    const refreshProfile = useCallback(async (force = false) => {
         if (!user) {
             setLoading(false);
             return;
         }
+
+        // Si ya hay una petición en curso, no lanzar otra
+        if (fetchingRef.current) return;
+
+        // Verificar caché (a menos que sea forzado)
+        if (!force && cacheRef.current) {
+            const age = Date.now() - cacheRef.current.timestamp;
+            if (age < CACHE_TTL) {
+                setFullUser(cacheRef.current.data);
+                setLoading(false);
+                return;
+            }
+        }
+
+        fetchingRef.current = true;
         try {
             const res = await api.get('/luxury/profile/full');
-            setFullUser(res.data.data);
+            const data = res.data.data;
+            setFullUser(data);
+            cacheRef.current = { data, timestamp: Date.now() };
         } catch (e) {
             console.error('Error fetching full luxury profile', e);
         } finally {
             setLoading(false);
+            fetchingRef.current = false;
         }
-    };
+    }, [user]);
 
     useEffect(() => {
         refreshProfile();
-    }, [user]);
+    }, [user, refreshProfile]);
 
     return (
         <LuxuryUserContext.Provider value={{ fullUser, loading, refreshProfile }}>

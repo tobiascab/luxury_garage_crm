@@ -9,44 +9,57 @@ const ArizarSync = require('../services/arizarSync');
  */
 router.get('/profile/full', authenticate, async (req, res, next) => {
     try {
-        const user = await req.prisma.user.findUnique({
-            where: { id: req.user.id },
-            include: {
-                memberships: {
-                    include: { plan: true },
-                    orderBy: { createdAt: 'desc' }
-                },
-                vehicles: {
-                    orderBy: { isPrimary: 'desc' }
-                },
-                appointments: {
-                    include: { service: true, vehicle: true },
-                    orderBy: { startTime: 'desc' },
-                    take: 20
-                },
-                payments: {
-                    orderBy: { createdAt: 'desc' },
-                    take: 10
-                },
-                credits: {
-                    orderBy: { createdAt: 'desc' }
+        const userId = req.user.id;
+        const [user, chargeSum, useSum] = await Promise.all([
+            req.prisma.user.findUnique({
+                where: { id: userId },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true,
+                    role: true,
+                    avatarUrl: true,
+                    memberships: {
+                        where: { status: 'ACTIVE' },
+                        include: { plan: { select: { name: true, priceGs: true } } },
+                        orderBy: { createdAt: 'desc' },
+                        take: 1
+                    },
+                    vehicles: {
+                        select: { id: true, brand: true, model: true, licensePlate: true, isPrimary: true },
+                        orderBy: { isPrimary: 'desc' },
+                        take: 5
+                    },
+                    appointments: {
+                        include: {
+                            service: { select: { name: true } },
+                            vehicle: { select: { model: true, licensePlate: true } }
+                        },
+                        orderBy: { startTime: 'desc' },
+                        take: 5 // Dashboard only needs a few
+                    }
                 }
-            }
-        });
+            }),
+            req.prisma.credit.aggregate({
+                where: { userId, type: 'CHARGE' },
+                _sum: { amount: true }
+            }),
+            req.prisma.credit.aggregate({
+                where: { userId, type: 'USE' },
+                _sum: { amount: true }
+            })
+        ]);
 
         if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
-        // Format for Luxury UI
-        const { passwordHash, ...userData } = user;
-
-        // Add computed fields ensuring nomenclature matches LUXURY/src/pages
-        const wallet_balance = user.credits.reduce((acc, c) => acc + (c.type === 'CHARGE' ? c.amount : -c.amount), 0);
-        const activeMembership = user.memberships.find(m => m.status === 'ACTIVE');
+        const wallet_balance = (chargeSum._sum.amount || 0) - (useSum._sum.amount || 0);
+        const activeMembership = user.memberships[0];
 
         res.json({
             success: true,
             data: {
-                ...userData,
+                ...user,
                 name: `${user.firstName} ${user.lastName}`,
                 wallet_balance,
                 membership_status: activeMembership ? 'Activa' : 'Inactiva',
@@ -55,7 +68,6 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
                     ...a,
                     booking_date: a.startTime // Standard alias
                 })),
-                wallet_history: user.credits,
                 avatar: user.avatarUrl || `https://ui-avatars.com/api/?name=${user.firstName}+${user.lastName}&background=0040e0&color=fff`
             }
         });
@@ -88,8 +100,9 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
         const diff = Date.now() - timestamp;
         console.log(`[DEBUG_QR] Token valid: ${token}, UserID: ${userId}, diff: ${diff}ms`);
 
-        // Window increased to 1 year to avoid all sync issues definitively
-        if (Math.abs(diff) > 31536000000) {
+        // QR válido por 15 minutos máximo
+        const QR_VALIDITY_MS = 15 * 60 * 1000;  // 15 minutos
+        if (Math.abs(diff) > QR_VALIDITY_MS) {
             return res.status(400).json({ success: false, message: 'QR expirado' });
         }
 
@@ -286,7 +299,7 @@ router.get('/notifications', authenticate, async (req, res, next) => {
             req.prisma.notification.findMany({
                 where: { userId },
                 orderBy: { createdAt: 'desc' },
-                take: 10
+                take: 20
             }),
             req.prisma.appointment.findMany({
                 where: { userId, status: 'CONFIRMED', date: { gte: new Date() } },
@@ -299,23 +312,24 @@ router.get('/notifications', authenticate, async (req, res, next) => {
             })
         ]);
 
-        // Format for Luxury UI
+        // Format for Luxury UI — DB notifications FIRST (admin-created)
         const luxuryNotifs = [];
 
-        // Membership status
-        const activeMembership = user.memberships[0];
-        if (activeMembership) {
+        // 1. DB Notifications (from admin) — highest priority
+        notifications.forEach(n => {
+            const typeMap = { info: 'info', promo: 'success', alert: 'reminder', reminder: 'reminder', success: 'success' };
             luxuryNotifs.push({
-                id: 'membership-' + activeMembership.id,
-                type: 'info',
-                icon: 'shield',
-                title: 'Membresía Activa',
-                body: `Tu plan ${activeMembership.plan.name} está vigente.`,
-                date: activeMembership.createdAt.toISOString()
+                id: n.id,
+                type: typeMap[n.type] || 'info',
+                icon: 'bell',
+                title: n.title,
+                body: n.message,
+                date: n.createdAt.toISOString(),
+                isRead: n.isRead
             });
-        }
+        });
 
-        // Appointments
+        // 2. Upcoming appointments
         appointments.forEach(a => {
             luxuryNotifs.push({
                 id: 'appointment-' + a.id,
@@ -327,19 +341,20 @@ router.get('/notifications', authenticate, async (req, res, next) => {
             });
         });
 
-        // DB Notifications
-        notifications.forEach(n => {
+        // 3. Membership status (lowest priority)
+        const activeMembership = user?.memberships?.[0];
+        if (activeMembership) {
             luxuryNotifs.push({
-                id: n.id,
-                type: n.type === 'success' ? 'success' : 'info',
-                icon: 'bell',
-                title: n.title,
-                body: n.message,
-                date: n.createdAt.toISOString()
+                id: 'membership-' + activeMembership.id,
+                type: 'info',
+                icon: 'shield',
+                title: 'Membresía Activa',
+                body: `Tu plan ${activeMembership.plan.name} está vigente.`,
+                date: activeMembership.createdAt.toISOString()
             });
-        });
+        }
 
-        res.json({ success: true, data: luxuryNotifs.slice(0, 8) });
+        res.json({ success: true, data: luxuryNotifs.slice(0, 15) });
     } catch (err) {
         next(err);
     }

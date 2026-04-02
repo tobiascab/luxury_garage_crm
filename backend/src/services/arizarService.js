@@ -364,14 +364,20 @@ class ArizarService {
     const vehicleInfo = appointment.vehicle ? `${appointment.vehicle.brand} ${appointment.vehicle.model} (${appointment.vehicle.licensePlate})` : '';
     const duration = serviceRecord?.durationMinutes || '?';
 
+    // Link de Google Reviews si está configurado
+    const reviewLink = process.env.ARIZAR_GOOGLE_REVIEW_LINK;
+    const reviewSection = (reviewLink && reviewLink !== 'pending_configuration')
+      ? `\n\n⭐ ¿Quedaste satisfecho? Dejanos tu reseña en Google (¡nos ayudás muchísimo!):\n${reviewLink}`
+      : `\n\nCalificanos en: https://luxurygarage.arizar-ia.cloud/client/reviews`;
+
     // WhatsApp al cliente
     await this.sendWhatsApp(user.arizarContactId,
       `✅ ¡Tu servicio en Luxury Garage está listo!\n\n` +
       `🚿 ${serviceName}\n` +
       `🚗 ${vehicleInfo}\n` +
       `⏱️ Duración: ${duration} min\n\n` +
-      `¡Gracias por confiar en nosotros! 💎\n` +
-      `Calificanos en: https://luxurygarage.arizar-ia.cloud/client/reviews`
+      `¡Gracias por confiar en nosotros! 💎` +
+      reviewSection
     );
 
     // Nota en el contacto
@@ -688,6 +694,36 @@ class ArizarService {
         });
       }
     });
+  }
+
+  // ═══════════════════════════════════
+  // CONVERSATIONS (Lectura)
+  // ═══════════════════════════════
+
+  /** Obtener lista de conversaciones activas del location */
+  async getConversations(params = {}) {
+    return this._safe(async () => {
+      const response = await this.client.get('/conversations/search', {
+        params: {
+          locationId: this.locationId,
+          limit:      params.limit || 25,
+          ...(params.contactId && { contactId: params.contactId }),
+          ...(params.query    && { query:     params.query }),
+          ...(params.unread   && { unread:    true }),
+        },
+      });
+      return response.data?.conversations || response.data?.data || [];
+    }, []);
+  }
+
+  /** Obtener mensajes de una conversación */
+  async getConversationMessages(conversationId, limit = 50) {
+    return this._safe(async () => {
+      const response = await this.client.get(`/conversations/${conversationId}/messages`, {
+        params: { limit },
+      });
+      return response.data?.messages || response.data?.data || [];
+    }, []);
   }
 }
 

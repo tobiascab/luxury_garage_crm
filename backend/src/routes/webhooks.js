@@ -254,8 +254,90 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
 
       // ═══════════ CONVERSATIONS ═══════════
       case 'InboundMessage': {
-        console.log('💬 Mensaje entrante:', { contactId, type: data?.type, message: data?.message?.substring(0, 100) });
-        // Could trigger auto-responses or notifications here
+        const rawMsg = (data?.message || data?.body || data?.text || body.message || '').toLowerCase().trim();
+        const msgContactId = contactId;
+        console.log('💬 Mensaje entrante:', { contactId: msgContactId, type: data?.type, preview: rawMsg.substring(0, 80) });
+
+        if (msgContactId) {
+          // ─── 1. Keyword-based auto-reply ─────────────────────────────────
+          let autoReply = null;
+
+          if (/\b(hola|buenas|buenos|buen dia|buena tarde|saludos|hey|buenas noches)\b/.test(rawMsg)) {
+            autoReply =
+              `¡Hola! 👋 Bienvenido a *Luxury Garage*. ¿En qué te puedo ayudar?\n\n` +
+              `Escribí una de estas palabras y te respondo enseguida:\n` +
+              `📅 *TURNO* → Agendar un turno\n` +
+              `💎 *PRECIOS* → Ver planes y precios\n` +
+              `❌ *CANCELAR* → Cancelar un turno\n` +
+              `👨‍💼 *ASESOR* → Hablar con una persona`;
+          } else if (/\b(turno|agendar|reservar|cita|appointment|quiero|cuando|disponible|disponibilidad|horario|hora)\b/.test(rawMsg)) {
+            autoReply =
+              `📅 *¡Claro! Para agendar tu turno:*\n\n` +
+              `➡️ Ingresá a tu portal y agendá en segundos:\n` +
+              `https://luxurygarage.arizar-ia.cloud/client/book\n\n` +
+              `¿No tenés cuenta aún? Registrate gratis acá:\n` +
+              `https://luxurygarage.arizar-ia.cloud/register\n\n` +
+              `¿Necesitás ayuda? Escribí *ASESOR* y te contactamos. 🤝`;
+          } else if (/\b(precio|plan|planes|cuanto|costo|tarifa|membresia|membresía|pagar|vale|valor|info|información|informacion)\b/.test(rawMsg)) {
+            autoReply =
+              `💎 *Planes de Luxury Garage:*\n\n` +
+              `Tenemos membresías mensuales con lavados incluidos, agenda prioritaria y descuentos exclusivos.\n\n` +
+              `Mirá todos los planes y beneficios acá:\n` +
+              `https://luxurygarage.arizar-ia.cloud\n\n` +
+              `¿Querés que un asesor te explique? Escribí *ASESOR* 👨‍💼`;
+          } else if (/\b(cancelar|cancel|anular|suspender|baja)\b/.test(rawMsg)) {
+            autoReply =
+              `Para cancelar un turno podés hacerlo directamente desde tu portal:\n` +
+              `https://luxurygarage.arizar-ia.cloud/client/appointments\n\n` +
+              `Si necesitás ayuda, escribí *ASESOR* y te asistimos enseguida. 🙏`;
+          } else if (/\b(asesor|humano|persona|hablar|ayuda|help|soporte|admin|problema|queja|reclamo)\b/.test(rawMsg)) {
+            autoReply =
+              `👨‍💼 *¡Perfecto!* Un miembro de nuestro equipo te va a contactar a la brevedad.\n\n` +
+              `⏰ Horario de atención: Lun–Sáb 8:00–18:00\n\n` +
+              `¡Gracias por tu paciencia! 🙏`;
+          }
+
+          if (autoReply) {
+            try {
+              await arizarService.sendWhatsApp(msgContactId, autoReply);
+              console.log(`🤖 Auto-respuesta enviada al contacto ${msgContactId}`);
+            } catch (e) {
+              console.error('❌ Error enviando auto-respuesta:', e.message);
+            }
+          }
+
+          // ─── 2. Notificación in-app para todos los admins ─────────────────
+          try {
+            const senderUser = await req.prisma.user.findFirst({
+              where: { arizarContactId: msgContactId },
+              select: { firstName: true, lastName: true, phone: true },
+            });
+            const senderName = senderUser
+              ? `${senderUser.firstName} ${senderUser.lastName}`
+              : `Contacto CRM (${msgContactId.substring(0, 8)})`;
+            const preview = (data?.message || data?.body || data?.text || '').substring(0, 120) || '(mensaje sin texto)';
+
+            const admins = await req.prisma.user.findMany({
+              where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] }, isActive: true },
+              select: { id: true },
+            });
+
+            for (const admin of admins) {
+              await req.prisma.notification.create({
+                data: {
+                  userId: admin.id,
+                  type: 'INBOUND_MESSAGE',
+                  title: `💬 Mensaje de ${senderName}`,
+                  message: preview,
+                  channel: 'app',
+                  isRead: false,
+                },
+              });
+            }
+          } catch (e) {
+            console.error('❌ Error creando notificación admin de mensaje:', e.message);
+          }
+        }
         break;
       }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Calendar,
@@ -10,7 +10,8 @@ import {
   Droplets,
   Sparkles,
   Wallet,
-  Zap
+  Zap,
+  CreditCard
 } from 'lucide-react';
 
 import { useNavigate } from 'react-router-dom';
@@ -19,44 +20,49 @@ interface DashboardProps {
   user: any;
 }
 
-export default function Dashboard({ user }: DashboardProps) {
+const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
   const [showQR, setShowQR] = useState(false);
   const navigate = useNavigate();
 
   const UPCOMING_STATUSES = ['CONFIRMED', 'PENDING', 'Confirmado', 'Pendiente'];
   const COMPLETED_STATUSES = ['COMPLETED', 'Completado'];
 
-  // Next upcoming appointment (future date, confirmed)
-  const nextBooking = user?.bookings
-    ?.filter((b: any) =>
-      UPCOMING_STATUSES.includes(b.status) &&
-      new Date(b.booking_date ?? b.startTime) > new Date()
-    )
-    ?.sort((a: any, b: any) =>
-      new Date(a.booking_date ?? a.startTime).getTime() -
-      new Date(b.booking_date ?? b.startTime).getTime()
-    )?.[0];
+  // Memoizamos cálculos costosos para evitar re-renders innecesarios
+  const stats = useMemo(() => {
+    // Next upcoming appointment (future date, confirmed)
+    const nextBooking = user?.bookings
+      ?.filter((b: any) =>
+        UPCOMING_STATUSES.includes(b.status) &&
+        new Date(b.booking_date ?? b.startTime) > new Date()
+      )
+      ?.sort((a: any, b: any) =>
+        new Date(a.booking_date ?? a.startTime).getTime() -
+        new Date(b.booking_date ?? b.startTime).getTime()
+      )?.[0];
 
-  // Washes done this month
-  const now = new Date();
-  const thisMonth = now.getMonth();
-  const thisYear = now.getFullYear();
-  const washesDone = (user?.bookings ?? []).filter((b: any) => {
-    const d = new Date(b.booking_date ?? b.startTime);
-    return d.getMonth() === thisMonth && d.getFullYear() === thisYear &&
-      COMPLETED_STATUSES.includes(b.status);
-  }).length;
+    // Washes done this month
+    const now = new Date();
+    const thisMonth = now.getMonth();
+    const thisYear = now.getFullYear();
+    const washesDone = (user?.bookings ?? []).filter((b: any) => {
+      const d = new Date(b.booking_date ?? b.startTime);
+      return d.getMonth() === thisMonth && d.getFullYear() === thisYear &&
+        COMPLETED_STATUSES.includes(b.status);
+    }).length;
 
-  const walletBalance = user?.wallet_balance ?? 0;
-  const isUnlimited = (user?.role ?? '').toLowerCase().includes('platinum') || (user?.role ?? '').toLowerCase().includes('vip') || (user?.role ?? '').toLowerCase().includes('lujo') || (user?.role ?? '').toLowerCase().includes('prima');
-  const monthlyLimit = (user?.role ?? '').toLowerCase().includes('basico') ? 4 : isUnlimited ? '∞' : 4;
+    const walletBalance = user?.wallet_balance ?? 0;
+    const isUnlimited = (user?.role ?? '').toLowerCase().includes('platinum') || (user?.role ?? '').toLowerCase().includes('vip') || (user?.role ?? '').toLowerCase().includes('lujo') || (user?.role ?? '').toLowerCase().includes('prima');
+    const monthlyLimit = (user?.role ?? '').toLowerCase().includes('basico') ? 4 : isUnlimited ? '∞' : 4;
+
+    return { nextBooking, washesDone, walletBalance, monthlyLimit };
+  }, [user?.bookings, user?.wallet_balance, user?.role]);
+
   const formatGs = (n: number) => `₲ ${n.toLocaleString('es-PY')}`;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
+      initial={false}
+      animate={{ opacity: 1 }}
       className="space-y-6 pb-28 max-w-lg mx-auto"
     >
       {/* Welcome Section */}
@@ -97,8 +103,8 @@ export default function Dashboard({ user }: DashboardProps) {
           </div>
           <div>
             <span className="text-xl font-headline font-black text-slate-900 dark:text-white block leading-tight tracking-tight">
-              {nextBooking
-                ? new Date(nextBooking.booking_date ?? nextBooking.startTime).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+              {stats.nextBooking
+                ? new Date(stats.nextBooking.booking_date ?? stats.nextBooking.startTime).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
                 : 'Sin turnos'}
             </span>
             <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">Próxima Visita</p>
@@ -112,8 +118,8 @@ export default function Dashboard({ user }: DashboardProps) {
           </div>
           <div>
             <div className="flex items-end gap-1">
-              <span className="text-3xl font-headline font-black text-slate-900 dark:text-white tracking-tighter leading-none">{washesDone}</span>
-              <span className="text-sm font-black text-slate-300 dark:text-slate-600 mb-1">/{monthlyLimit}</span>
+              <span className="text-3xl font-headline font-black text-slate-900 dark:text-white tracking-tighter leading-none">{stats.washesDone}</span>
+              <span className="text-sm font-black text-slate-300 dark:text-slate-600 mb-1">/{stats.monthlyLimit}</span>
             </div>
             <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">Lavados / Mes</p>
           </div>
@@ -128,14 +134,14 @@ export default function Dashboard({ user }: DashboardProps) {
             <Wallet size={18} />
           </div>
           <div>
-            <span className="text-xl font-headline font-black text-slate-900 dark:text-white block leading-tight tracking-tighter">{formatGs(walletBalance)}</span>
+            <span className="text-xl font-headline font-black text-slate-900 dark:text-white block leading-tight tracking-tighter">{formatGs(stats.walletBalance)}</span>
             <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">Saldo LUXU</p>
           </div>
         </button>
       </div>
 
       {/* ── Próximo Turno Banner (Premium Light Card) ── */}
-      {nextBooking ? (
+      {stats.nextBooking ? (
         <div className="relative overflow-hidden bg-white/90 dark:bg-slate-900/60 backdrop-blur-md rounded-[2.5rem] border border-blue-100 dark:border-blue-900/30 shadow-lg shadow-blue-500/5">
           {/* Top blue gradient line */}
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-primary via-[#00d2ff] to-primary/50 rounded-t-[2.5rem]" />
@@ -146,13 +152,13 @@ export default function Dashboard({ user }: DashboardProps) {
             {/* Left – Date column with blue gradient */}
             <div className="flex-shrink-0 bg-gradient-to-b from-primary to-blue-700 dark:from-blue-700 dark:to-blue-900 w-[90px] flex flex-col items-center justify-center py-7 rounded-l-[2.5rem] gap-0.5">
               <span className="text-[46px] font-headline font-black text-white leading-none tracking-tighter">
-                {new Date(nextBooking.booking_date ?? nextBooking.startTime).getDate()}
+                {new Date(stats.nextBooking.booking_date ?? stats.nextBooking.startTime).getDate()}
               </span>
               <span className="text-[9px] font-black text-blue-200 uppercase tracking-[0.25em]">
-                {new Date(nextBooking.booking_date ?? nextBooking.startTime).toLocaleString('es-ES', { month: 'short' })}
+                {new Date(stats.nextBooking.booking_date ?? stats.nextBooking.startTime).toLocaleString('es-ES', { month: 'short' })}
               </span>
               <span className="text-[8px] font-bold text-blue-300/50 uppercase tracking-wide mt-0.5">
-                {new Date(nextBooking.booking_date ?? nextBooking.startTime).toLocaleString('es-ES', { weekday: 'short' })}
+                {new Date(stats.nextBooking.booking_date ?? stats.nextBooking.startTime).toLocaleString('es-ES', { weekday: 'short' })}
               </span>
             </div>
 
@@ -166,16 +172,16 @@ export default function Dashboard({ user }: DashboardProps) {
 
               {/* Time */}
               <p className="text-[26px] font-headline font-black text-slate-900 dark:text-white leading-none tracking-tight">
-                {new Date(nextBooking.booking_date ?? nextBooking.startTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                {new Date(stats.nextBooking.booking_date ?? stats.nextBooking.startTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                 <span className="text-[14px] font-bold text-slate-400 dark:text-slate-500 ml-1">hs</span>
               </p>
 
               {/* Service pill */}
-              {(nextBooking.service_type ?? nextBooking.service?.name) && (
+              {(stats.nextBooking.service_type ?? stats.nextBooking.service?.name) && (
                 <div className="mt-2.5 inline-flex items-center gap-1.5 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 px-2.5 py-1 rounded-full">
                   <Sparkles size={9} className="text-primary dark:text-blue-400 flex-shrink-0" />
                   <span className="text-[9px] font-black text-primary dark:text-blue-400 uppercase tracking-wide truncate max-w-[150px]">
-                    {nextBooking.service_type ?? nextBooking.service?.name}
+                    {stats.nextBooking.service_type ?? stats.nextBooking.service?.name}
                   </span>
                 </div>
               )}
@@ -216,6 +222,7 @@ export default function Dashboard({ user }: DashboardProps) {
           <ActionButton icon={<Gift size={22} className="text-rose-500" />} label="Premios" onClick={() => navigate('/referidos')} />
           <ActionButton icon={<Wallet size={22} className="text-emerald-600" />} label="Wallet" onClick={() => navigate('/billetera')} />
           <ActionButton icon={<QrCode size={22} className="text-blue-500" />} label="Pase Digital" onClick={() => setShowQR(true)} />
+          <ActionButton icon={<CreditCard size={22} className="text-sky-500" />} label="Tarjetas" onClick={() => navigate('/tarjetas')} />
           <ActionButton icon={<Sparkles size={22} className="text-purple-500" />} label="Premium" onClick={() => navigate('/servicios-extra')} />
         </div>
       </div>
@@ -265,9 +272,10 @@ export default function Dashboard({ user }: DashboardProps) {
       </AnimatePresence>
     </motion.div>
   );
-}
+});
 
-function ActionButton({ icon, label, onClick }: { icon: React.ReactNode, label: string, onClick: () => void }) {
+// Memoizamos ActionButton para evitar re-renders
+const ActionButton = memo(function ActionButton({ icon, label, onClick }: { icon: React.ReactNode, label: string, onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -277,4 +285,6 @@ function ActionButton({ icon, label, onClick }: { icon: React.ReactNode, label: 
       <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400 leading-tight text-center">{label}</span>
     </button>
   );
-}
+});
+
+export default Dashboard;

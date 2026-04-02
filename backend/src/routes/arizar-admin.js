@@ -276,5 +276,73 @@ router.post('/social/post', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ═══════════════════════════════════════════════════════
+// CONVERSACIONES — Ver mensajes de clientes desde el admin
+// ═══════════════════════════════════════════════════════
+
+// GET /api/arizar/conversations — Listar conversaciones activas del CRM
+router.get('/conversations', async (req, res, next) => {
+  try {
+    const { contactId, limit = 25, unread } = req.query;
+    const conversations = await arizarService.getConversations({
+      contactId,
+      limit:  parseInt(limit, 10),
+      unread: unread === 'true',
+    });
+
+    // Enriquecer con datos del usuario local si existe en nuestra DB
+    const enriched = await Promise.all(conversations.map(async (conv) => {
+      try {
+        const localUser = conv.contactId
+          ? await req.prisma.user.findFirst({
+              where: { arizarContactId: conv.contactId },
+              select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+            })
+          : null;
+        return { ...conv, localUser: localUser || null };
+      } catch { return { ...conv, localUser: null }; }
+    }));
+
+    res.json({ success: true, data: enriched, total: enriched.length });
+  } catch (err) { next(err); }
+});
+
+// GET /api/arizar/conversations/:conversationId/messages — Mensajes de una conversación
+router.get('/conversations/:conversationId/messages', async (req, res, next) => {
+  try {
+    const { limit = 50 } = req.query;
+    const messages = await arizarService.getConversationMessages(
+      req.params.conversationId,
+      parseInt(limit, 10)
+    );
+    res.json({ success: true, data: messages, total: messages.length });
+  } catch (err) { next(err); }
+});
+
+// POST /api/arizar/conversations/:contactId/reply — Responder a un cliente desde el admin
+router.post('/conversations/:contactId/reply', async (req, res, next) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ success: false, message: 'message requerido' });
+
+    await arizarService.sendWhatsApp(req.params.contactId, message);
+
+    // Log en audit
+    await req.prisma.auditLog.create({
+      data: {
+        entity: 'conversation',
+        action: 'admin_reply',
+        entityId: req.params.contactId,
+        userId: req.user.id,
+        details: { sentBy: req.user.email, preview: message.substring(0, 100) },
+      },
+    });
+
+    res.json({ success: true, message: 'Mensaje enviado correctamente' });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
+
+
 

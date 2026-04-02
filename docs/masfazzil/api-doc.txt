@@ -1,0 +1,781 @@
+Documentación API Masfazzil - Pasarela de
+Pagos (Débitos y Catastro)
+Esta documentación detalla los procesos para la autenticación, registro de tarjetas, gestión de
+clientes y procesamiento de cobros a través de la API de Masfazzil.
+
+
+
+
+1. Autenticación (OAuth2)
+Antes de realizar cualquier operación, se debe obtener un token de acceso válido.
+
+
+     Endpoint: POST https://auth.masfazzil.com.py/oauth2/token
+     Body (x-www-form-urlencoded):
+
+        client_id: {{client_id}}
+        client_secret: {{client_secret}}
+        grant_type: client_credentials
+
+
+
+Response (Success)
+{
+    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGci...",
+    "expires_in": 3600,
+    "token_type": "Bearer"
+}
+
+
+
+
+2. Registro de Tarjeta (/card/register)
+Inicia el proceso de catastro de una tarjeta. Este endpoint genera una URL de redirección donde
+el usuario final ingresará sus datos de forma segura.
+
+
+     Endpoint: POST https://gateway.masfazzil.com.py/{{stage}}/api/v2/card/register
+     Headers:
+
+        Authorization: Bearer {{access_token}}
+        X-Client-Id: {{client_id}}
+Request Body
+{
+    "merchant_uuid": "fa42059b-5297-448e-ac6e-dcf1e3ea8e8a",
+    "customer": {
+      "name": "Marce Alonso",
+      "email": "marcelo@vallo.com",
+      "document_number": "007352908340",
+      "document_type": "CPF",
+      "phone": "0981123433"
+    }
+}
+Response (Success)
+{
+  "success": true,
+  "status": "success",
+  "message": "Ok",
+  "data": {
+     "customer_uuid": "afd7deaf-e97a-453f-8319-bc03849f4266",
+     "redirect_url": "https://debitos.masfazzil.com.py/payments/cards/p/register?
+token=Q0oyOEgyUzYzVkRPQkRNRzJaUkNOQ0ozRw==&provider=upay"
+  }
+}
+
+
+
+
+3. Listado de Tarjetas (/card/list)
+Obtiene las tarjetas asociadas a un cliente específico utilizando su customer_uuid.
+
+
+     Endpoint: GET https://gateway.masfazzil.com.py/{{stage}}/api/v2/card/list
+     Query Params:
+
+        customer_uuid: afd7deaf-e97a-453f-8319-bc03849f4266
+
+     Headers:
+
+        Authorization: Bearer {{access_token}}
+        X-Client-Id: {{client_id}}
+
+
+
+Response (Success)
+{
+    "success": true,
+    "status": "success",
+    "message": "ok",
+    "data": [
+      {
+         "id": "ae51a23e-e8d0-4433-9558-b4685e4e0dd8",
+         "alias": "Mastercard Débito terminada en 0545",
+         "number": "558549XXXXXX0545",
+         "brand": "Mastercard",
+         "issuer": "UENO BANK S.A.",
+         "type": "Débito",
+         "primary": false
+      }
+    ]
+}
+
+
+
+
+4. Realizar Cobro (/card/charge)
+Ejecuta una transacción financiera sobre una tarjeta previamente catastrada.
+
+
+     Endpoint: POST https://gateway.masfazzil.com.py/{{stage}}/api/v2/card/charge
+     Headers:
+
+        Authorization: Bearer {{access_token}}
+        X-Client-Id: {{client_id}}
+
+
+
+Request Body
+{
+    "amount" : 1000.00,
+    "currency" : "PYG",
+    "description" : "Cuota IronGym",
+    "merchant_uuid": "fa42059b-5297-448e-ac6e-dcf1e3ea8e8a",
+    "merchant_reference" : "CUOTA233-26",
+    "card_id" : "ae51a23e-e8d0-4433-9558-b4685e4e0dd8",
+    "customer_uuid": "afd7deaf-e97a-453f-8319-bc03849f4266"
+}
+Response (Success)
+{
+  "success": true,
+  "status": "success",
+  "message": "Pagado",
+  "payment": {
+     "transaction_id": "ae17b7d3-84ea-4980-af94-535c7f3171b0",
+     "operation_detail_id": "b6d41525-b8e2-48c3-8316-2a97cb96c306",
+     "provider_reference":
+"da4e060f376c6734721d08127738b6f3604b733a51f15245674b6852a3af9805",
+     "status": "PAID"
+     }
+}
+
+
+
+
+5. Eliminar Tarjeta (/card)
+Elimina de forma permanente una tarjeta del registro del cliente.
+
+
+         Endpoint: DELETE https://gateway.masfazzil.com.py/{{stage}}/api/v2/card
+         Query Params:
+
+            card_id: ae51a23e-e8d0-4433-9558-b4685e4e0dd8
+
+         Headers:
+
+            Authorization: Bearer {{access_token}}
+            X-Client-Id: {{client_id}}
+
+
+
+Response (Success)
+{
+     "success": true,
+     "status": "success",
+     "message": "Tarjeta Borrada"
+}
+6. Gestión de clientes
+
+Crear cliente
+Este endpoint permite registrar un nuevo cliente en el sistema.
+
+
+Endpoint: POST https://gateway.masfazzil.com.py/{stage}/api/v2/debit/clients
+
+
+Headers:
+
+
+         Authorization: Bearer {{access_token}}
+         X-Client-Id: {{client_id}}
+
+
+    Campo                 Tipo    Requerido Descripción                Ejemplo
+    document_type         string Requerido Tipo de documento de        'CI'
+                                           identificación. Valores
+                                            posibles: CI, RUC.
+    full_name           string Requerido Nombre completo del          'Juan Duarte'
+                                         cliente.
+    document_number string Requerido Número de documento de           '123456789'
+                                     identificación (C.I. o RUC).
+                                     Debe ser único en el
+                                     sistema.
+    email               string Requerido Correo electrónico del       'juan.duart@example.com'
+                                         cliente. Debe ser un email
+                                         válido.
+    phone               string Requerido Número de teléfono del       '+1234567890'
+                                         cliente. Mínimo 10
+                                         caracteres, máximo 20.
+
+
+
+
+Ejemplo:
+
+Request Body:
+
+
+{
+    "code": "1800953",
+    "full_name": "Juan Duarte",
+    "document_type": "CI",
+    "document_number": "123456789",
+    "email": "juan.duart@example.com",
+    "phone": "+1234567890"
+}
+Response (201 - Cliente creado exitosamente):
+
+
+{
+    "statusCode": 201,
+    "message": "The client has been successfully created.",
+    "data": {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "code": "1800953",
+      "document_type": "CI",
+      "full_name": "Juan Duarte",
+      "document_number": "123456789",
+      "email": "juan.duart@example.com",
+      "phone": "+1234567890",
+      "created_at": "2025-04-04T12:34:56.789Z",
+      "update_at": "2025-04-04T12:34:56.789Z"
+    }
+}
+Response (400 - Error de validación):
+{
+    "statusCode": 400,
+    "message": [
+       "documentType must be one of the following values: CI, RUC",
+       "email must be an email"
+    ],
+    "error": "Bad Request"
+}
+
+
+
+
+Obtener UUID
+Este endpoint permite obtener el id de un cliente existente a través de su n° de documento
+
+
+Endpoint: GET https://gateway.masfazzil.com.py/{stage}/api/v2/debit/clients/by-document/
+{document_number}
+
+
+Headers:
+
+
+      Authorization: Bearer {{access_token}}
+      X-Client-Id: {{client_id}}
+
+
+Query params:
+
+
+    Campo               Descripción                                                   Ejemplo
+    document_number Número de documento de identificación del cliente (C.I. o         '1234567'
+                    RUC).
+
+
+Ejemplo:
+
+Response (200 - Cliente encontrado):
+
+
+{
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "code": "CL-12345",
+    "document_type": "CI",
+    "full_name": "Juan Perez",
+    "document_number": "1234567",
+    "email": "juanperez@example.com",
+    "phone": "+595981234567",
+    "created_at": "2025-04-04T12:34:56.789Z",
+    "updated_at": "2025-04-04T12:34:56.789Z"
+}
+Response (Failure):
+
+
+{
+    "status_code": 404,
+    "message": "Client not found with document: 1234567",
+    "error": "Not Found"
+}
+Obtener Tokens de Pago de un Cliente
+Este endpoint permite obtener todos los tokens de pago (tarjetas registradas) asociados a un
+cliente específico.
+
+
+Endpoint: GET https://gateway.masfazzil.com.py/{{stage}}/api/v2/debit/clients/{client__uuid}/
+payment-tokens
+
+
+Headers:
+
+
+        Authorization: Bearer {{access_token}}
+        X-Client-Id: {{client_id}}
+
+
+Path params:
+
+
+    Campo         Descripción
+    client__uuid ID único del cliente (UUID).
+
+
+Response (200 - Tokens encontrados):
+
+
+[
+    {
+      "id": "523e4567-e89b-12d3-a456-426614174004",
+      "payment_provider": "PAGOPAR",
+      "masked_number": "****1234",
+      "brand": "VISA",
+      "issuer": "Banco Nacional",
+      "card_type": "CREDIT",
+      "user_alias": "Mi Tarjeta Principal",
+      "alias_token": "Mi Tarjeta Principal",
+      "logo_url": "https://bucket.s3.amazonaws.com/logos/visa.png",
+      "is_primary": true
+    },
+    {
+      "id": "623e4567-e89b-12d3-a456-426614174005",
+      "payment_provider": "BANCARD",
+      "masked_number": "****5678",
+      "brand": "MASTERCARD",
+        "issuer": "Banco Continental",
+        "card_type": "DEBIT",
+        "user_alias": "Tarjeta Débito",
+        "alias_token": "Tarjeta Débito",
+        "logo_url": "https://bucket.s3.amazonaws.com/logos/mastercard.png",
+        "is_primary": false
+    }
+]
+Response (404 - Cliente no encontrado):
+
+
+{
+    "status_code": 404,
+    "message": "Client not found.",
+    "error": "Not Found"
+}
+7. Asignar operaciones
+Crear Operación
+
+Este endpoint permite crear una nueva operación de débito, incluyendo la posibilidad de adjuntar
+un archivo.
+
+
+Endpoint: POST https://gateway.masfazzil.com.py/{stage}/api/v2/debit/operations
+
+
+Headers:
+
+
+         Authorization: Bearer {{access_token}}
+         X-Client-Id: {{client_id}}
+
+
+Request Body (Multipart Form Data):
+
+
+    Campo                       Tipo      Requerido Descripción       Ejemplo
+    client_uuid                 string    Requerido ID del cliente    '123e4567-e89b-12d3-
+                                                    asociado a la     a456-426614174000'
+                                                    operación.
+    institution                 string    Requerido Nombre de la      'Banco Nacional'
+                                                    institución
+                                                    financiera.
+    description                 string    Opcional   Descripción de   'Préstamo personal'
+                                                     la operación.
+    installments                integer   Requerido Número de         12
+                                                    cuotas de la
+                                                    operación
+                                                    (mínimo 1,
+                                                  máximo 120).
+    start_date               string   Requerido Fecha de inicio   '2024-01-15T00:00:00.000Z'
+                                                de la operación
+                                                (formato ISO
+                                                8601).
+    amount_per_installment number Requerido Monto por cuota 150000.5
+                                            (mínimo 1).
+    first_due_date           string   Requerido Fecha de         '2024-02-15T00:00:00.000Z'
+                                                vencimiento de
+                                                la primera cuota
+                                                (formato ISO
+                                                8601).
+    code                     string   Requerido Código único de 'OP-2024-001'
+                                                la operación.
+
+
+Ejemplo:
+
+Request Body
+
+
+{
+    "client_uuid": "123e4567-e89b-12d3-a456-426614174000",
+    "institution": "Banco Nacional",
+    "description": "Préstamo personal",
+    "installments": 12,
+    "start_date": "2024-01-15T00:00:00.000Z",
+    "amount_per_installment": 150000.5,
+    "first_due_date": "2024-02-15T00:00:00.000Z",
+    "code": "OP-2024-001",
+}
+Response(Success)
+
+
+{
+    "status_code": 200,
+    "message": "The operation has been successfully created."
+}
+
+
+
+Obtener operación
+
+Este endpoint permite obtener una operación a través de su código único
+
+
+Request: GET https://gateway.masfazzil.com.py/{stage}/api/v2/debit/operations?
+search={{code}}
+Search params:
+
+
+    Parámetro Descripción                         Ejemplo
+    code       Código único ligado a la operación OP-2024-001
+
+
+Ejemplo:
+
+
+Response (200):
+
+
+{
+    "items": [
+       {
+         "id": "123e4567-e89b-12d3-a456-426614174000",
+         "client__uuid": "223e4567-e89b-12d3-a456-426614174001",
+         "commerce__uuid": "323e4567-e89b-12d3-a456-426614174002",
+         "institution": "Banco Nacional",
+         "description": "Préstamo personal",
+         "start_date": "2024-01-15T00:00:00.000Z",
+         "active": true,
+         "client_full_name": "Juan Perez",
+         "client_document_number": "1234567",
+         "client_email": "juanperez@example.com",
+         "client_phone": "+595981234567",
+         "commerce_name": "Empresa S.A.",
+         "installment_amount": 150000.5,
+         "installments": 12,
+         "selected_client_payment_token_id": "423e4567-e89b-12d3-a456-426614174003",
+         "selected_paymen_token_info": {
+           "id": "423e4567-e89b-12d3-a456-426614174003",
+           "payment_provider": "PAGOPAR",
+           "masked_number": "****1234",
+           "brand": "VISA"
+         }
+       }
+    ],
+    "total": 1,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 1
+}
+
+
+
+Obtener Estado de Operación
+
+Este endpoint permite obtener el estado de una operación de débito específica a través de su ID.
+
+
+Endpoint: GET https://gateway.masfazzil.com.py/{stage}/api/v2/operations/{operation__uuid}
+Headers:
+
+
+      Authorization: Bearer {{access_token}}
+      Content-Type: application/json
+
+
+Path params:
+
+
+    Parámetro        Descripción
+    operation__uuid ID único de la operación (UUID).
+
+
+Ejemplo:
+
+
+Response (200 - Operación encontrada):
+
+
+{
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "client_uuid": "223e4567-e89b-12d3-a456-426614174001",
+    "commerce__uuid": "323e4567-e89b-12d3-a456-426614174002",
+    "code": "OP-2024-001",
+    "institution": "Banco Nacional",
+    "description": "Préstamo personal",
+    "start_date": "2024-01-15T00:00:00.000Z",
+    "status": "PENDING",
+    "active": true,
+    "document_key": "operations/1234567890-contrato.pdf",
+    "selected_client_payment_token_id": "423e4567-e89b-12d3-a456-426614174003",
+    "selected_payment_token_info": {
+      "id": "423e4567-e89b-12d3-a456-426614174003",
+      "payment_provider": "PAGOPAR",
+      "masked_number": "****1234",
+      "brand": "VISA",
+      "user_alias": "Mi Tarjeta"
+    },
+    "created_at": "2024-01-15T10:30:00.000Z",
+    "updated_at": "2024-01-15T10:30:00.000Z"
+}
+Response (404 - Operación no encontrada):
+
+
+{
+    "status_code": 404,
+    "message": "Operation with ID \"123e4567-e89b-12d3-a456-426614174000\" not found",
+    "error": "Not Found"
+}
+Response (403 - Sin permisos):
+{
+  "status_code": 403,
+  "message": "You do not have permission to access operation with ID \"123e4567-e89b-12d3-
+a456-426614174000\"",
+  "error": "Forbidden"
+}
+Obtener Resumen de Cuotas
+
+Este endpoint permite obtener un resumen de las cuotas de una operación de débito, incluyendo
+estados de pago, montos y porcentajes.
+
+
+Endpoint: GET https://gateway.masfazzil.com.py/{stage}/api/v2/operations/{operation__uuid}/
+preview
+
+
+Headers:
+
+
+      Authorization: Bearer {{access_token}}
+      Content-Type: application/json
+
+
+Path params:
+
+
+    Parámetro        Descripción
+    operation__uuid ID único de la operación (UUID).
+
+
+
+
+Ejemplo:
+
+
+Response (200 - Resumen obtenido):
+
+
+{
+    "pending": {
+      "installments": 8,
+      "amount": 12000000
+    },
+    "paid": {
+      "installments": 1,
+      "amount": 1500000
+    },
+    "overdue": {
+      "installments": 2,
+      "amount": 3000000
+    },
+    "cancelled": {
+      "installments": 1,
+      "amount": 1500000
+    },
+    "totals": {
+      "total_installments": 12,
+      "total_amount": 18000000,
+      "paid_percentage_exact": 8.33,
+      "paid_percentage_rounded": 8,
+      "paid_amount": 1500000
+    },
+    "client": {
+      "full_name": "Juan Perez",
+      "document_number": "1234567",
+      "email": "juanperez@example.com",
+      "phone": "+595981234567",
+      "has_user": true
+    },
+    "commerce": {
+      "name": "Empresa S.A.",
+      "logo_url": "https://bucket.s3.amazonaws.com/logos/empresa-logo.png"
+    }
+}
+Response (404 - Operación no encontrada):
+
+
+{
+    "status_code": 404,
+    "message": "Operation with ID \"123e4567-e89b-12d3-a456-426614174000\" not found",
+    "error": "Not Found"
+}
+Response (403 - Sin permisos):
+
+
+{
+  "status_code": 403,
+  "message": "You do not have permission to access operation with ID \"123e4567-e89b-12d3-
+a456-426614174000\"",
+  "error": "Forbidden"
+}
+Obtener Cuotas por Operación
+
+Este endpoint permite obtener el detalle de todas las cuotas (installments) asociadas a una
+operación de débito.
+
+
+Endpoint: GET https://gateway.masfazzil.com.py/{stage}/api/v2/operations/{operation__uuid}/
+installments
+
+
+Headers:
+        Authorization: Bearer {{access_token}}
+        Content-Type: application/json
+
+
+Path params:
+
+
+    Parámetro         Descripción
+    operation__uuid ID único de la operación (UUID).
+
+
+Estados de Cuota:
+
+
+    Estado         Descripción
+    PENDING        Cuota pendiente de pago.
+    PAID           Cuota pagada.
+    OVERDUE        Cuota vencida sin pagar.
+    CANCELLED Cuota cancelada.
+
+
+Métodos de Pago:
+
+
+    Método      Descripción
+    AUTO        Débito automático programado.
+    MANUAL Pago manual realizado.
+
+
+Ejemplo:
+
+
+Response (200 - Cuotas obtenidas):
+
+
+[
+    {
+      "id": "523e4567-e89b-12d3-a456-426614174004",
+      "installment_number": 1,
+      "due_date": "2024-02-15T00:00:00.000Z",
+      "installment_amount": 1500000,
+      "status": "PAID",
+      "method": "AUTO",
+      "paid_date": "2024-02-14T10:30:00.000Z",
+      "delay_reason": null,
+      "scheduled_date": "2024-02-15T00:00:00.000Z"
+    },
+    {
+      "id": "623e4567-e89b-12d3-a456-426614174005",
+      "installment_number": 2,
+      "due_date": "2024-03-15T00:00:00.000Z",
+      "installment_amount": 1500000,
+      "status": "PENDING",
+      "method": "AUTO",
+      "paid_date": null,
+      "delay_reason": null,
+      "scheduled_date": "2024-03-15T00:00:00.000Z"
+    },
+    {
+      "id": "723e4567-e89b-12d3-a456-426614174006",
+      "installment_number": 3,
+      "due_date": "2024-04-15T00:00:00.000Z",
+      "installment_amount": 1500000,
+      "status": "OVERDUE",
+      "method": "AUTO",
+      "paid_date": null,
+      "delay_reason": "Sin fondos suficientes",
+      "scheduled_date": "2024-04-15T00:00:00.000Z"
+    },
+    {
+      "id": "823e4567-e89b-12d3-a456-426614174007",
+      "installment_number": 4,
+      "due_date": "2024-05-15T00:00:00.000Z",
+      "installment_amount": 1500000,
+      "status": "CANCELLED",
+      "method": "MANUAL",
+      "paid_date": null,
+      "delay_reason": "Cliente solicitó cancelación",
+      "scheduled_date": null
+    }
+]
+Response (404 - Operación no encontrada):
+
+
+{
+    "status_code": 404,
+    "message": "Operation with ID \"123e4567-e89b-12d3-a456-426614174000\" not found",
+    "error": "Not Found"
+}
+Eliminar Cliente
+Este endpoint permite eliminar un cliente existente del sistema.
+
+
+Endpoint: DELETE https://gateway.masfazzil.com.py/{stage}/api/v2/debit/clients/{client__uuid}
+
+
+Headers:
+
+
+      Authorization: Bearer {{access_token}}
+      X-Client-Id: {{client_id}}
+
+
+Path params:
+    Campo        Descripción
+    client__uuid ID único del cliente (UUID).
+
+
+
+
+Ejemplo:
+
+Response (200 - Cliente eliminado exitosamente):
+
+
+{
+    "client__uuid": "123e4567-e89b-12d3-a456-426614174000",
+    "code": "1800953",
+    "document_type": "CI",
+    "full_name": "Juan Duarte",
+    "document_number": "123456789",
+    "email": "juan.duart@example.com",
+    "phone": "+1234567890",
+    "created_at": "2025-04-04T12:34:56.789Z",
+    "updated_at": "2025-04-04T12:34:56.789Z"
+}
+Response (404 - Cliente no encontrado):
+
+
+{
+    "status_code": 404,
+    "message": "Client not found.",
+    "error": "Not Found"
+}
+Notas:
+      Al eliminar un cliente, también se eliminarán automáticamente:
+          Todos los tokens de pago asociados (ClientPaymentToken)
+          Todas las operaciones asociadas (Operation)
+          Todos los detalles de operaciones (OperationDetails)
+
+      Esta acción es irreversible. Asegúrate de confirmar antes de ejecutar.
+

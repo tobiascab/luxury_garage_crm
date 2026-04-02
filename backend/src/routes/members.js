@@ -73,4 +73,13 @@ router.put('/:id/status', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async
   } catch (err) { next(err); }
 });
 
+router.put('/:id/test-mode', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+  try {
+    const { isTestMode } = req.body;
+    const user = await req.prisma.user.update({ where: { id: req.params.id }, data: { isTestMode } });
+    const { passwordHash, ...userData } = user;
+    res.json({ success: true, data: userData });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

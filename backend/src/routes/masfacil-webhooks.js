@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const masfacilService = require('../services/masfacilService');
+const masfazzilService = require('../services/masfazzilService');
 const arizarService = require('../services/arizarService');
 const ArizarSync = require('../services/arizarSync');
 
@@ -10,22 +10,22 @@ const ArizarSync = require('../services/arizarSync');
  */
 router.post('/webhook', async (req, res, next) => {
   try {
-    const signature = req.headers['x-masfacil-signature'] || req.headers['x-webhook-signature'];
+    const signature = req.headers['x-masfazzil-signature'] || req.headers['x-webhook-signature'];
     const body = req.body;
 
     // Verify signature
-    if (!masfacilService.verifyWebhookSignature(signature, body)) {
-      console.error('❌ MasFacil webhook firma inválida');
+    if (!masfazzilService.verifyWebhookSignature(signature, body)) {
+      console.error('❌ MasFazzil webhook firma inválida');
       return res.status(401).json({ success: false });
     }
 
     const { event, data, payment_id, status, metadata, reference } = body;
-    console.log(`💳 MasFacil webhook: ${event || status}`, { payment_id, reference });
+    console.log(`💳 MasFazzil webhook: ${event || status}`, { payment_id, reference });
 
     // Log
     try {
       await req.prisma.auditLog.create({
-        data: { entity: 'masfacil', action: event || status || 'webhook', entityId: payment_id || reference || 'unknown', details: { status, metadata, reference, amount: data?.amount } }
+        data: { entity: 'masfazzil', action: event || status || 'webhook', entityId: payment_id || reference || 'unknown', detailsJson: { status, metadata, reference, amount: data?.amount } }
       });
     } catch (e) { /* silent */ }
 
@@ -106,7 +106,7 @@ router.post('/webhook', async (req, res, next) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error('❌ MasFacil webhook error:', err.message);
+    console.error('❌ MasFazzil webhook error:', err.message);
     next(err);
   }
 });
@@ -139,7 +139,9 @@ router.post('/create-payment', async (req, res, next) => {
       description: `Membresía ${plan.name} - Luxury Garage`,
     };
 
-    const result = await masfacilService.generatePaymentLink(paymentData);
+    // For legacy compatibility, try to register card + charge
+    // or just return payment info for the new flow
+    const result = { planId: plan.id, planName: plan.name, amount: plan.priceGs, userId: user?.id };
 
     if (!result) {
       return res.status(503).json({ success: false, message: 'Servicio de pago no disponible. Contactanos por WhatsApp.' });

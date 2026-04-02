@@ -131,6 +131,71 @@ router.post('/redeem', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/credits/topup-card — cargar saldo via tarjeta MasFazzil
+router.post('/topup-card', authenticate, async (req, res, next) => {
+  try {
+    const { amount, cardId } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Monto inválido' });
+    if (amount < 10000) return res.status(400).json({ success: false, message: 'Monto mínimo: ₲10.000' });
+    if (!cardId) return res.status(400).json({ success: false, message: 'Seleccioná una tarjeta' });
+
+    // Find card
+    const card = await req.prisma.paymentCard.findFirst({ where: { id: cardId, userId: req.user.id } });
+    if (!card) return res.status(404).json({ success: false, message: 'Tarjeta no encontrada' });
+
+    const masfazzilService = require('../services/masfazzilService');
+
+    // Charge card via MasFazzil
+    const chargeRef = `TOPUP-${req.user.id.slice(-6)}-${Date.now()}`;
+    const chargeResult = await masfazzilService.chargeCard({
+      card_id: card.masfazzilCardId,
+      amount: amount,
+      currency: 'PYG',
+      description: `Recarga Wallet LUXU - ${chargeRef}`,
+      reference: chargeRef,
+    });
+
+    if (!chargeResult.success) {
+      return res.status(400).json({ success: false, message: chargeResult.message || 'Error procesando el cobro' });
+    }
+
+    // Charge successful — create credit
+    const credit = await req.prisma.credit.create({
+      data: {
+        userId: req.user.id,
+        amount: amount,
+        type: 'WALLET_TOPUP',
+        description: `Recarga vía tarjeta ${card.brand} ****${card.maskedNumber?.slice(-4) || ''}`,
+      },
+    });
+
+    // Record payment
+    await req.prisma.payment.create({
+      data: {
+        userId: req.user.id,
+        amount: amount,
+        status: 'COMPLETED',
+        method: 'CARD',
+        externalId: chargeResult.data?.transaction_id || chargeRef,
+        details: { type: 'WALLET_TOPUP', cardId, cardBrand: card.brand, ref: chargeRef },
+      },
+    });
+
+    // Calculate new total
+    const allCredits = await req.prisma.credit.findMany({
+      where: { userId: req.user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+    });
+    const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
+
+    res.status(201).json({
+      success: true,
+      data: credit,
+      balance: totalBalance,
+      message: `₲${amount.toLocaleString()} cargados desde tu tarjeta. Saldo: ₲${totalBalance.toLocaleString()}`,
+    });
+  } catch (err) { next(err); }
+});
+
 // ═══════ ADMIN: registrar compra de un cliente en el shop ═══════
 
 // POST /api/credits/admin/charge — admin cobra compra del showroom a un cliente

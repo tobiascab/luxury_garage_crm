@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"router\\\\.\\\\\\(get\\\\|post\\\\\\).*'/status'\" backend/src/routes/arizar*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m 'fix: AppointmentUpdate ahora soporta múltiples formatos de campo \\(startTime/start_time\\):*)",
+      "Bash(grep -r \"router.post\\\\|router.put\\\\|router.delete\" /home/luxury-garage/backend/src/routes/*.js)"
+    ]
+  }
+}

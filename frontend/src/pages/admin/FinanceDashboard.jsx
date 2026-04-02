@@ -9,23 +9,34 @@ import {
   Clock, AlertCircle, Banknote,
   ShoppingBag, Loader2, Plus,
   ChevronLeft, ChevronRight,
-  BarChart3, PieChart
+  BarChart3, PieChart, Percent,
+  Lock, Users
 } from 'lucide-react';
 import api from '../../services/api';
+
+// Format Guaraníes — full number, no abbreviation (e.g. "₲ 500.000")
+const fmtGs = (n) => {
+  if (!n && n !== 0) return '₲ 0';
+  return '₲ ' + Math.round(n).toLocaleString('es-PY');
+};
 
 export default function FinanceDashboard() {
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
   const [search, setSearch] = useState('');
+  const [commissionRate, setCommissionRate] = useState(0);
 
   useEffect(() => {
     Promise.all([
       api.get('/dashboard/admin').catch(() => ({ data: { data: {} } })),
       api.get('/payments?limit=50').catch(() => ({ data: { data: [] } })),
-    ]).then(([dRes, pRes]) => {
+      api.get('/settings').catch(() => ({ data: { data: {} } })),
+    ]).then(([dRes, pRes, sRes]) => {
       setData(dRes.data.data || {});
       setPayments(pRes.data.data || []);
+      const settings = sRes.data.data || {};
+      setCommissionRate(parseFloat(settings.arizar_commission_rate) || 0);
     })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -34,12 +45,17 @@ export default function FinanceDashboard() {
   if (loading) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
       <Loader2 size={40} className="text-primary animate-spin" />
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Analizando registros contables...</p>
+      <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Cargando datos financieros...</p>
     </div>
   );
 
-  const totalPaid = payments.filter(p => p.status === 'PAID').reduce((s, p) => s + (p.amountGs || 0), 0);
+  const paidPayments = payments.filter(p => p.status === 'PAID');
+  const totalPaid = paidPayments.reduce((s, p) => s + (p.amountGs || 0), 0);
   const totalPending = payments.filter(p => p.status === 'PENDING').reduce((s, p) => s + (p.amountGs || 0), 0);
+  const averageTicket = paidPayments.length > 0 ? totalPaid / paidPayments.length : 0;
+
+  // Commission calculation
+  const commissionTotal = commissionRate > 0 ? Math.round(totalPaid * (commissionRate / 100)) : 0;
 
   const filteredPayments = payments.filter(p =>
     `${p.user?.firstName} ${p.user?.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
@@ -57,187 +73,253 @@ export default function FinanceDashboard() {
             </div>
             Gestión Financiera
           </h1>
-          <p>Supervisión de flujo de caja y rentabilidad operativa</p>
+          <p className="text-slate-500 dark:text-slate-400">Ingresos, cobros y comisiones — montos en Guaraníes (₲)</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button className="h-12 px-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400 flex items-center gap-2 transition-all hover:bg-slate-50 dark:hover:bg-slate-700">
-            <Download size={14} /> EXPORTAR LIBRO
+          <button className="h-12 px-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-2 transition-all hover:bg-slate-50 dark:hover:bg-slate-700">
+            <Download size={14} /> Exportar
           </button>
           <button className="admin-btn-primary group h-12">
-            <Plus size={18} className="transition-transform group-hover:rotate-90" /> REGISTRAR MOVIMIENTO
+            <Plus size={18} className="transition-transform group-hover:rotate-90" /> Registrar Movimiento
           </button>
         </div>
       </header>
 
-      {/* Financial Health Indicators */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        <StatCard
-          label="Cobros Totales"
-          value={`₲${totalPaid.toLocaleString('es-PY')}`}
-          trend="+12.5%"
-          trendColor="emerald"
-          icon={<TrendingUp size={22} />}
+      {/* Financial Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+        <FinanceCard
+          label="Total Cobrado"
+          value={fmtGs(totalPaid)}
+          icon={<TrendingUp size={20} />}
           color="emerald"
-          progress={85}
         />
-        <StatCard
-          label="Cuentas por Cobrar"
-          value={`₲${totalPending.toLocaleString('es-PY')}`}
-          trend="Estable"
-          trendColor="amber"
-          icon={<Clock size={22} />}
+        <FinanceCard
+          label="Pendiente de Cobro"
+          value={fmtGs(totalPending)}
+          icon={<Clock size={20} />}
           color="amber"
-          progress={32}
         />
-        <StatCard
+        <FinanceCard
           label="Transacciones"
           value={payments.length.toString()}
-          trend="+4 hoy"
-          trendColor="indigo"
-          icon={<ShoppingBag size={22} />}
+          icon={<ShoppingBag size={20} />}
           color="indigo"
-          progress={64}
         />
-        <StatCard
+        <FinanceCard
           label="Ticket Promedio"
-          value={`₲${(totalPaid / (payments.filter(p => p.status === 'PAID').length || 1)).toLocaleString('es-PY', { maximumFractionDigits: 0 })}`}
-          trend="+3% vs mes ant."
-          trendColor="purple"
-          icon={<PieChart size={22} />}
+          value={fmtGs(averageTicket)}
+          icon={<PieChart size={20} />}
           color="purple"
-          progress={50}
         />
       </div>
+
+      {/* ── ARIZAR IA COMMISSION CARD ── */}
+      {commissionRate > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-10 p-6 rounded-3xl bg-gradient-to-r from-primary/5 via-indigo-500/5 to-purple-500/5 border border-primary/20 dark:border-primary/30"
+        >
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="flex items-center gap-5">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-primary/30">
+                <Percent size={28} />
+              </div>
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">Comisión ARIZAR IA</h3>
+                  <span className="flex items-center gap-1 text-xs font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-full border border-primary/20">
+                    <Lock size={10} /> {commissionRate}%
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Comisión acumulada sobre los cobros realizados
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-8">
+              <div className="text-right">
+                <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-1">Base de cálculo</p>
+                <p className="text-lg font-bold text-slate-700 dark:text-slate-300">{fmtGs(totalPaid)}</p>
+              </div>
+              <div className="w-px h-12 bg-slate-200 dark:bg-slate-700" />
+              <div className="text-right">
+                <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-1">Comisión acumulada</p>
+                <p className="text-2xl font-black text-primary">{fmtGs(commissionTotal)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Breakdown per payment (last 5) */}
+          {paidPayments.length > 0 && (
+            <div className="mt-6 pt-5 border-t border-primary/10">
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-3">Últimas comisiones generadas</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                {paidPayments.slice(0, 5).map(p => {
+                  const comm = Math.round((p.amountGs || 0) * (commissionRate / 100));
+                  return (
+                    <div key={p.id} className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                      <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                        {p.user ? `${p.user.firstName} ${p.user.lastName}` : 'Cliente'}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">{p.concept || 'Membresía'}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-slate-400">{fmtGs(p.amountGs || 0)}</span>
+                        <span className="text-xs font-bold text-primary">→ {fmtGs(comm)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
 
       {/* Transactions Section */}
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <h2 className="text-xl font-black italic uppercase tracking-tighter text-slate-900 dark:text-white flex items-center gap-4">
-            <div className="w-1.5 h-6 bg-primary rounded-full shadow-lg shadow-primary/20" />
-            Movimientos Contables
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-3">
+            <div className="w-1 h-5 bg-primary rounded-full" />
+            Movimientos
           </h2>
 
           <div className="flex items-center gap-4 w-full md:w-auto">
-            <div className="admin-search-wrapper flex-1 md:min-w-[400px]">
-              <Search className="admin-search-icon" size={16} />
+            <div className="relative flex-1 md:min-w-[350px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
-                className="admin-search-input"
-                placeholder="Buscar por cliente, RUC o concepto..."
+                className="w-full h-12 pl-12 pr-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-primary transition-all"
+                placeholder="Buscar por cliente o concepto..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-            <button className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-white/5 text-slate-400 flex items-center justify-center transition-all hover:text-primary hover:border-primary/30 shadow-sm border-b-2 active:translate-y-0.5">
-              <Filter size={18} />
-            </button>
           </div>
         </div>
 
-        <div className="admin-card !p-0 overflow-hidden border-b-4 border-b-slate-900/5 dark:border-b-white/5">
-          <div className="table-container">
-            <table className="admin-table">
+        <div className="admin-card !p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
               <thead>
-                <tr>
-                  <th>Ejecución</th>
-                  <th>Socio / Cliente</th>
-                  <th>Referencia</th>
-                  <th>Medio</th>
-                  <th>Estado</th>
-                  <th className="text-right">Total Bruto</th>
-                  <th className="w-16"></th>
+                <tr className="border-b border-slate-100 dark:border-slate-700">
+                  <th className="text-left text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-6 py-4">Fecha</th>
+                  <th className="text-left text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-6 py-4">Cliente</th>
+                  <th className="text-left text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-6 py-4">Concepto</th>
+                  <th className="text-left text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-6 py-4">Medio</th>
+                  <th className="text-left text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-6 py-4">Estado</th>
+                  <th className="text-right text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-6 py-4">Monto</th>
+                  {commissionRate > 0 && (
+                    <th className="text-right text-xs font-bold uppercase tracking-wider text-primary px-6 py-4">Comisión</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 <AnimatePresence>
-                  {filteredPayments.map((p, i) => (
-                    <motion.tr
-                      key={p.id}
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.015 }}
-                      className="group"
-                    >
-                      <td>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 flex flex-col items-center justify-center">
-                            <span className="text-[10px] font-black leading-none">{new Date(p.createdAt).getDate()}</span>
-                            <span className="text-[7px] font-black uppercase text-slate-400 leading-none mt-1">{new Date(p.createdAt).toLocaleDateString('es-PY', { month: 'short' })}</span>
-                          </div>
-                          <div className="text-[10px] font-bold text-slate-400">
-                            {new Date(p.createdAt).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 border border-slate-200 dark:border-white/5 flex items-center justify-center text-[9px] font-black group-hover:scale-110 transition-transform">
-                            {p.user ? `${p.user.firstName?.[0]}${p.user.lastName?.[0]}` : <Users size={12} />}
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-xs font-black text-slate-900 dark:text-white uppercase italic tracking-tight">
-                              {p.user ? `${p.user.firstName} ${p.user.lastName}` : 'Anónimo'}
+                  {filteredPayments.map((p, i) => {
+                    const comm = commissionRate > 0 && p.status === 'PAID'
+                      ? Math.round((p.amountGs || 0) * (commissionRate / 100))
+                      : 0;
+                    return (
+                      <motion.tr
+                        key={p.id}
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.015 }}
+                        className="border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center">
+                              <span className="text-xs font-bold leading-none text-slate-900 dark:text-white">{new Date(p.createdAt).getDate()}</span>
+                              <span className="text-[8px] font-semibold uppercase text-slate-400 leading-none mt-0.5">{new Date(p.createdAt).toLocaleDateString('es-PY', { month: 'short' })}</span>
+                            </div>
+                            <span className="text-xs text-slate-400">
+                              {new Date(p.createdAt).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                             </span>
-                            <span className="text-[8px] font-bold text-slate-400 tracking-widest uppercase">ID: {p.user?.id?.substring(0, 6) || 'N/A'}</span>
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 dark:bg-white/5 px-2 py-1 rounded-lg">
-                          {p.concept || p.membership?.plan?.name || 'Venta Express'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <div className="text-lg bg-white dark:bg-slate-900 w-8 h-8 rounded-lg shadow-sm flex items-center justify-center border border-slate-100 dark:border-white/5 group-hover:bg-primary group-hover:text-white transition-all transform group-hover:-rotate-12">
-                            {p.method === 'CARD' ? <CreditCard size={14} /> : p.method === 'CASH' ? <Wallet size={14} /> : p.method === 'TRANSFER' ? <TrendingUp size={14} /> : <BarChart3 size={14} />}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-bold text-slate-500">
+                              {p.user ? `${p.user.firstName?.[0]}${p.user.lastName?.[0]}` : '?'}
+                            </div>
+                            <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                              {p.user ? `${p.user.firstName} ${p.user.lastName}` : 'Sin asignar'}
+                            </span>
                           </div>
-                          <span className="text-[9px] font-black tracking-[0.1em] text-slate-400 uppercase">
-                            {p.method || 'OTROS'}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-sm text-slate-600 dark:text-slate-400">
+                            {p.concept || p.membership?.plan?.name || 'Venta'}
                           </span>
-                        </div>
-                      </td>
-                      <td>
-                        {p.status === 'PAID' ? (
-                          <div className="inline-flex items-center px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 size={10} className="mr-1.5" /> Liquidado
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center text-slate-400">
+                              {p.method === 'CARD' ? <CreditCard size={13} /> : p.method === 'CASH' ? <Wallet size={13} /> : p.method === 'TRANSFER' ? <TrendingUp size={13} /> : <BarChart3 size={13} />}
+                            </div>
+                            <span className="text-xs font-semibold text-slate-400 uppercase">
+                              {p.method === 'CARD' ? 'Tarjeta' : p.method === 'CASH' ? 'Efectivo' : p.method === 'TRANSFER' ? 'Transferencia' : p.method || 'Otro'}
+                            </span>
                           </div>
-                        ) : p.status === 'PENDING' ? (
-                          <div className="inline-flex items-center px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 animate-pulse">
-                            <Clock size={10} className="mr-1.5" /> Pendiente
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                            <AlertCircle size={10} className="mr-1.5" /> Fallido
-                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {p.status === 'PAID' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                              <CheckCircle2 size={12} /> Cobrado
+                            </span>
+                          ) : p.status === 'PENDING' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+                              <Clock size={12} /> Pendiente
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
+                              <AlertCircle size={12} /> Fallido
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="text-sm font-bold tabular-nums text-slate-900 dark:text-white">
+                            {fmtGs(p.amountGs || 0)}
+                          </span>
+                        </td>
+                        {commissionRate > 0 && (
+                          <td className="px-6 py-4 text-right">
+                            {p.status === 'PAID' ? (
+                              <span className="text-sm font-bold tabular-nums text-primary">
+                                {fmtGs(comm)}
+                              </span>
+                            ) : (
+                              <span className="text-sm text-slate-300 dark:text-slate-600">—</span>
+                            )}
+                          </td>
                         )}
-                      </td>
-                      <td className="text-right">
-                        <span className="text-sm font-black tabular-nums text-slate-900 dark:text-white">
-                          ₲{(p.amountGs || 0).toLocaleString('es-PY')}
-                        </span>
-                      </td>
-                      <td className="text-right">
-                        <button className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-primary transition-all rounded-xl hover:bg-primary/5">
-                          <MoreHorizontal size={18} />
-                        </button>
-                      </td>
-                    </motion.tr>
-                  ))}
+                      </motion.tr>
+                    );
+                  })}
                 </AnimatePresence>
               </tbody>
             </table>
           </div>
 
-          <footer className="p-6 bg-slate-50/50 dark:bg-white/5 border-t border-slate-100 dark:border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-              Mostrando <span className="text-slate-900 dark:text-white">{filteredPayments.length}</span> de <span className="text-slate-900 dark:text-white">{payments.length}</span> Transacciones
+          {filteredPayments.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <Banknote size={48} className="text-slate-200 dark:text-slate-700 mb-4" />
+              <h3 className="text-base font-bold text-slate-400">Sin movimientos registrados</h3>
+            </div>
+          )}
+
+          <footer className="p-5 bg-slate-50/50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500">
+              Mostrando <span className="text-slate-900 dark:text-white font-bold">{filteredPayments.length}</span> de <span className="text-slate-900 dark:text-white font-bold">{payments.length}</span> transacciones
             </p>
             <div className="flex gap-2">
-              <button className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-[9px] font-black uppercase text-slate-400 hover:text-primary hover:border-primary/50 transition-all active:scale-95">
-                <ChevronLeft size={16} /> ANTERIOR
+              <button className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-400 hover:text-primary transition-all">
+                <ChevronLeft size={14} /> Anterior
               </button>
-              <button className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-[9px] font-black uppercase text-slate-400 hover:text-primary hover:border-primary/50 transition-all active:scale-95">
-                SIGUIENTE <ChevronRight size={16} />
+              <button className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-400 hover:text-primary transition-all">
+                Siguiente <ChevronRight size={14} />
               </button>
             </div>
           </footer>
@@ -247,46 +329,30 @@ export default function FinanceDashboard() {
   );
 }
 
-function StatCard({ label, value, trend, trendColor, icon, color, progress }) {
-  const colors = {
-    emerald: 'bg-emerald-500 text-emerald-500',
-    amber: 'bg-amber-500 text-amber-500',
-    indigo: 'bg-indigo-600 text-indigo-600',
-    purple: 'bg-purple-600 text-purple-600'
+function FinanceCard({ label, value, icon, color }) {
+  const colorMap = {
+    emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-500', border: 'border-emerald-500/20' },
+    amber: { bg: 'bg-amber-500/10', text: 'text-amber-500', border: 'border-amber-500/20' },
+    indigo: { bg: 'bg-indigo-500/10', text: 'text-indigo-500', border: 'border-indigo-500/20' },
+    purple: { bg: 'bg-purple-500/10', text: 'text-purple-500', border: 'border-purple-500/20' },
   };
+  const c = colorMap[color] || colorMap.indigo;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="admin-card !p-0 overflow-hidden relative group"
+      className="admin-card group"
     >
-      <div className="p-7">
-        <div className="flex items-center justify-between mb-6">
-          <div className={`w-12 h-12 rounded-[1.25rem] ${colors[color].split(' ')[0]}/10 ${colors[color].split(' ')[1]} flex items-center justify-center border border-${color}-500/20 shadow-inner group-hover:scale-110 group-hover:rotate-6 transition-all`}>
-            {icon}
-          </div>
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-${trendColor}-500/10 text-${trendColor}-600 dark:text-${trendColor}-400 text-[10px] font-black uppercase shadow-sm border border-${trendColor}-500/10`}>
-            {trend.includes('%') && (trend.startsWith('+') ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />)}
-            {trend}
-          </div>
+      <div className="flex items-center justify-between mb-5">
+        <div className={`w-12 h-12 rounded-2xl ${c.bg} ${c.text} flex items-center justify-center border ${c.border}`}>
+          {icon}
         </div>
-
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">{label}</p>
-        <h3 className="text-3xl font-black italic tracking-tighter text-slate-900 dark:text-white uppercase leading-none mb-1 group-hover:translate-x-1 transition-transform tabular-nums">
-          {value}
-        </h3>
-        <p className="text-[9px] font-bold text-slate-500/70 uppercase tracking-widest italic group-hover:text-primary transition-colors">Performance Auditoría Tiempo Real</p>
       </div>
-
-      <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-slate-100 dark:bg-white/5">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 1, ease: 'easeOut' }}
-          className={`h-full ${colors[color].split(' ')[0]}`}
-        />
-      </div>
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">{label}</p>
+      <h3 className="text-2xl font-bold text-slate-900 dark:text-white tabular-nums">
+        {value}
+      </h3>
     </motion.div>
   );
 }

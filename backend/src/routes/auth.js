@@ -268,9 +268,11 @@ router.post('/admin-create', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'EM
     });
 
     const { passwordHash: _, ...userData } = user;
+    // Nota: tempPassword NO se devuelve en la respuesta HTTP por seguridad
+    // Se envía solo por WhatsApp/Email (ver líneas anteriores)
     res.status(201).json({
       success: true,
-      data: { ...userData, vehicle, membership, tempPassword, arizarContactId: contactId },
+      data: { ...userData, vehicle, membership, arizarContactId: contactId },
       message: `Cliente creado${doSendWA ? ' y credenciales enviadas por WhatsApp' : ''}`
     });
   } catch (err) { next(err); }
