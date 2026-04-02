@@ -6,14 +6,20 @@ const { verifyWebhookSignature } = require('../middleware/webhookVerify');
 // POST /api/webhooks/arizar — Receive ALL webhooks from ARIZAR IA
 router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
   try {
-    const { type, data, contactId, locationId, id } = req.body;
+    const body = req.body || {};
+    const type = body.type;
+    const data = body.data || body; // Fallback to root if data is missing
+    const contactId = body.contactId || body.contact_id || data.contactId || data.contact_id;
+    const locationId = body.locationId || body.location_id || data.locationId;
+    const id = body.id || body.appointmentId || body.appointment_id || data.id;
+
     const timestamp = new Date().toISOString();
     console.log(`📨 [${timestamp}] Webhook: ${type}`, { contactId, id });
 
     // Log every webhook
     try {
       await req.prisma.auditLog.create({
-        data: { entity: 'webhook', action: type, entityId: id || contactId || 'unknown', details: { contactId, locationId, dataKeys: data ? Object.keys(data) : [] } }
+        data: { entity: 'webhook', action: type, entityId: id || contactId || 'unknown', details: body }
       });
     } catch (e) { /* silent */ }
 
@@ -124,28 +130,43 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
 
       // ═══════════ APPOINTMENTS ═══════════
       case 'AppointmentCreate': {
-        console.log('📅 Cita creada desde ARIZAR IA:', { contactId, title: data?.title });
+        const title = data.title || body.title;
+        const startTimeStr = data.startTime || data.start_time || body.startTime || body.start_time;
+        const endTimeStr = data.endTime || data.end_time || body.endTime || body.end_time;
+
+        console.log('📅 Cita creada desde ARIZAR IA:', { contactId, id, title, startTimeStr, dataKeys: Object.keys(data) });
         // Sync appointment to local DB if not already there
-        if (data && contactId) {
+        if (startTimeStr && contactId) {
           const user = await req.prisma.user.findFirst({ where: { arizarContactId: contactId } });
           if (user) {
             const existing = await req.prisma.appointment.findFirst({ where: { arizarAppointmentId: id } });
-            if (!existing && data.startTime) {
+            if (!existing) {
               // Find a default service
               const service = await req.prisma.service.findFirst({ orderBy: { sortOrder: 'asc' } });
-              const vehicle = await req.prisma.vehicle.findFirst({ where: { userId: user.id, isPrimary: true } });
+              
+              // Find vehicle, or create a dummy one if required
+              let vehicle = await req.prisma.vehicle.findFirst({ where: { userId: user.id, isPrimary: true } });
+              if (!vehicle) {
+                vehicle = await req.prisma.vehicle.findFirst({ where: { userId: user.id } });
+              }
+              if (!vehicle) {
+                 vehicle = await req.prisma.vehicle.create({
+                   data: { userId: user.id, brand: 'Genérico', model: 'Desde ARIZAR', licensePlate: 'S/D', isPrimary: true }
+                 });
+              }
+
               if (service) {
                 await req.prisma.appointment.create({
                   data: {
                     userId: user.id,
                     serviceId: service.id,
-                    vehicleId: vehicle?.id || null,
-                    date: new Date(data.startTime),
-                    startTime: new Date(data.startTime),
-                    endTime: data.endTime ? new Date(data.endTime) : new Date(new Date(data.startTime).getTime() + 60 * 60000),
+                    vehicleId: vehicle.id,
+                    date: new Date(startTimeStr),
+                    startTime: new Date(startTimeStr),
+                    endTime: endTimeStr ? new Date(endTimeStr) : new Date(new Date(startTimeStr).getTime() + 60 * 60000),
                     status: 'CONFIRMED',
                     arizarAppointmentId: id,
-                    notes: data.title || 'Agendado desde ARIZAR IA',
+                    notes: title || 'Agendado desde ARIZAR IA',
                   }
                 });
                 console.log(`✅ Cita sincronizada desde ARIZAR a DB local`);
@@ -164,8 +185,11 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
             const update = {};
             if (data.status === 'cancelled') update.status = 'CANCELLED';
             if (data.status === 'confirmed') update.status = 'CONFIRMED';
-            if (data.startTime) update.startTime = new Date(data.startTime);
-            if (data.endTime) update.endTime = new Date(data.endTime);
+            // Support multiple field name formats
+            const startTimeStr = data.startTime || data.start_time || body.startTime || body.start_time;
+            const endTimeStr = data.endTime || data.end_time || body.endTime || body.end_time;
+            if (startTimeStr) update.startTime = new Date(startTimeStr);
+            if (endTimeStr) update.endTime = new Date(endTimeStr);
             if (Object.keys(update).length > 0) {
               await req.prisma.appointment.update({ where: { id: appointment.id }, data: update });
             }
