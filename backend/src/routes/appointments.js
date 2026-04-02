@@ -24,15 +24,25 @@ router.get('/', authenticate, async (req, res, next) => {
     if (req.user.role === 'CLIENT') where.userId = req.user.id;
     if (req.user.role === 'EMPLOYEE') where.employeeId = req.user.id;
     if (status) where.status = status.toUpperCase();
-    if (date) { const d = new Date(date); where.date = { gte: new Date(d.setHours(0, 0, 0, 0)), lte: new Date(d.setHours(23, 59, 59, 999)) }; }
+
+    if (date) {
+      // Paraguay = UTC-4
+      // "2026-04-02" en Paraguay va de 04:00 UTC hasta el día siguiente 03:59:59 UTC
+      const [year, month, day] = date.split('-').map(Number);
+      const startUtc = new Date(Date.UTC(year, month - 1, day, 4, 0, 0, 0));       // 00:00 PY = 04:00 UTC
+      const endUtc   = new Date(Date.UTC(year, month - 1, day + 1, 3, 59, 59, 999)); // 23:59 PY = 03:59 UTC del día siguiente
+      where.startTime = { gte: startUtc, lte: endUtc };
+    }
 
     const appointments = await req.prisma.appointment.findMany({
-      where, include: { user: { select: { id: true, firstName: true, lastName: true, phone: true } }, vehicle: true, service: true, serviceRecord: true },
+      where,
+      include: { user: { select: { id: true, firstName: true, lastName: true, phone: true } }, vehicle: true, service: true, serviceRecord: true },
       orderBy: { startTime: 'asc' }
     });
     res.json({ success: true, data: appointments });
   } catch (err) { next(err); }
 });
+
 
 // POST /api/appointments — Agendar turno + sync ARIZAR
 router.post('/', authenticate, async (req, res, next) => {

@@ -36,9 +36,7 @@ export default function AppointmentsCalendar() {
   const loadAppointments = async () => {
     setLoading(true);
     try {
-      const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
-      const end = new Date(selectedDate); end.setHours(23, 59, 59, 999);
-      const res = await api.get(`/appointments?startDate=${start.toISOString()}&endDate=${end.toISOString()}`);
+      const res = await api.get(`/appointments?date=${selectedDate}`);
       setAppointments(res.data.data || []);
     } catch (e) {
       console.error(e);
@@ -46,6 +44,7 @@ export default function AppointmentsCalendar() {
     }
     setLoading(false);
   };
+
 
   // ── ACTIONS ────────────────────────────────────────────
   const handleCancel = async (id) => {
@@ -132,50 +131,60 @@ export default function AppointmentsCalendar() {
 
   // ── Action menu for a single appointment ──
   const ActionMenu = ({ appointment }) => {
-    const config = statusConfig[appointment.status] || statusConfig.PENDING;
     const canStart = ['PENDING', 'CONFIRMED'].includes(appointment.status);
     const canComplete = appointment.status === 'IN_PROGRESS';
     const canCancel = ['PENDING', 'CONFIRMED', 'IN_PROGRESS'].includes(appointment.status);
     const isLoading = actionLoading === appointment.id;
 
     return (
-      <div ref={menuRef} className="absolute right-2 top-12 z-50 w-52 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden py-2" onClick={e => e.stopPropagation()}>
-        <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Acciones del turno</p>
-        </div>
-        {canStart && (
-          <button onClick={() => handleStart(appointment.id)} disabled={isLoading}
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-500/10 flex items-center gap-3 transition-colors disabled:opacity-50">
-            <Play size={16} className="text-blue-500" /> Iniciar Servicio
-          </button>
-        )}
-        {canComplete && (
-          <button onClick={() => handleComplete(appointment.id)} disabled={isLoading}
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-3 transition-colors disabled:opacity-50">
-            <CheckCircle2 size={16} className="text-emerald-500" /> Completar Servicio
-          </button>
-        )}
-        {appointment.user?.phone && (
-          <a href={`https://wa.me/${appointment.user.phone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-3 transition-colors">
-            <Phone size={16} className="text-emerald-500" /> WhatsApp al cliente
-          </a>
-        )}
-        {canCancel && (
-          <>
-            <div className="border-t border-slate-100 dark:border-slate-700 my-1" />
-            <button onClick={() => handleCancel(appointment.id)} disabled={isLoading}
-              className="w-full px-4 py-3 text-left text-sm font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-3 transition-colors disabled:opacity-50">
-              <Trash2 size={16} /> Cancelar Turno
-            </button>
-          </>
-        )}
-        {isLoading && (
-          <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center rounded-2xl">
-            <Loader2 size={20} className="animate-spin text-primary" />
+      <>
+        {/* Overlay transparente para cerrar al hacer clic fuera */}
+        <div
+          className="fixed inset-0 z-[199]"
+          onClick={() => setActionMenuId(null)}
+        />
+        <div
+          ref={menuRef}
+          className="absolute right-0 top-10 z-[200] w-52 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden py-2"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Acciones del turno</p>
           </div>
-        )}
-      </div>
+          {canStart && (
+            <button onClick={() => handleStart(appointment.id)} disabled={isLoading}
+              className="w-full px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-500/10 flex items-center gap-3 transition-colors disabled:opacity-50">
+              <Play size={16} className="text-blue-500" /> Iniciar Servicio
+            </button>
+          )}
+          {canComplete && (
+            <button onClick={() => handleComplete(appointment.id)} disabled={isLoading}
+              className="w-full px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-3 transition-colors disabled:opacity-50">
+              <CheckCircle2 size={16} className="text-emerald-500" /> Completar Servicio
+            </button>
+          )}
+          {appointment.user?.phone && (
+            <a href={`https://wa.me/${appointment.user.phone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
+              className="w-full px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center gap-3 transition-colors">
+              <Phone size={16} className="text-emerald-500" /> WhatsApp al cliente
+            </a>
+          )}
+          {canCancel && (
+            <>
+              <div className="border-t border-slate-100 dark:border-slate-700 my-1" />
+              <button onClick={() => handleCancel(appointment.id)} disabled={isLoading}
+                className="w-full px-4 py-3 text-left text-sm font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-3 transition-colors disabled:opacity-50">
+                <Trash2 size={16} /> Cancelar Turno
+              </button>
+            </>
+          )}
+          {isLoading && (
+            <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center rounded-2xl">
+              <Loader2 size={20} className="animate-spin text-primary" />
+            </div>
+          )}
+        </div>
+      </>
     );
   };
 
@@ -369,27 +378,29 @@ export default function AppointmentsCalendar() {
                                     <span className={`w-1.5 h-1.5 rounded-full ${config.badge} ${a.status === 'IN_PROGRESS' ? 'animate-pulse' : ''}`} />
                                     {config.label}
                                   </div>
-                                  {/* Quick actions */}
-                                  <div className="flex gap-1">
-                                    {['PENDING', 'CONFIRMED'].includes(a.status) && (
-                                      <button onClick={() => handleStart(a.id)} title="Iniciar"
-                                        className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-all">
-                                        <Play size={12} />
-                                      </button>
-                                    )}
-                                    {a.status === 'IN_PROGRESS' && (
-                                      <button onClick={() => handleComplete(a.id)} title="Completar"
-                                        className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500 hover:text-white flex items-center justify-center transition-all">
-                                        <CheckCircle2 size={12} />
-                                      </button>
-                                    )}
-                                    {['PENDING', 'CONFIRMED', 'IN_PROGRESS'].includes(a.status) && (
-                                      <button onClick={() => handleCancel(a.id)} title="Cancelar"
-                                        className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition-all">
-                                        <XCircle size={12} />
-                                      </button>
-                                    )}
-                                  </div>
+                                  {/* Quick actions — se ocultan cuando el menú está abierto */}
+                                  {actionMenuId !== a.id && (
+                                    <div className="flex gap-1">
+                                      {['PENDING', 'CONFIRMED'].includes(a.status) && (
+                                        <button onClick={() => handleStart(a.id)} title="Iniciar"
+                                          className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-all">
+                                          <Play size={12} />
+                                        </button>
+                                      )}
+                                      {a.status === 'IN_PROGRESS' && (
+                                        <button onClick={() => handleComplete(a.id)} title="Completar"
+                                          className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500 hover:text-white flex items-center justify-center transition-all">
+                                          <CheckCircle2 size={12} />
+                                        </button>
+                                      )}
+                                      {['PENDING', 'CONFIRMED', 'IN_PROGRESS'].includes(a.status) && (
+                                        <button onClick={() => handleCancel(a.id)} title="Cancelar"
+                                          className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition-all">
+                                          <XCircle size={12} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               </motion.div>
                             );

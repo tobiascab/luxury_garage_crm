@@ -129,27 +129,27 @@ export default function PlansManager() {
                 <div className={`h-2 bg-gradient-to-r ${config.gradient} rounded-t-[rem] w-full`} />
 
                 {/* Floating Badge */}
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-white/10 px-4 py-1.5 rounded-full shadow-lg z-10 transition-transform group-hover:scale-110">
-                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-primary">{config.badge}</p>
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-white/10 px-4 py-1.5 rounded-md shadow-md z-10">
+                  <p className="text-xs font-semibold text-primary">{config.badge}</p>
                 </div>
 
                 <div className="pt-12 pb-10 flex flex-col items-center text-center px-8 relative">
-                  <div className={`w-24 h-24 rounded-[2.5rem] ${config.color} border shadow-inner flex items-center justify-center mb-8 transition-all group-hover:scale-110 group-hover:rotate-3 duration-500`}>
+                  <div className={`w-24 h-24 rounded-lg ${config.color} border shadow-sm flex items-center justify-center mb-8`}>
                     <div className="drop-shadow-lg">{config.icon}</div>
                   </div>
 
-                  <h2 className="text-3xl font-black italic uppercase tracking-tighter text-slate-900 dark:text-white leading-none mb-2">
+                  <h2 className="text-3xl font-bold text-slate-900 dark:text-white leading-none mb-2">
                     {p.name}
                   </h2>
-                  <p className="text-[10px] font-black tracking-[0.2em] text-slate-400 uppercase italic opacity-60">Architectural Tier Plan</p>
+                  <p className="text-sm font-normal text-slate-500 dark:text-slate-400 opacity-80">Plan de membresía</p>
 
                   <div className="my-10 relative w-full">
                     <div className="flex items-baseline justify-center">
-                      <span className="text-sm font-black text-primary mr-1 uppercase">₲</span>
-                      <span className="text-6xl font-black italic tracking-tighter text-slate-900 dark:text-white uppercase leading-none">
+                      <span className="text-sm font-semibold text-primary mr-1">₲</span>
+                      <span className="text-6xl font-bold text-slate-900 dark:text-white leading-none">
                         {(p.priceGs / 1000).toFixed(0)}K
                       </span>
-                      <span className="ml-2 text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">/ mensual</span>
+                      <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400 leading-none">/ mes</span>
                     </div>
                   </div>
 

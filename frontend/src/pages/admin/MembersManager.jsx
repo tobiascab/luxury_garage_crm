@@ -134,13 +134,13 @@ export default function MembersManager() {
       <header className="admin-page-header">
         <div>
           <h1 className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center text-white shadow-xl shadow-primary/20">
+            <div className="w-12 h-12 rounded-lg bg-primary flex items-center justify-center text-white shadow-md">
               <Users size={28} />
             </div>
             Miembros
           </h1>
           <p className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-primary" />
             {pagination.total || 0} clientes registrados
           </p>
         </div>
@@ -213,7 +213,7 @@ export default function MembersManager() {
                   >
                     <td className="pl-10">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-slate-900 dark:bg-white flex items-center justify-center text-white dark:text-slate-900 font-bold text-xs shadow-lg transition-transform group-hover:scale-105">
+                        <div className="w-12 h-12 rounded-lg bg-slate-900 dark:bg-white flex items-center justify-center text-white dark:text-slate-900 font-semibold text-xs shadow-sm">
                           {m.firstName?.[0]}{m.lastName?.[0]}
                         </div>
                         <div>
@@ -246,14 +246,14 @@ export default function MembersManager() {
                     </td>
                     <td>
                       <div className="flex flex-col gap-2 items-start">
-                        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold
+                        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold
                            ${m.isActive ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}
                         `}>
-                          <div className={`w-1.5 h-1.5 rounded-full ${m.isActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                          <div className={`w-1.5 h-1.5 rounded-full ${m.isActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                           {m.isActive ? 'Activo' : 'Suspendido'}
                         </div>
                         {m.isTestMode && (
-                          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-black uppercase tracking-widest border border-amber-500/20">
+                          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold border border-amber-500/20">
                             🧪 Pruebas
                           </div>
                         )}
