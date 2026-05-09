@@ -90,6 +90,51 @@ const Billetera = memo(function Billetera() {
 
     useEffect(() => { loadData(); }, []);
 
+    // Detect Bancard redirect callback (?cardRegistered=1&status=...&description=...)
+    // This fires when Bancard's iframe redirects the parent window after catastro,
+    // bypassing the postMessage flow entirely.
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('cardRegistered') !== '1') return;
+        const status = params.get('status');
+        const description = params.get('description');
+
+        const cleanUrl = () => {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('cardRegistered');
+            url.searchParams.delete('status');
+            url.searchParams.delete('description');
+            window.history.replaceState({}, '', url.toString());
+        };
+
+        (async () => {
+            if (status === 'add_new_card_success') {
+                try {
+                    await api.post('/payments/card/sync');
+                    toast.success('¡Tarjeta agregada exitosamente!');
+                } catch {
+                    toast.error('Tarjeta agregada en Bancard, pero falló la sincronización local');
+                }
+                loadData();
+            } else if (status === 'add_new_card_fail') {
+                const isDuplicate = description?.toLowerCase().includes('catastrada');
+                if (isDuplicate) {
+                    // Bancard already had this card — pull it from their side
+                    try {
+                        await api.post('/payments/card/sync');
+                        toast.success('Tarjeta sincronizada desde Bancard');
+                    } catch {
+                        toast.error(description || 'No se pudo agregar la tarjeta');
+                    }
+                    loadData();
+                } else {
+                    toast.error(description || 'No se pudo agregar la tarjeta');
+                }
+            }
+            cleanUrl();
+        })();
+    }, [loadData]);
+
     const handleAddCard = async () => {
         setCardRegistrationLoading(true);
         try {

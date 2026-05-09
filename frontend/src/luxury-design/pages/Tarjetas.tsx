@@ -47,6 +47,49 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
         } catch { /* silent */ }
     }, []);
 
+    // Auto-handle Bancard redirect callback: ?cardRegistered=1&status=...&description=...
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('cardRegistered') !== '1') return;
+        const status = params.get('status');
+        const description = params.get('description');
+
+        const cleanUrl = () => {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('cardRegistered');
+            url.searchParams.delete('status');
+            url.searchParams.delete('description');
+            window.history.replaceState({}, '', url.toString());
+        };
+
+        (async () => {
+            if (status === 'add_new_card_success') {
+                try {
+                    await api.post('/payments/card/sync');
+                    toast.success('¡Tarjeta agregada exitosamente!');
+                } catch {
+                    toast.error('Tarjeta agregada en Bancard, pero falló la sincronización local');
+                }
+                loadCards();
+                onUpdate?.();
+            } else if (status === 'add_new_card_fail') {
+                const isDuplicate = description?.toLowerCase().includes('catastrada');
+                if (isDuplicate) {
+                    try {
+                        await api.post('/payments/card/sync');
+                        toast.success('Tarjeta sincronizada desde Bancard');
+                    } catch {
+                        toast.error(description || 'No se pudo agregar la tarjeta');
+                    }
+                    loadCards();
+                } else {
+                    toast.error(description || 'No se pudo agregar la tarjeta');
+                }
+            }
+            cleanUrl();
+        })();
+    }, [loadCards]);
+
     useEffect(() => {
         loadCards();
         loadStatus();

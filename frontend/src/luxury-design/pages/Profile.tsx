@@ -252,6 +252,49 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
     if (subTab === 'facturas') loadInvoices();
   }, [subTab]);
 
+  // Auto-handle Bancard redirect callback: ?cardRegistered=1&status=...&description=...
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('cardRegistered') !== '1') return;
+    const status = params.get('status');
+    const description = params.get('description');
+
+    const cleanUrl = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('cardRegistered');
+      url.searchParams.delete('status');
+      url.searchParams.delete('description');
+      window.history.replaceState({}, '', url.toString());
+    };
+
+    (async () => {
+      if (status === 'add_new_card_success') {
+        try {
+          await api.post('/payments/card/sync');
+          hotToast.success('¡Tarjeta agregada exitosamente!');
+        } catch {
+          hotToast.error('Tarjeta agregada en Bancard, pero falló la sincronización local');
+        }
+        loadCards();
+        onUpdate?.();
+      } else if (status === 'add_new_card_fail') {
+        const isDuplicate = description?.toLowerCase().includes('catastrada');
+        if (isDuplicate) {
+          try {
+            await api.post('/payments/card/sync');
+            hotToast.success('Tarjeta sincronizada desde Bancard');
+          } catch {
+            hotToast.error(description || 'No se pudo agregar la tarjeta');
+          }
+          loadCards();
+        } else {
+          hotToast.error(description || 'No se pudo agregar la tarjeta');
+        }
+      }
+      cleanUrl();
+    })();
+  }, []);
+
   const loadCards = async () => {
     setLoadingCards(true);
     try {
@@ -340,8 +383,15 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
     try {
       const res = await api.delete(`/payments/card/${card.id}`);
       const data = res.data;
-      if (data.success) setCards(prev => prev.filter(c => c.id !== card.id));
-    } catch { /* silent */ }
+      if (data.success) {
+        setCards(prev => prev.filter(c => c.id !== card.id));
+        hotToast.success('Tarjeta eliminada');
+      } else {
+        hotToast.error(data.message || 'No se pudo eliminar la tarjeta');
+      }
+    } catch (err: any) {
+      hotToast.error(err?.response?.data?.message || 'Error al eliminar la tarjeta');
+    }
     setDeleting(false);
     setDeleteTarget(null);
   };
@@ -535,8 +585,12 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
                         </div>
                       )}
                     </div>
-                    <button onClick={() => setDeleteTarget(card)} className="opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-red-500/20 hover:bg-red-500 rounded-xl">
-                      <Trash2 size={14} />
+                    <button
+                      onClick={() => setDeleteTarget(card)}
+                      aria-label="Eliminar tarjeta"
+                      className="p-2.5 bg-white/15 hover:bg-red-500 active:bg-red-600 active:scale-90 backdrop-blur-md rounded-xl border border-white/10 transition-all shrink-0"
+                    >
+                      <Trash2 size={16} />
                     </button>
                   </div>
                   <p className="text-lg font-bold tracking-[0.2em] mb-8">•••• •••• •••• {card.maskedNumber?.slice(-4) || '****'}</p>
