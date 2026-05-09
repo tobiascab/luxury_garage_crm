@@ -406,10 +406,31 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
 
   const getBrandGradient = (brand: string) => {
     const b = brand?.toLowerCase() || '';
-    if (b.includes('visa')) return 'from-[#1a365d] to-[#0d2137]';
-    if (b.includes('master')) return 'from-[#8b1a1a] to-[#4a0e0e]';
-    if (b.includes('amex')) return 'from-[#1a4d6e] to-[#0d2b3e]';
-    return 'from-[#2d3748] to-[#1a202c]';
+    // Rich diagonal gradients inspired by premium card designs
+    if (b.includes('visa')) return 'from-[#0a1f4d] via-[#1e3a8a] to-[#4c1d95]';
+    if (b.includes('master')) return 'from-[#1a0808] via-[#7f1d1d] to-[#431407]';
+    if (b.includes('amex')) return 'from-[#0c4a6e] via-[#155e75] to-[#134e4a]';
+    if (b.includes('credicard') || b.includes('bancard')) return 'from-[#064e3b] via-[#065f46] to-[#0f172a]';
+    return 'from-[#1e293b] via-[#334155] to-[#0f172a]';
+  };
+
+  const getBrandLogo = (brand: string) => {
+    const b = brand?.toLowerCase() || '';
+    if (b.includes('visa')) {
+      return <span className="font-headline italic font-black text-white text-2xl tracking-tight drop-shadow-lg">VISA</span>;
+    }
+    if (b.includes('master')) {
+      return (
+        <div className="flex items-center -space-x-3">
+          <div className="w-7 h-7 rounded-full bg-[#eb001b]" />
+          <div className="w-7 h-7 rounded-full bg-[#f79e1b] mix-blend-screen" />
+        </div>
+      );
+    }
+    if (b.includes('amex')) {
+      return <span className="font-headline italic font-black text-white text-xs tracking-[0.18em] bg-white/10 px-2 py-1 rounded">AMEX</span>;
+    }
+    return <span className="font-bold text-white/60 text-[10px] tracking-widest uppercase">{brand?.toUpperCase() || 'CARD'}</span>;
   };
 
   const printInvoice = (inv: any) => {
@@ -567,53 +588,84 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {cards.map((card) => (
-                <motion.div
-                  key={card.id}
-                  whileHover={{ y: -4 }}
-                  className={`relative p-7 rounded-[2rem] text-white overflow-hidden shadow-xl group border border-white/5 bg-gradient-to-br ${getBrandGradient(card.brand)}`}
-                >
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-                  <div className="flex justify-between items-start mb-8">
-                    <div className="flex items-center gap-2">
-                      <div className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-lg text-[10px] font-black tracking-widest border border-white/10">
-                        {card.brand?.toUpperCase() || 'CARD'}
-                      </div>
-                      {card.isPrimary && (
-                        <div className="flex items-center gap-1 bg-emerald-500/20 backdrop-blur-sm px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-emerald-500/20 text-emerald-300">
-                          <Star size={8} fill="currentColor" /> Principal
+              {cards.map((card, idx) => {
+                const cardholder = (user?.name || `${user?.firstName || ''} ${user?.lastName || ''}`).trim().toUpperCase() || 'TITULAR';
+                const last4 = card.maskedNumber?.slice(-4) || '••••';
+                const expiry = card.expirationDate || '••/••';
+                return (
+                  <motion.div
+                    key={card.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.06 }}
+                    whileHover={{ y: -6, scale: 1.01 }}
+                    className={`relative aspect-[1.586/1] rounded-[1.75rem] text-white overflow-hidden shadow-2xl bg-gradient-to-br ${getBrandGradient(card.brand)}`}
+                  >
+                    {/* Subtle diagonal shine */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/15 via-transparent to-black/30 pointer-events-none" />
+                    <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/10 rounded-full blur-3xl pointer-events-none" />
+                    <div className="absolute -bottom-16 -left-12 w-40 h-40 bg-black/40 rounded-full blur-3xl pointer-events-none" />
+
+                    {/* Content */}
+                    <div className="relative h-full flex flex-col justify-between p-6">
+                      {/* Top: Principal badge + brand logo + delete */}
+                      <div className="flex items-start justify-between">
+                        <div className="flex flex-col gap-2">
+                          {card.isPrimary && (
+                            <div className="flex items-center gap-1 bg-emerald-500/25 backdrop-blur-sm px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-emerald-400/40 text-emerald-200 w-fit">
+                              <Star size={8} fill="currentColor" /> Principal
+                            </div>
+                          )}
+                          {/* Chip */}
+                          <div className="w-10 h-7 rounded-md bg-gradient-to-br from-amber-200 via-yellow-400 to-amber-600 shadow-inner relative overflow-hidden">
+                            <div className="absolute inset-0.5 rounded-sm border border-amber-700/40" />
+                            <div className="absolute inset-x-1 top-1/2 -translate-y-1/2 h-px bg-amber-800/40" />
+                            <div className="absolute inset-y-1 left-1/2 -translate-x-1/2 w-px bg-amber-800/40" />
+                          </div>
                         </div>
-                      )}
+
+                        <div className="flex items-start gap-2">
+                          {getBrandLogo(card.brand)}
+                          <button
+                            onClick={() => setDeleteTarget(card)}
+                            aria-label="Eliminar tarjeta"
+                            className="p-2 bg-white/15 hover:bg-red-500 active:bg-red-600 active:scale-90 backdrop-blur-md rounded-xl border border-white/10 transition-all shrink-0"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Number */}
+                      <div className="space-y-1">
+                        <p className="font-mono text-xl md:text-2xl font-bold tracking-[0.18em] tabular-nums drop-shadow">
+                          •••• •••• •••• <span className="text-white">{last4}</span>
+                        </p>
+                      </div>
+
+                      {/* Bottom: cardholder + expiry + set primary */}
+                      <div className="flex items-end justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[8px] font-bold tracking-[0.2em] uppercase opacity-50 mb-0.5">Titular</p>
+                          <p className="font-bold text-sm uppercase tracking-wide truncate">{cardholder}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[8px] font-bold tracking-[0.2em] uppercase opacity-50 mb-0.5">Vence</p>
+                          <p className="font-mono font-bold text-sm tabular-nums tracking-wider">{expiry}</p>
+                        </div>
+                        {!card.isPrimary && (
+                          <button
+                            onClick={() => setPrimary(card.id)}
+                            className="px-2.5 py-1 bg-white/15 hover:bg-white/25 rounded-md text-[8px] font-black uppercase tracking-widest border border-white/10 transition-all shrink-0 self-end"
+                          >
+                            Hacer principal
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <button
-                      onClick={() => setDeleteTarget(card)}
-                      aria-label="Eliminar tarjeta"
-                      className="p-2.5 bg-white/15 hover:bg-red-500 active:bg-red-600 active:scale-90 backdrop-blur-md rounded-xl border border-white/10 transition-all shrink-0"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                  <p className="text-lg font-bold tracking-[0.2em] mb-8">•••• •••• •••• {card.maskedNumber?.slice(-4) || '****'}</p>
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <p className="text-[7px] font-bold uppercase opacity-50 mb-1">Tipo</p>
-                      <p className="text-xs font-black">{card.cardType || 'Tarjeta'}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[7px] font-bold uppercase opacity-50 mb-1">Emisor</p>
-                      <p className="text-xs font-black">{card.issuer || card.brand}</p>
-                    </div>
-                    {!card.isPrimary && (
-                      <button
-                        onClick={() => setPrimary(card.id)}
-                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/10 transition-all"
-                      >
-                        Principal
-                      </button>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </div>
           )}
 
