@@ -30,7 +30,9 @@ import {
 } from 'lucide-react';
 
 import api from '../../services/api';
+import { toast as hotToast } from 'react-hot-toast';
 import BottomSheet from '../components/BottomSheet';
+import AddCardCustomForm, { CardSubmitPayload } from '../components/AddCardCustomForm';
 
 interface ProfileProps {
   user: any;
@@ -231,15 +233,16 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
   const [cards, setCards] = useState<any[]>([]);
   const [loadingCards, setLoadingCards] = useState(true);
   const [registering, setRegistering] = useState(false);
+  const [cardRegistration, setCardRegistration] = useState<{ processId: string; jsLibUrl: string } | null>(null);
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [customFormSubmitting, setCustomFormSubmitting] = useState(false);
+  const [customFormError, setCustomFormError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [error, setError] = useState('');
-  const [needsCI, setNeedsCI] = useState(false);
-  const [ciInput, setCiInput] = useState('');
-  const [savingCI, setSavingCI] = useState(false);
 
   const token = localStorage.getItem('luxury_token');
   const headers: any = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -264,7 +267,7 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
       if (cardsData.success) setCards(cardsData.data || []);
 
       const statusData = statusRes.data;
-      if (statusData.success && !statusData.data?.hasDocumentNumber) setNeedsCI(true);
+      // status check for future use
     } catch { /* silent */ }
     setLoadingCards(false);
   };
@@ -279,36 +282,93 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
     finally { setLoadingInvoices(false); }
   };
 
-  const saveCI = async () => {
-    if (!ciInput.trim() || ciInput.length < 5) return;
-    setSavingCI(true);
-    setError('');
-    try {
-      const res = await api.post('/payments/sync-customer', {
-        documentNumber: ciInput.trim(), documentType: 'CI'
-      });
-      const data = res.data;
-      if (data.success) { setNeedsCI(false); onUpdate(); }
-      else setError(data.message || 'Error');
-    } catch { setError('Error de conexión'); }
-    setSavingCI(false);
+  const handleAddCard = () => {
+    setCustomFormError('');
+    setShowCustomForm(true);
   };
 
-  const registerCard = async () => {
+  const handleAddCardLegacyIframe = async () => {
     setRegistering(true);
-    setError('');
     try {
-      const res = await api.post('/payments/card/register');
-      const data = res.data;
-      if (data.success && data.data?.redirect_url) {
-        window.open(data.data.redirect_url, '_blank', 'noopener,noreferrer');
-        setTimeout(() => setRegistering(false), 2000);
-      } else {
-        setError(data.message || 'Error al registrar');
-        setRegistering(false);
-      }
-    } catch { setError('Error de conexión'); setRegistering(false); }
+      const res = await api.post('/payments/card/register', {
+        returnUrl: window.location.origin + '/tarjetas',
+      });
+      const { processId, jsLibUrl } = res.data.data;
+      setCardRegistration({ processId, jsLibUrl });
+    } catch (err: any) {
+      hotToast.error(err.response?.data?.message || 'Error al iniciar catastro');
+    } finally {
+      setRegistering(false);
+    }
   };
+
+  const handleCustomFormSubmit = async (payload: CardSubmitPayload) => {
+    setCustomFormError('');
+    setCustomFormSubmitting(true);
+    try {
+      const res = await api.post('/payments/card/register-direct', {
+        cardNumber: payload.number,
+        cardHolder: payload.name,
+        expiryMonth: payload.expiryMonth,
+        expiryYear: payload.expiryYear,
+        cvv: payload.cvv,
+        documentNumber: payload.documentNumber,
+      });
+      const data = res.data;
+      if (data.success) {
+        hotToast.success('¡Tarjeta agregada!');
+        setShowCustomForm(false);
+        loadCards();
+        onUpdate?.();
+      } else {
+        setCustomFormError(data.message || 'No se pudo registrar la tarjeta');
+      }
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const msg = err?.response?.data?.message;
+      if (status === 404) {
+        setCustomFormError(
+          'El backend aún no expone /payments/card/register-direct. La animación funciona — falta confirmar tokenización JS con Bancard.'
+        );
+      } else {
+        setCustomFormError(msg || 'Error de conexión con la pasarela');
+      }
+    } finally {
+      setCustomFormSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!cardRegistration) return;
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.status === 'add_new_card_success') {
+        try {
+          await api.post('/payments/card/sync');
+          hotToast.success('¡Tarjeta agregada!');
+          loadCards();
+        } catch { hotToast.error('Error al sincronizar tarjeta'); }
+        finally { setCardRegistration(null); }
+      } else if (event.data?.status === 'add_new_card_fail') {
+        hotToast.error(event.data.description || 'No se pudo agregar la tarjeta');
+        setCardRegistration(null);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    const script = document.createElement('script');
+    script.src = cardRegistration.jsLibUrl;
+    script.onload = () => {
+      if ((window as any).Bancard) {
+        const styles = { 'form-background-color': '#0f172a', 'button-background-color': '#8b5cf6', 'button-text-color': '#ffffff', 'input-background-color': '#1e293b', 'input-text-color': '#f1f5f9' };
+        (window as any).Bancard.Cards.createForm('bancard-iframe-container-profile', cardRegistration.processId, styles);
+      }
+    };
+    document.head.appendChild(script);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      const s = document.querySelector(`script[src="${cardRegistration.jsLibUrl}"]`);
+      if (s) document.head.removeChild(s);
+    };
+  }, [cardRegistration]);
 
   const syncCards = async () => {
     setSyncing(true);
@@ -469,26 +529,6 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
 
       {subTab === 'tarjetas' && (
         <>
-          {/* CI required */}
-          {needsCI && (
-            <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-2xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Shield size={14} className="text-amber-600 dark:text-amber-400" />
-                <p className="font-bold text-xs text-amber-800 dark:text-amber-200">Cédula requerida para tarjetas</p>
-              </div>
-              <div className="flex gap-2 mt-2">
-                <input
-                  type="text" placeholder="Ej: 4567890" value={ciInput}
-                  onChange={(e) => setCiInput(e.target.value.replace(/\D/g, ''))}
-                  className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-500/30 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-                />
-                <button onClick={saveCI} disabled={savingCI || ciInput.length < 5}
-                  className="px-4 py-2 rounded-xl bg-amber-500 text-white font-bold text-xs uppercase disabled:opacity-50 active:scale-95 transition-all"
-                >{savingCI ? '...' : 'Guardar'}</button>
-              </div>
-            </div>
-          )}
-
           {/* Header */}
           <div className="flex items-center justify-between">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">{cards.length} tarjeta{cards.length !== 1 ? 's' : ''} guardada{cards.length !== 1 ? 's' : ''}</p>
@@ -502,8 +542,8 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
                 Sincronizar
               </button>
               <button
-                onClick={registerCard}
-                disabled={registering || needsCI}
+                onClick={handleAddCard}
+                disabled={registering}
                 className="flex items-center gap-2 px-4 py-2.5 bg-primary dark:bg-blue-500 text-white rounded-xl font-black text-xs shadow-md shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all disabled:opacity-50"
               >
                 <Plus size={14} /> Añadir Nueva
@@ -518,7 +558,7 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
             <div className="text-center py-14 bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800">
               <CreditCard size={28} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <p className="text-sm font-bold text-slate-400">No tenés tarjetas guardadas</p>
-              <p className="text-[10px] text-slate-300 dark:text-slate-600 mt-1">Agregá una tarjeta de MasFazzil para pagar membresías</p>
+              <p className="text-[10px] text-slate-300 dark:text-slate-600 mt-1">Agregá una tarjeta Bancard para pagar membresías</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -568,13 +608,46 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
             </div>
           )}
 
+          {/* Fallback: legacy iframe Bancard */}
+          <button
+            onClick={handleAddCardLegacyIframe}
+            disabled={registering}
+            className="w-full py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all disabled:opacity-30"
+          >
+            {registering ? '...' : 'Usar formulario clásico Bancard'}
+          </button>
+
           {/* Security note */}
           <div className="bg-slate-50 dark:bg-slate-900/40 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 flex items-start gap-2">
             <Shield size={14} className="text-emerald-500 shrink-0 mt-0.5" />
             <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
-              Tus datos de tarjeta se procesan de forma segura por MasFazzil (Cybersource/VISA). Luxury Garage nunca almacena datos completos de tu tarjeta.
+              Tus datos de tarjeta se procesan de forma segura por Bancard. Luxury Garage nunca almacena datos completos de tu tarjeta.
             </p>
           </div>
+
+          {/* Custom card form with animated preview */}
+          <AddCardCustomForm
+            open={showCustomForm}
+            onClose={() => setShowCustomForm(false)}
+            onSubmit={handleCustomFormSubmit}
+            initialDocumentNumber={user?.documentNumber || ''}
+            submitting={customFormSubmitting}
+            errorMessage={customFormError}
+          />
+
+          {/* Legacy Bancard iframe modal (fallback) */}
+          {cardRegistration && (
+            <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-slate-900 rounded-2xl w-full max-w-md">
+                <div className="flex items-center justify-between p-4 border-b border-slate-800">
+                  <h3 className="font-bold text-white flex items-center gap-2"><CreditCard size={18} /> Agregar tarjeta</h3>
+                  <button onClick={() => setCardRegistration(null)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+                </div>
+                <div id="bancard-iframe-container-profile" className="p-4 min-h-[400px]" />
+                <p className="text-xs text-slate-500 text-center pb-4">Pago seguro procesado por Bancard</p>
+              </div>
+            </div>
+          )}
 
           {/* Delete confirmation */}
           <AnimatePresence>

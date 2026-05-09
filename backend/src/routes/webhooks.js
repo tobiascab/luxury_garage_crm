@@ -19,7 +19,7 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
     // Log every webhook
     try {
       await req.prisma.auditLog.create({
-        data: { entity: 'webhook', action: type, entityId: id || contactId || 'unknown', details: body }
+        data: { entity: 'webhook', action: type, entityId: id || contactId || 'unknown', detailsJson: body }
       });
     } catch (e) { /* silent */ }
 
@@ -77,7 +77,8 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
             await arizarService.updateContactTags(contactId, ['miembro-activo', 'luxury-garage', 'auto-creado']);
           } catch (err) { console.error('Error enviando credenciales:', err.message); }
 
-          console.log(`✅ Usuario auto-creado desde webhook: ${email}`);
+          const emailRedacted = email ? email.substring(0, 3) + '***@***' : 'unknown';
+          console.log(`✅ Usuario auto-creado desde webhook: ${emailRedacted}`);
         } else {
           // Update existing user's contact ID if missing
           if (!existing.arizarContactId && contactId) {
@@ -97,7 +98,8 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
               await req.prisma.membership.create({
                 data: { userId: user.id, planId: plan.id, status: 'ACTIVE', startDate: start, endDate: end }
               });
-              console.log(`✅ Membresía ${plan.name} asignada automáticamente a ${email}`);
+              const emailRedactedPlan = email ? email.substring(0, 3) + '***@***' : 'unknown';
+              console.log(`✅ Membresía ${plan.name} asignada automáticamente a ${emailRedactedPlan}`);
             }
           }
         }
@@ -231,7 +233,8 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
             if (data.phone) update.phone = data.phone;
             if (Object.keys(update).length > 0) {
               await req.prisma.user.update({ where: { id: user.id }, data: update });
-              console.log(`✅ Usuario ${user.email} actualizado desde CRM`);
+              const emailRedactedUpd = user.email ? user.email.substring(0, 3) + '***@***' : 'unknown';
+              console.log(`✅ Usuario ${emailRedactedUpd} actualizado desde CRM`);
             }
           }
         }

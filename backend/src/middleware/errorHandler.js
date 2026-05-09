@@ -43,8 +43,7 @@ class ConflictError extends AppError {
 function mapPrismaError(err) {
   switch (err.code) {
     case 'P2002':
-      const field = err.meta?.target?.join(', ') || 'campo';
-      return new ConflictError(`Ya existe un registro con ese ${field}`);
+      return new ConflictError('ese valor ya está registrado');
     case 'P2025':
       return new NotFoundError('Registro');
     case 'P2003':

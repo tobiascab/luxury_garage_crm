@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CreditCard, Plus, Trash2, Star, RefreshCw, Shield, AlertCircle, ExternalLink, CheckCircle2, X } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { API_URL } from '../config';
 import api from '../../services/api';
+import AddCardCustomForm, { CardSubmitPayload } from '../components/AddCardCustomForm';
 
 interface TarjetasProps {
     user: any;
@@ -14,6 +16,10 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
     const [registering, setRegistering] = useState(false);
+    const [cardRegistration, setCardRegistration] = useState<{ processId: string; jsLibUrl: string } | null>(null);
+    const [showCustomForm, setShowCustomForm] = useState(false);
+    const [customFormSubmitting, setCustomFormSubmitting] = useState(false);
+    const [customFormError, setCustomFormError] = useState('');
     const [deleting, setDeleting] = useState<string | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState<any>(null);
     const [paymentStatus, setPaymentStatus] = useState<any>(null);
@@ -50,6 +56,38 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
         loadStatus();
     }, []);
 
+    useEffect(() => {
+        if (!cardRegistration) return;
+        const handleMessage = async (event: MessageEvent) => {
+            if (event.data?.status === 'add_new_card_success') {
+                try {
+                    await api.post('/payments/card/sync');
+                    toast.success('¡Tarjeta agregada!');
+                    loadCards();
+                } catch { toast.error('Error al sincronizar tarjeta'); }
+                finally { setCardRegistration(null); }
+            } else if (event.data?.status === 'add_new_card_fail') {
+                toast.error(event.data.description || 'No se pudo agregar la tarjeta');
+                setCardRegistration(null);
+            }
+        };
+        window.addEventListener('message', handleMessage);
+        const script = document.createElement('script');
+        script.src = cardRegistration.jsLibUrl;
+        script.onload = () => {
+            if ((window as any).Bancard) {
+                const styles = { 'form-background-color': '#0f172a', 'button-background-color': '#8b5cf6', 'button-text-color': '#ffffff', 'input-background-color': '#1e293b', 'input-text-color': '#f1f5f9' };
+                (window as any).Bancard.Cards.createForm('bancard-iframe-container-tarjetas', cardRegistration.processId, styles);
+            }
+        };
+        document.head.appendChild(script);
+        return () => {
+            window.removeEventListener('message', handleMessage);
+            const s = document.querySelector(`script[src="${cardRegistration.jsLibUrl}"]`);
+            if (s) document.head.removeChild(s);
+        };
+    }, [cardRegistration]);
+
     const saveCI = async () => {
         if (!ciInput.trim() || ciInput.length < 5) return;
         setSavingCI(true);
@@ -67,26 +105,59 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
         setSavingCI(false);
     };
 
-    const registerCard = async () => {
+    const handleAddCard = () => {
+        setCustomFormError('');
+        setShowCustomForm(true);
+    };
+
+    const handleAddCardLegacyIframe = async () => {
         setRegistering(true);
-        setError('');
         try {
-            const res = await api.post('/payments/card/register');
-            const data = res.data;
-            if (data.success && data.data?.redirect_url) {
-                // Open MasFazzil card registration in new window
-                window.open(data.data.redirect_url, '_blank', 'noopener,noreferrer');
-                // After a short delay, show sync button
-                setTimeout(() => {
-                    setRegistering(false);
-                }, 2000);
-            } else {
-                setError(data.message || 'Error al registrar tarjeta');
-                setRegistering(false);
-            }
-        } catch {
-            setError('Error de conexión');
+            const res = await api.post('/payments/card/register', {
+                returnUrl: window.location.origin + '/tarjetas',
+            });
+            const { processId, jsLibUrl } = res.data.data;
+            setCardRegistration({ processId, jsLibUrl });
+        } catch (err: any) {
+            toast.error(err.response?.data?.message || 'Error al iniciar catastro');
+        } finally {
             setRegistering(false);
+        }
+    };
+
+    const handleCustomFormSubmit = async (payload: CardSubmitPayload) => {
+        setCustomFormError('');
+        setCustomFormSubmitting(true);
+        try {
+            const res = await api.post('/payments/card/register-direct', {
+                cardNumber: payload.number,
+                cardHolder: payload.name,
+                expiryMonth: payload.expiryMonth,
+                expiryYear: payload.expiryYear,
+                cvv: payload.cvv,
+                documentNumber: payload.documentNumber,
+            });
+            const data = res.data;
+            if (data.success) {
+                toast.success('¡Tarjeta agregada!');
+                setShowCustomForm(false);
+                loadCards();
+                onUpdate?.();
+            } else {
+                setCustomFormError(data.message || 'No se pudo registrar la tarjeta');
+            }
+        } catch (err: any) {
+            const status = err?.response?.status;
+            const msg = err?.response?.data?.message;
+            if (status === 404) {
+                setCustomFormError(
+                    'El backend aún no expone el endpoint de tokenización directa de Bancard. La animación del form ya funciona — falta confirmar con Bancard si habilitan tokenización JS, o reactivar el iframe legacy.'
+                );
+            } else {
+                setCustomFormError(msg || 'Error de conexión con la pasarela');
+            }
+        } finally {
+            setCustomFormSubmitting(false);
         }
     };
 
@@ -299,7 +370,7 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
                 <div className="space-y-3">
                     {/* Register card */}
                     <button
-                        onClick={registerCard}
+                        onClick={handleAddCard}
                         disabled={registering || !paymentStatus?.configured}
                         className="w-full py-3.5 rounded-2xl bg-primary dark:bg-blue-500 text-white font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-primary/20 dark:shadow-blue-500/20 disabled:opacity-50"
                     >
@@ -308,7 +379,7 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
                         ) : (
                             <Plus size={16} />
                         )}
-                        {registering ? 'Abriendo MasFazzil...' : 'Agregar Tarjeta'}
+                        {registering ? 'Procesando...' : 'Agregar Tarjeta'}
                     </button>
 
                     {/* Sync cards */}
@@ -321,9 +392,18 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
                         {syncing ? 'Sincronizando...' : 'Sincronizar Tarjetas'}
                     </button>
 
+                    {/* Fallback: legacy iframe Bancard */}
+                    <button
+                        onClick={handleAddCardLegacyIframe}
+                        disabled={registering || !paymentStatus?.configured}
+                        className="w-full py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all disabled:opacity-30"
+                    >
+                        {registering ? '...' : 'Usar formulario clásico Bancard'}
+                    </button>
+
                     {!paymentStatus?.configured && (
                         <p className="text-center text-[10px] text-slate-400 dark:text-slate-600 font-medium">
-                            ⚙️ MasFazzil no configurado. Contactá al administrador.
+                            ⚙️ Bancard no configurado. Contactá al administrador.
                         </p>
                     )}
                 </div>
@@ -336,9 +416,33 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
                     <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Pagos Seguros</p>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Tus datos de tarjeta se procesan de forma segura a través de MasFazzil con tecnología Cybersource (VISA). Luxury Garage nunca almacena los datos completos de tu tarjeta.
+                    Tus datos de tarjeta se procesan de forma segura a través de Bancard. Luxury Garage nunca almacena los datos completos de tu tarjeta.
                 </p>
             </div>
+
+            {/* Bancard iframe modal */}
+            {cardRegistration && (
+                <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 rounded-2xl w-full max-w-md">
+                        <div className="flex items-center justify-between p-4 border-b border-slate-800">
+                            <h3 className="font-bold text-white flex items-center gap-2"><CreditCard size={18} /> Agregar tarjeta</h3>
+                            <button onClick={() => setCardRegistration(null)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+                        </div>
+                        <div id="bancard-iframe-container-tarjetas" className="p-4 min-h-[400px]" />
+                        <p className="text-xs text-slate-500 text-center pb-4">Pago seguro procesado por Bancard</p>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom card form with animated preview */}
+            <AddCardCustomForm
+                open={showCustomForm}
+                onClose={() => setShowCustomForm(false)}
+                onSubmit={handleCustomFormSubmit}
+                initialDocumentNumber={user?.documentNumber || ''}
+                submitting={customFormSubmitting}
+                errorMessage={customFormError}
+            />
 
             {/* Delete confirmation modal */}
             <AnimatePresence>

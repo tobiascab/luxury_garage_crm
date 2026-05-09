@@ -77,27 +77,32 @@ router.post('/purchase', authenticate, async (req, res, next) => {
     if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Monto inválido' });
     if (!description) return res.status(400).json({ success: false, message: 'Descripción requerida' });
 
-    // Check balance
-    const allCredits = await req.prisma.credit.findMany({
-      where: { userId: req.user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+    let credit;
+    let newBalance;
+
+    await req.prisma.$transaction(async (tx) => {
+      // Check balance inside transaction to prevent race conditions
+      const allCredits = await tx.credit.findMany({
+        where: { userId: req.user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+      });
+      const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
+
+      if (totalBalance < amount) {
+        throw Object.assign(new Error(`Saldo insuficiente. Tenés ₲${totalBalance.toLocaleString()} disponibles`), { statusCode: 400 });
+      }
+
+      // Create negative credit (purchase)
+      credit = await tx.credit.create({
+        data: {
+          userId: req.user.id,
+          amount: -amount,
+          type: 'SHOP_PURCHASE',
+          description: description, // ej: "Café + Agua mineral"
+        },
+      });
+
+      newBalance = totalBalance - amount;
     });
-    const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
-
-    if (totalBalance < amount) {
-      return res.status(400).json({ success: false, message: `Saldo insuficiente. Tenés ₲${totalBalance.toLocaleString()} disponibles` });
-    }
-
-    // Create negative credit (purchase)
-    const credit = await req.prisma.credit.create({
-      data: {
-        userId: req.user.id,
-        amount: -amount,
-        type: 'SHOP_PURCHASE',
-        description: description, // ej: "Café + Agua mineral"
-      },
-    });
-
-    const newBalance = totalBalance - amount;
 
     res.json({
       success: true,
@@ -105,7 +110,10 @@ router.post('/purchase', authenticate, async (req, res, next) => {
       balance: newBalance,
       message: `Compra de ₲${amount.toLocaleString()} registrada. Saldo: ₲${newBalance.toLocaleString()}`,
     });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.statusCode === 400) return res.status(400).json({ success: false, message: err.message });
+    next(err);
+  }
 });
 
 // POST /api/credits/redeem — canjear créditos de referidos por servicio
@@ -114,86 +122,111 @@ router.post('/redeem', authenticate, async (req, res, next) => {
     const { amount, description } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Monto inválido' });
 
-    const allCredits = await req.prisma.credit.findMany({
-      where: { userId: req.user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
-    });
-    const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
+    let credit;
 
-    if (totalBalance < amount) {
-      return res.status(400).json({ success: false, message: `Saldo insuficiente. Tenés ₲${totalBalance.toLocaleString()} disponibles` });
-    }
+    await req.prisma.$transaction(async (tx) => {
+      const allCredits = await tx.credit.findMany({
+        where: { userId: req.user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+      });
+      const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
 
-    const credit = await req.prisma.credit.create({
-      data: { userId: req.user.id, amount: -amount, type: 'REDEMPTION', description: description || 'Canje de créditos por servicio' },
+      if (totalBalance < amount) {
+        throw Object.assign(new Error(`Saldo insuficiente. Tenés ₲${totalBalance.toLocaleString()} disponibles`), { statusCode: 400 });
+      }
+
+      credit = await tx.credit.create({
+        data: { userId: req.user.id, amount: -amount, type: 'REDEMPTION', description: description || 'Canje de créditos por servicio' },
+      });
     });
 
     res.json({ success: true, data: credit, message: `₲${amount.toLocaleString()} canjeados exitosamente` });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.statusCode === 400) return res.status(400).json({ success: false, message: err.message });
+    next(err);
+  }
 });
 
-// POST /api/credits/topup-card — cargar saldo via tarjeta MasFazzil
+// POST /api/credits/topup-card — Cargar saldo via tarjeta Bancard
 router.post('/topup-card', authenticate, async (req, res, next) => {
   try {
+    const bancardService = require('../services/bancardService');
+
     const { amount, cardId } = req.body;
-    if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Monto inválido' });
-    if (amount < 10000) return res.status(400).json({ success: false, message: 'Monto mínimo: ₲10.000' });
-    if (!cardId) return res.status(400).json({ success: false, message: 'Seleccioná una tarjeta' });
-
-    // Find card
-    const card = await req.prisma.paymentCard.findFirst({ where: { id: cardId, userId: req.user.id } });
-    if (!card) return res.status(404).json({ success: false, message: 'Tarjeta no encontrada' });
-
-    const masfazzilService = require('../services/masfazzilService');
-
-    // Charge card via MasFazzil
-    const chargeRef = `TOPUP-${req.user.id.slice(-6)}-${Date.now()}`;
-    const chargeResult = await masfazzilService.chargeCard({
-      card_id: card.masfazzilCardId,
-      amount: amount,
-      currency: 'PYG',
-      description: `Recarga Wallet LUXU - ${chargeRef}`,
-      reference: chargeRef,
-    });
-
-    if (!chargeResult.success) {
-      return res.status(400).json({ success: false, message: chargeResult.message || 'Error procesando el cobro' });
+    if (!amount || amount < 10000) {
+      return res.status(400).json({ success: false, message: 'Monto mínimo: ₲10.000' });
     }
 
-    // Charge successful — create credit
-    const credit = await req.prisma.credit.create({
-      data: {
-        userId: req.user.id,
-        amount: amount,
-        type: 'WALLET_TOPUP',
-        description: `Recarga vía tarjeta ${card.brand} ****${card.maskedNumber?.slice(-4) || ''}`,
-      },
+    const user = await req.prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { paymentCards: true },
+    });
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    if (!user.bancardUserId) {
+      return res.status(400).json({ success: false, message: 'Primero registrá una tarjeta Bancard' });
+    }
+
+    // Seleccionar tarjeta
+    let selectedCard;
+    if (cardId) {
+      selectedCard = user.paymentCards.find(c => c.id === cardId);
+    } else {
+      selectedCard = user.paymentCards.find(c => c.isPrimary) || user.paymentCards[0];
+    }
+    if (!selectedCard || !selectedCard.bancardCardId) {
+      return res.status(400).json({ success: false, message: 'No tenés tarjetas Bancard registradas' });
+    }
+
+    // Obtener alias_token fresco
+    const bancardCards = await bancardService.getUserCards(user.bancardUserId);
+    const matchingCard = bancardCards.find(c => parseInt(c.card_id) === selectedCard.bancardCardId);
+    if (!matchingCard) {
+      return res.status(400).json({ success: false, message: 'Tarjeta no disponible en Bancard. Sincronizá tus tarjetas.' });
+    }
+
+    // Generar shop_process_id y cobrar
+    const shopProcessId = bancardService.generateShopProcessId();
+
+    await req.prisma.bancardOperation.create({
+      data: { shopProcessId, userId: user.id, type: 'charge', status: 'PENDING', amountGs: amount },
     });
 
-    // Record payment
-    await req.prisma.payment.create({
-      data: {
-        userId: req.user.id,
-        amount: amount,
-        status: 'COMPLETED',
-        method: 'CARD',
-        externalId: chargeResult.data?.transaction_id || chargeRef,
-        details: { type: 'WALLET_TOPUP', cardId, cardBrand: card.brand, ref: chargeRef },
-      },
+    const chargeResult = await bancardService.charge({
+      shopProcessId,
+      amount,
+      aliasToken: matchingCard.alias_token,
+      description: 'Recarga billetera LG',
+      returnUrl: `${process.env.APP_URL || 'https://luxurygarage.com.py'}/billetera`,
     });
 
-    // Calculate new total
+    if (!chargeResult.approved) {
+      await req.prisma.bancardOperation.update({ where: { shopProcessId }, data: { status: 'FAILED' } });
+      return res.status(402).json({ success: false, message: 'El cobro fue rechazado. Verificá tu tarjeta.' });
+    }
+
+    // Cobro exitoso → acreditar créditos en $transaction
+    let newCredit;
+    await req.prisma.$transaction(async (tx) => {
+      newCredit = await tx.credit.create({
+        data: { userId: user.id, amount, type: 'WALLET_TOPUP', description: `Recarga Bancard ****${selectedCard.maskedNumber?.slice(-4) || '****'}` },
+      });
+      await tx.payment.create({
+        data: { userId: user.id, amountGs: amount, paymentMethod: 'bancard_card', bancardShopProcessId: shopProcessId, bancardTicketNumber: chargeResult.ticketNumber?.toString(), bancardAuthNumber: chargeResult.authorizationNumber?.toString(), status: 'COMPLETED', description: `Recarga billetera ₲${amount.toLocaleString()}` },
+      });
+      await tx.bancardOperation.update({ where: { shopProcessId }, data: { status: 'COMPLETED' } });
+    });
+
     const allCredits = await req.prisma.credit.findMany({
-      where: { userId: req.user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+      where: { userId: user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
     });
-    const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
+    const newBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
 
-    res.status(201).json({
-      success: true,
-      data: credit,
-      balance: totalBalance,
-      message: `₲${amount.toLocaleString()} cargados desde tu tarjeta. Saldo: ₲${totalBalance.toLocaleString()}`,
-    });
-  } catch (err) { next(err); }
+    res.json({ success: true, data: newCredit, balance: newBalance, message: `¡Recarga de ₲${amount.toLocaleString()} acreditada!` });
+  } catch (err) {
+    if (err.message?.startsWith('Bancard:')) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next(err);
+  }
 });
 
 // ═══════ ADMIN: registrar compra de un cliente en el shop ═══════
@@ -204,32 +237,39 @@ router.post('/admin/charge', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'EM
     const { userId, amount, description, items } = req.body;
     if (!userId || !amount || amount <= 0) return res.status(400).json({ success: false, message: 'userId y monto requeridos' });
 
-    // Check client balance
-    const allCredits = await req.prisma.credit.findMany({
-      where: { userId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+    let credit;
+
+    await req.prisma.$transaction(async (tx) => {
+      // Check client balance inside transaction to prevent race conditions
+      const allCredits = await tx.credit.findMany({
+        where: { userId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+      });
+      const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
+
+      if (totalBalance < amount) {
+        throw Object.assign(new Error(`Cliente no tiene saldo suficiente. Saldo: ₲${totalBalance.toLocaleString()}`), { statusCode: 400 });
+      }
+
+      credit = await tx.credit.create({
+        data: {
+          userId,
+          amount: -amount,
+          type: 'SHOP_PURCHASE',
+          description: description || 'Compra en showroom',
+        },
+      });
     });
-    const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
 
-    if (totalBalance < amount) {
-      return res.status(400).json({ success: false, message: `Cliente no tiene saldo suficiente. Saldo: ₲${totalBalance.toLocaleString()}` });
-    }
-
-    const credit = await req.prisma.credit.create({
-      data: {
-        userId,
-        amount: -amount,
-        type: 'SHOP_PURCHASE',
-        description: description || 'Compra en showroom',
-      },
-    });
-
-    // Audit log
+    // Audit log (outside transaction — non-critical)
     await req.prisma.auditLog.create({
-      data: { userId: req.user.id, action: 'SHOP_CHARGE', entity: 'Credit', entityId: credit.id, details: { clientUserId: userId, amount, description, items } },
+      data: { userId: req.user.id, action: 'SHOP_CHARGE', entity: 'Credit', entityId: credit.id, detailsJson: { clientUserId: userId, amount, description, items } },
     });
 
     res.json({ success: true, data: credit, message: `Cobro de ₲${amount.toLocaleString()} registrado` });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.statusCode === 400) return res.status(400).json({ success: false, message: err.message });
+    next(err);
+  }
 });
 
 module.exports = router;

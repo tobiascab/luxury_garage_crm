@@ -588,7 +588,7 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
                     </button>
 
                     <p className="text-center text-[10px] text-slate-400 dark:text-slate-600 mt-3 flex items-center justify-center gap-1">
-                      <Shield size={10} /> Pago seguro vía MasFazzil
+                      <Shield size={10} /> Pago seguro vía Bancard
                     </p>
                   </div>
                 </>

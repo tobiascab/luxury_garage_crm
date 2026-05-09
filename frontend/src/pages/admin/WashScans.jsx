@@ -106,7 +106,7 @@ export default function WashScans() {
                                 <tr>
                                     <td colSpan="5">
                                         <div className="py-20 flex flex-col items-center justify-center text-slate-400">
-                                            <ScanLine size={48} className="text-slate-200 dark:text-slate-700 mb-4" />
+                                            <ScanLine size={48} className="text-slate-400 dark:text-slate-600 mb-4" />
                                             <p className="font-bold text-slate-500 dark:text-slate-400">Sin registros</p>
                                             <p className="text-xs mt-1">No se encontraron escaneos de lavados.</p>
                                         </div>

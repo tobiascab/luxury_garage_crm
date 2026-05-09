@@ -281,7 +281,7 @@ export default function MembersManager() {
                           {m.isActive ? <ShieldAlert size={14} /> : <Shield size={14} />}
                         </button>
                       </div>
-                      <div className="group-hover:hidden text-slate-300 dark:text-slate-600 text-right pr-2">
+                      <div className="group-hover:hidden text-slate-500 dark:text-slate-500 text-right pr-2">
                         <ChevronRight size={16} />
                       </div>
                     </td>
@@ -400,7 +400,7 @@ export default function MembersManager() {
                   </div>
                 ) : (
                   <div className="p-8 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-dashed border-slate-200 dark:border-slate-600 flex flex-col items-center text-center">
-                    <AlertCircle size={32} className="text-slate-300 dark:text-slate-600 mb-3" />
+                    <AlertCircle size={32} className="text-slate-500 dark:text-slate-500 mb-3" />
                     <h4 className="text-sm font-bold text-slate-500 dark:text-slate-400">Sin membresía activa</h4>
                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Este cliente no tiene plan asignado.</p>
                   </div>

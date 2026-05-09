@@ -195,7 +195,7 @@ export default function LeadsManager() {
       <div className="admin-card !p-0 overflow-hidden border-b-4 border-b-amber-500/20">
         {filtered.length === 0 ? (
           <div className="p-32 text-center flex flex-col items-center gap-6">
-            <div className="w-24 h-24 rounded-[3rem] bg-slate-50 dark:bg-white/5 flex items-center justify-center text-slate-200 dark:text-slate-700 shadow-inner group-hover:scale-110 transition-transform duration-700">
+            <div className="w-24 h-24 rounded-[3rem] bg-slate-50 dark:bg-white/5 flex items-center justify-center text-slate-400 dark:text-slate-600 shadow-inner group-hover:scale-110 transition-transform duration-700">
               <Database size={48} className="animate-pulse" />
             </div>
             <div>
@@ -285,7 +285,7 @@ export default function LeadsManager() {
                             <ExternalLink size={16} />
                           </button>
                         </div>
-                        <div className="group-hover:hidden text-slate-300 dark:text-slate-700">
+                        <div className="group-hover:hidden text-slate-400 dark:text-slate-600">
                           <MoreVertical size={18} className="ml-auto" />
                         </div>
                       </td>

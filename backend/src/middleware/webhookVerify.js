@@ -6,15 +6,16 @@ const crypto = require('crypto');
 function verifyWebhookSignature(req, res, next) {
   const secret = process.env.ARIZAR_WEBHOOK_SECRET;
   
-  // Skip verification if no secret configured
+  // Reject if no secret configured
   if (!secret || secret === 'pending_configuration') {
-    return next();
+    console.error('❌ Webhook rechazado: ARIZAR_WEBHOOK_SECRET no configurado');
+    return res.status(503).json({ success: false, message: 'Webhook no configurado' });
   }
 
   const signature = req.headers['x-webhook-signature'];
   if (!signature) {
-    console.warn('⚠️ Webhook sin firma recibido');
-    return next(); // Allow but log
+    console.warn('❌ Webhook rechazado: sin header de firma');
+    return res.status(401).json({ success: false, message: 'Firma requerida' });
   }
 
   const hash = crypto

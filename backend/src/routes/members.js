@@ -4,10 +4,14 @@ const { authenticate, authorize } = require('../middleware/auth');
 router.get('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
   try {
     const { status, plan, search, page = 1, limit = 20 } = req.query;
+    if (search && search.length > 100) {
+      return res.status(400).json({ success: false, message: 'Búsqueda demasiado larga' });
+    }
+    const sanitizedSearch = search?.trim().slice(0, 100);
     const where = { role: 'CLIENT' };
     if (status === 'active') where.isActive = true;
     if (status === 'inactive') where.isActive = false;
-    if (search) { where.OR = [{ firstName: { contains: search, mode: 'insensitive' } }, { lastName: { contains: search, mode: 'insensitive' } }, { email: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }]; }
+    if (sanitizedSearch) { where.OR = [{ firstName: { contains: sanitizedSearch, mode: 'insensitive' } }, { lastName: { contains: sanitizedSearch, mode: 'insensitive' } }, { email: { contains: sanitizedSearch, mode: 'insensitive' } }, { phone: { contains: sanitizedSearch } }]; }
 
     const [members, total] = await Promise.all([
       req.prisma.user.findMany({

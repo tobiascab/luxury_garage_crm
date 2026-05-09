@@ -29,7 +29,7 @@ router.put('/', authenticate, authorize('SUPER_ADMIN'), async (req, res, next) =
 
     // Log the action
     await req.prisma.auditLog.create({
-      data: { userId: req.user.id, action: 'UPDATE_SETTINGS', entity: 'Setting', details: updates },
+      data: { userId: req.user.id, action: 'UPDATE_SETTINGS', entity: 'Setting', detailsJson: updates },
     });
 
     res.json({ success: true, data: results, message: 'Configuración actualizada' });

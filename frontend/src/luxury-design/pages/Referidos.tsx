@@ -1,11 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Gift, Copy, CheckCircle2, Users, Wallet } from 'lucide-react';
-
-const mockReferidos = [
-    { name: 'Carlos Méndez', status: 'Activo', reward: 10000, date: 'Mar 2026' },
-    { name: 'Lucía Paredes', status: 'Pendiente', reward: 0, date: 'Mar 2026' },
-];
+import { Gift, Copy, CheckCircle2, Users, Wallet, Loader2, RefreshCw } from 'lucide-react';
+import api from '../../services/api';
+import { API_URL } from '../config';
 
 interface ReferidosProps {
     user: any;
@@ -13,18 +10,47 @@ interface ReferidosProps {
 
 export default function Referidos({ user }: ReferidosProps) {
     const [copied, setCopied] = useState(false);
+    const [referidos, setReferidos] = useState<any[]>([]);
+    const [stats, setStats] = useState({ total: 0, registered: 0, purchased: 0 });
+    const [loading, setLoading] = useState(true);
 
     // Dynamic code using real user data
     const firstName = (user?.name ?? 'USER').split(' ')[0].toUpperCase();
     const userId = user?.id ?? '0';
     const referralCode = `LUXURY-${firstName}${userId}`;
-    const referralLink = `https://luxury.app/join?ref=${referralCode}`;
+    const appBaseUrl = API_URL
+        ? API_URL.replace(/\/api\/?$/, '')
+        : window.location.origin;
+    const referralLink = `${appBaseUrl}/join?ref=${referralCode}`;
+
+    const loadData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const [refRes, statsRes] = await Promise.all([
+                api.get('/referrals'),
+                api.get('/referrals/stats'),
+            ]);
+            if (refRes.data.success) setReferidos(refRes.data.data || []);
+            if (statsRes.data.success) setStats(statsRes.data.data || { total: 0, registered: 0, purchased: 0 });
+        } catch {
+            /* silent */
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { loadData(); }, [loadData]);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(referralLink).catch(() => { });
         setCopied(true);
         setTimeout(() => setCopied(false), 2500);
     };
+
+    // Calculate earnings: ₲10,000 per active (purchased) referral
+    const REWARD_PER_REFERRAL = 10000;
+    const totalEarned = stats.purchased * REWARD_PER_REFERRAL;
+    const formatGs = (n: number) => n >= 1000 ? `₲${(n / 1000).toFixed(0)}k` : `₲${n}`;
 
     return (
         <motion.div
@@ -69,9 +95,9 @@ export default function Referidos({ user }: ReferidosProps) {
             {/* Stats */}
             <div className="grid grid-cols-3 gap-2">
                 {[
-                    { val: mockReferidos.length, label: 'Referidos' },
-                    { val: mockReferidos.filter(r => r.status === 'Activo').length, label: 'Activos', color: 'text-emerald-600 dark:text-emerald-400' },
-                    { val: '₲10k', label: 'Ganado', color: 'text-secondary' },
+                    { val: stats.total, label: 'Referidos' },
+                    { val: stats.registered + stats.purchased, label: 'Activos', color: 'text-emerald-600 dark:text-emerald-400' },
+                    { val: totalEarned > 0 ? formatGs(totalEarned) : '₲0', label: 'Ganado', color: 'text-secondary' },
                 ].map((s) => (
                     <div key={s.label} className="bg-white dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm text-center transition-colors">
                         <p className={`text-lg font-black ${s.color || 'text-primary dark:text-blue-400'}`}>{s.val}</p>
@@ -82,30 +108,52 @@ export default function Referidos({ user }: ReferidosProps) {
 
             {/* List */}
             <div className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
-                <div className="p-4 border-b border-slate-50 dark:border-slate-800">
+                <div className="p-4 border-b border-slate-50 dark:border-slate-800 flex items-center justify-between">
                     <h3 className="font-bold text-sm flex items-center gap-2 text-slate-800 dark:text-white">
                         <Users size={15} className="text-primary dark:text-blue-400" /> Mis Referidos
                     </h3>
+                    <button onClick={loadData} className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
+                        <RefreshCw size={12} className={`text-slate-400 ${loading ? 'animate-spin' : ''}`} />
+                    </button>
                 </div>
-                {mockReferidos.map((r) => (
-                    <div key={r.name} className="flex items-center gap-3 p-4 border-b border-slate-50 dark:border-slate-800 last:border-b-0 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                        <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-black text-slate-500 dark:text-slate-400 text-sm shrink-0">
-                            {r.name[0]}
-                        </div>
-                        <div className="flex-1">
-                            <p className="font-bold text-xs dark:text-slate-200">{r.name}</p>
-                            <span className={`text-[10px] font-bold ${r.status === 'Activo' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
-                                {r.status}
-                            </span>
-                        </div>
-                        {r.reward > 0 && (
-                            <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-black text-xs">
-                                <Wallet size={12} />
-                                +₲10k
-                            </div>
-                        )}
+
+                {loading ? (
+                    <div className="flex items-center justify-center py-10 gap-3">
+                        <Loader2 size={20} className="animate-spin text-primary dark:text-blue-400" />
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Cargando...</span>
                     </div>
-                ))}
+                ) : referidos.length === 0 ? (
+                    <div className="py-10 text-center">
+                        <Gift size={28} className="text-slate-200 dark:text-slate-700 mx-auto mb-3" />
+                        <p className="text-xs text-slate-400 dark:text-slate-500 font-bold">Aún no tenés referidos</p>
+                        <p className="text-[10px] text-slate-300 dark:text-slate-600 mt-1">Compartí tu enlace para empezar a ganar</p>
+                    </div>
+                ) : (
+                    referidos.map((r: any) => {
+                        const isActive = r.status === 'registered' || r.status === 'purchased';
+                        const earned = r.status === 'purchased' ? REWARD_PER_REFERRAL : 0;
+                        const displayName = r.referredEmail || r.referredPhone || 'Referido';
+                        return (
+                            <div key={r.id} className="flex items-center gap-3 p-4 border-b border-slate-50 dark:border-slate-800 last:border-b-0 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                                <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-black text-slate-500 dark:text-slate-400 text-sm shrink-0">
+                                    {displayName[0]?.toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-xs dark:text-slate-200 truncate">{displayName}</p>
+                                    <span className={`text-[10px] font-bold ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
+                                        {isActive ? 'Activo' : 'Pendiente'}
+                                    </span>
+                                </div>
+                                {earned > 0 && (
+                                    <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-black text-xs shrink-0">
+                                        <Wallet size={12} />
+                                        +{formatGs(earned)}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })
+                )}
             </div>
         </motion.div>
     );

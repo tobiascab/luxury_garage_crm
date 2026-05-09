@@ -110,6 +110,12 @@ router.post('/', authenticate, async (req, res, next) => {
 // PUT /api/appointments/:id/start — Empleado inicia servicio
 router.put('/:id/start', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'), async (req, res, next) => {
   try {
+    // Check if service was already started (serviceRecord has @unique on appointmentId)
+    const existingRecord = await req.prisma.serviceRecord.findUnique({ where: { appointmentId: req.params.id } });
+    if (existingRecord) {
+      return res.status(409).json({ success: false, message: 'El servicio ya fue iniciado' });
+    }
+
     const appointment = await req.prisma.appointment.update({
       where: { id: req.params.id },
       data: { status: 'IN_PROGRESS', employeeId: req.user.id },
@@ -169,7 +175,7 @@ router.put('/:id/complete', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_
             action: 'SERVICE_LIMIT_EXCEEDED',
             entityId: membership.id,
             userId: appointment.userId,
-            details: { planServicesIncluded: membership.plan.servicesIncluded, servicesUsed: membership.servicesUsed }
+            detailsJson: { planServicesIncluded: membership.plan.servicesIncluded, servicesUsed: membership.servicesUsed }
           }
         });
       } else {

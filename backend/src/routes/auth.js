@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { authenticate, authorize } = require('../middleware/auth');
 const { authLimiter, loginLockout } = require('../middleware/security');
 const ArizarSync = require('../services/arizarSync');
@@ -46,7 +47,7 @@ router.post('/login', async (req, res, next) => {
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
     );
 
     const { passwordHash, ...userData } = user;
@@ -63,6 +64,15 @@ router.post('/register', async (req, res, next) => {
 
     const exists = await req.prisma.user.findUnique({ where: { email } });
     if (exists) return res.status(409).json({ success: false, message: 'El email ya está registrado' });
+
+    // Validate planId before creating the user
+    let planRecord = null;
+    if (planId) {
+      planRecord = await req.prisma.plan.findUnique({ where: { id: planId } });
+      if (!planRecord) {
+        return res.status(400).json({ success: false, message: 'Plan no válido' });
+      }
+    }
 
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await req.prisma.user.create({
@@ -84,16 +94,13 @@ router.post('/register', async (req, res, next) => {
 
     // Auto-assign plan if provided
     let membership = null;
-    if (planId) {
-      const plan = await req.prisma.plan.findUnique({ where: { id: planId } });
-      if (plan) {
-        const start = new Date();
-        const end = new Date(); end.setMonth(end.getMonth() + 1);
-        membership = await req.prisma.membership.create({
-          data: { userId: user.id, planId: plan.id, status: 'ACTIVE', startDate: start, endDate: end },
-          include: { plan: true }
-        });
-      }
+    if (planRecord) {
+      const start = new Date();
+      const end = new Date(); end.setMonth(end.getMonth() + 1);
+      membership = await req.prisma.membership.create({
+        data: { userId: user.id, planId: planRecord.id, status: 'ACTIVE', startDate: start, endDate: end },
+        include: { plan: true }
+      });
     }
 
     // Process referral code
@@ -193,7 +200,7 @@ router.post('/public-register', async (req, res, next) => {
     await sync.syncUserRegistration(user);
 
     // Auto-login
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '1h' });
 
     const { passwordHash: _, ...userData } = user;
     res.status(201).json({ success: true, data: { token, user: userData }, message: '¡Cuenta creada exitosamente!' });
@@ -211,8 +218,8 @@ router.post('/admin-create', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'EM
     const exists = await req.prisma.user.findUnique({ where: { email } });
     if (exists) return res.status(409).json({ success: false, message: 'El email ya está registrado' });
 
-    // Generate temporary password
-    const tempPassword = firstName.substring(0, 3) + Math.random().toString(36).slice(-5) + '!1';
+    // Generate temporary password with cryptographically secure entropy
+    const tempPassword = firstName.substring(0, 3) + crypto.randomBytes(16).toString('hex').slice(0, 10) + '!1';
     const passwordHash = await bcrypt.hash(tempPassword, 12);
 
     const user = await req.prisma.user.create({
@@ -264,7 +271,7 @@ router.post('/admin-create', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'EM
 
     // Audit
     await req.prisma.auditLog.create({
-      data: { entity: 'user', action: 'admin_create', entityId: user.id, userId: req.user.id, details: { createdBy: req.user.email, clientEmail: email, plan: membership?.plan?.name, sentWhatsApp: !!doSendWA } }
+      data: { entity: 'user', action: 'admin_create', entityId: user.id, userId: req.user.id, detailsJson: { createdBy: req.user.email, clientEmail: email, plan: membership?.plan?.name, sentWhatsApp: !!doSendWA } }
     });
 
     const { passwordHash: _, ...userData } = user;
@@ -340,6 +347,15 @@ router.put('/me', authenticate, async (req, res, next) => {
 router.post('/change-password', authenticate, async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'La nueva contraseña debe tener al menos 8 caracteres' });
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'La nueva contraseña debe incluir al menos una mayúscula' });
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'La nueva contraseña debe incluir al menos un número' });
+    }
     const user = await req.prisma.user.findUnique({ where: { id: req.user.id } });
     const valid = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!valid) return res.status(400).json({ success: false, message: 'Contraseña actual incorrecta' });

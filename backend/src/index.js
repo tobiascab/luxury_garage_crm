@@ -34,10 +34,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],   // needed for Vite
+      scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:', 'blob:'],
-      connectSrc: ["'self'"],
+      connectSrc: ["'self'", 'wss://luxurygarage.arizar-ia.cloud', 'ws://localhost:*', 'https:'],
       fontSrc: ["'self'", 'data:'],
       objectSrc: ["'none'"],
       frameSrc: ["'none'"],
@@ -117,7 +117,7 @@ app.use('/api/inventory', require('./routes/inventory'));
 app.use('/api/scans', require('./routes/scans'));
 app.use('/api/arizar/oauth', require('./routes/arizar-oauth'));
 app.use('/api/arizar', require('./routes/arizar-admin'));
-app.use('/api/masfacil', require('./routes/masfacil-webhooks'));
+app.use('/api/bancard', require('./routes/bancard-webhooks'));
 app.use('/api/invoices-crm', require('./routes/invoices-arizar'));
 app.use('/api/luxury', require('./routes/luxury'));
 app.use('/', require('./routes/luxury'));

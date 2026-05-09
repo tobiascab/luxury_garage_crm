@@ -291,7 +291,7 @@ export default function FinanceDashboard() {
                                 {fmtGs(comm)}
                               </span>
                             ) : (
-                              <span className="text-sm text-slate-300 dark:text-slate-600">—</span>
+                              <span className="text-sm text-slate-500 dark:text-slate-500">—</span>
                             )}
                           </td>
                         )}
@@ -305,7 +305,7 @@ export default function FinanceDashboard() {
 
           {filteredPayments.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Banknote size={48} className="text-slate-200 dark:text-slate-700 mb-4" />
+              <Banknote size={48} className="text-slate-400 dark:text-slate-600 mb-4" />
               <h3 className="text-base font-bold text-slate-400">Sin movimientos registrados</h3>
             </div>
           )}

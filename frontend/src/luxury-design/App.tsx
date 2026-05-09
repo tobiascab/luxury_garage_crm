@@ -69,7 +69,7 @@ export default function App() {
                   <Route path="/garage" element={<Garage />} />
                   <Route path="/billetera" element={<Billetera />} />
                   <Route path="/referidos" element={<Referidos user={user} />} />
-                  <Route path="/servicios-extra" element={<ServiciosExtra />} />
+                  <Route path="/servicios-extra" element={<ServiciosExtra user={user} />} />
                   {/* Tab routes fallback — MainLayout renders them, no redirect needed */}
                   <Route path="*" element={null} />
                 </Routes>

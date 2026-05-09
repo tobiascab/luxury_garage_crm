@@ -1,6 +1,144 @@
 const cron = require('node-cron');
 const arizarService = require('../services/arizarService');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: renovar una membresía cobrando con Bancard
+// ─────────────────────────────────────────────────────────────────────────────
+async function renewMembership(prisma, membership) {
+  const bancardService = require('../services/bancardService');
+
+  // 1. Obtener usuario con sus tarjetas y bancardUserId
+  const user = await prisma.user.findUnique({
+    where: { id: membership.userId },
+    include: {
+      paymentCards: {
+        where: { isPrimary: true },
+        take: 1,
+      },
+    },
+  });
+
+  if (!user || !user.bancardUserId) {
+    console.warn(`⚠️ Usuario sin bancardUserId para renovación: ${membership.userId}`);
+    return { success: false, reason: 'no_bancard_user' };
+  }
+
+  const primaryCard = user.paymentCards[0];
+  if (!primaryCard || !primaryCard.bancardCardId) {
+    console.warn(`⚠️ Sin tarjeta Bancard para renovación userId=${membership.userId}`);
+    return { success: false, reason: 'no_card' };
+  }
+
+  // 2. Obtener alias_token fresco desde Bancard API
+  let aliasToken;
+  try {
+    const bancardCards = await bancardService.getUserCards(user.bancardUserId);
+    const matchingCard = bancardCards.find(c => parseInt(c.card_id) === primaryCard.bancardCardId);
+    if (!matchingCard) {
+      console.warn(`⚠️ Tarjeta ${primaryCard.bancardCardId} no encontrada en Bancard`);
+      return { success: false, reason: 'card_not_found_in_bancard' };
+    }
+    aliasToken = matchingCard.alias_token;
+  } catch (err) {
+    console.error(`❌ Error obteniendo tarjetas Bancard userId=${membership.userId}:`, err.message);
+    return { success: false, reason: 'bancard_cards_error' };
+  }
+
+  // 3. Generar shop_process_id y obtener plan
+  const shopProcessId = bancardService.generateShopProcessId();
+  const plan = await prisma.plan.findUnique({ where: { id: membership.planId } });
+
+  // 4. Crear BancardOperation y Payment PENDING antes de cobrar
+  await prisma.bancardOperation.create({
+    data: {
+      shopProcessId,
+      userId: user.id,
+      type: 'charge',
+      status: 'PENDING',
+      amountGs: plan.priceGs,
+      metadataJson: { membershipId: membership.id, planId: plan.id, isAutoRenewal: true },
+    },
+  });
+
+  const pendingPayment = await prisma.payment.create({
+    data: {
+      userId: user.id,
+      amountGs: plan.priceGs,
+      paymentMethod: 'bancard_card',
+      bancardShopProcessId: shopProcessId,
+      status: 'PENDING',
+      description: `Auto-renovación ${plan.name} - Luxury Garage`,
+    },
+  });
+
+  // 5. Cobrar con Bancard
+  let chargeResult;
+  try {
+    chargeResult = await bancardService.charge({
+      shopProcessId,
+      amount: plan.priceGs,
+      aliasToken,
+      description: `Renovacion ${plan.name}`,
+      returnUrl: `${process.env.FRONTEND_URL || 'https://luxurygarage.arizar-ia.cloud'}/billetera`,
+    });
+  } catch (err) {
+    console.error(`❌ Error Bancard charge renovación userId=${membership.userId}:`, err.message);
+    await prisma.payment.update({ where: { id: pendingPayment.id }, data: { status: 'FAILED' } });
+    await prisma.bancardOperation.update({ where: { shopProcessId }, data: { status: 'FAILED' } });
+    return { success: false, reason: 'charge_error', error: err.message };
+  }
+
+  if (!chargeResult.approved) {
+    await prisma.payment.update({ where: { id: pendingPayment.id }, data: { status: 'FAILED' } });
+    await prisma.bancardOperation.update({ where: { shopProcessId }, data: { status: 'FAILED' } });
+    console.warn(`⚠️ Cobro rechazado en renovación userId=${membership.userId} code=${chargeResult.responseCode}`);
+    return { success: false, reason: 'charge_rejected', code: chargeResult.responseCode };
+  }
+
+  // 6. Cobro exitoso → renovar membresía en $transaction
+  const start = new Date();
+  const end = new Date();
+  end.setMonth(end.getMonth() + 1);
+
+  await prisma.$transaction(async (tx) => {
+    // Expirar membresía actual
+    await tx.membership.update({
+      where: { id: membership.id },
+      data: { status: 'EXPIRED' },
+    });
+
+    // Crear nueva membresía
+    const newMembership = await tx.membership.create({
+      data: {
+        userId: user.id,
+        planId: plan.id,
+        status: 'ACTIVE',
+        startDate: start,
+        endDate: end,
+        autoRenew: true,
+      },
+    });
+
+    // Completar payment
+    await tx.payment.update({
+      where: { id: pendingPayment.id },
+      data: {
+        status: 'COMPLETED',
+        membershipId: newMembership.id,
+        bancardTicketNumber: chargeResult.ticketNumber?.toString(),
+        bancardAuthNumber: chargeResult.authorizationNumber?.toString(),
+      },
+    });
+
+    await tx.bancardOperation.update({
+      where: { shopProcessId },
+      data: { status: 'COMPLETED' },
+    });
+  });
+
+  return { success: true, shopProcessId, ticketNumber: chargeResult.ticketNumber, newStart: start, newEnd: end, plan };
+}
+
 function initJobs(prisma) {
   console.log('⏰ Inicializando cron jobs...');
 
@@ -20,16 +158,20 @@ function initJobs(prisma) {
       });
 
       for (const m of expiring) {
-        if (m.user.arizarContactId) {
-          try {
-            await arizarService.sendWhatsApp(m.user.arizarContactId,
-              `🚗 Hola ${m.user.firstName}! Tu membresía ${m.plan.name} de Luxury Garage vence en 7 días (${m.endDate.toLocaleDateString('es-PY')}). Renová para seguir disfrutando tus beneficios. 💎`
-            );
-          } catch (e) { console.error('Error enviando aviso 7d:', e.message); }
+        try {
+          if (m.user.arizarContactId) {
+            try {
+              await arizarService.sendWhatsApp(m.user.arizarContactId,
+                `🚗 Hola ${m.user.firstName}! Tu membresía ${m.plan.name} de Luxury Garage vence en 7 días (${m.endDate.toLocaleDateString('es-PY')}). Renová para seguir disfrutando tus beneficios. 💎`
+              );
+            } catch (e) { console.error('Error enviando aviso 7d:', e.message); }
+          }
+          await prisma.notification.create({
+            data: { userId: m.userId, type: 'RENEWAL_REMINDER', title: 'Tu membresía vence pronto', message: `Tu plan ${m.plan.name} vence el ${m.endDate.toLocaleDateString('es-PY')}. ¡Renová ahora!`, channel: 'WHATSAPP' }
+          });
+        } catch (err) {
+          console.error(`Error procesando miembro ${m.userId} (aviso 7d):`, err.message);
         }
-        await prisma.notification.create({
-          data: { userId: m.userId, type: 'RENEWAL_REMINDER', title: 'Tu membresía vence pronto', message: `Tu plan ${m.plan.name} vence el ${m.endDate.toLocaleDateString('es-PY')}. ¡Renová ahora!`, channel: 'WHATSAPP' }
-        });
       }
       if (expiring.length) console.log(`📨 Enviados ${expiring.length} avisos de vencimiento (7 días)`);
     } catch (err) { console.error('❌ Error en job vencimiento 7d:', err.message); }
@@ -49,12 +191,16 @@ function initJobs(prisma) {
       });
 
       for (const m of expiring) {
-        if (m.user.arizarContactId) {
-          try {
-            await arizarService.sendWhatsApp(m.user.arizarContactId,
-              `⚠️ ${m.user.firstName}, tu membresía ${m.plan.name} vence MAÑANA. Renová ahora para no perder tus beneficios → https://luxurygarage.arizar-ia.cloud/client/membership`
-            );
-          } catch (e) { console.error('Error enviando aviso 1d:', e.message); }
+        try {
+          if (m.user.arizarContactId) {
+            try {
+              await arizarService.sendWhatsApp(m.user.arizarContactId,
+                `⚠️ ${m.user.firstName}, tu membresía ${m.plan.name} vence MAÑANA. Renová ahora para no perder tus beneficios → https://luxurygarage.arizar-ia.cloud/client/membership`
+              );
+            } catch (e) { console.error('Error enviando aviso 1d:', e.message); }
+          }
+        } catch (err) {
+          console.error(`Error procesando miembro ${m.userId} (aviso 1d):`, err.message);
         }
       }
       if (expiring.length) console.log(`📨 Enviados ${expiring.length} avisos urgentes (1 día)`);
@@ -87,12 +233,16 @@ function initJobs(prisma) {
       });
 
       for (const m of lapsed) {
-        if (m.user.arizarContactId) {
-          try {
-            await arizarService.sendWhatsApp(m.user.arizarContactId,
-              `🎁 ${m.user.firstName}, te extrañamos! Renová tu membresía ${m.plan.name} HOY con 15% de descuento. Oferta válida por 48hs → https://luxurygarage.arizar-ia.cloud/client/membership`
-            );
-          } catch (e) { console.error('Error enviando oferta:', e.message); }
+        try {
+          if (m.user.arizarContactId) {
+            try {
+              await arizarService.sendWhatsApp(m.user.arizarContactId,
+                `🎁 ${m.user.firstName}, te extrañamos! Renová tu membresía ${m.plan.name} HOY con 15% de descuento. Oferta válida por 48hs → https://luxurygarage.arizar-ia.cloud/client/membership`
+              );
+            } catch (e) { console.error('Error enviando oferta:', e.message); }
+          }
+        } catch (err) {
+          console.error(`Error procesando miembro ${m.userId} (oferta 3d):`, err.message);
         }
       }
       if (lapsed.length) console.log(`🎁 Enviadas ${lapsed.length} ofertas de re-enganche`);
@@ -119,24 +269,28 @@ function initJobs(prisma) {
       });
 
       for (const a of appointments) {
-        // Check if reminder already sent
-        const alreadySent = await prisma.notification.findFirst({
-          where: { userId: a.userId, type: 'APPOINTMENT_REMINDER', referenceId: a.id,
-            createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } }
-        });
-        if (alreadySent) continue;
+        try {
+          // Check if reminder already sent
+          const alreadySent = await prisma.notification.findFirst({
+            where: { userId: a.userId, type: 'APPOINTMENT_REMINDER', referenceId: a.id,
+              createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } }
+          });
+          if (alreadySent) continue;
 
-        const time = a.startTime.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
-        if (a.user.arizarContactId) {
-          try {
-            await arizarService.sendWhatsApp(a.user.arizarContactId,
-              `📅 Recordatorio: Mañana tenés turno en Luxury Garage a las ${time}. Servicio: ${a.service.name}. Vehículo: ${a.vehicle.brand} ${a.vehicle.model}. ¡Te esperamos! 🚗`
-            );
-          } catch (e) { console.error('Error enviando recordatorio:', e.message); }
+          const time = a.startTime.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' });
+          if (a.user.arizarContactId) {
+            try {
+              await arizarService.sendWhatsApp(a.user.arizarContactId,
+                `📅 Recordatorio: Mañana tenés turno en Luxury Garage a las ${time}. Servicio: ${a.service.name}. Vehículo: ${a.vehicle.brand} ${a.vehicle.model}. ¡Te esperamos! 🚗`
+              );
+            } catch (e) { console.error('Error enviando recordatorio:', e.message); }
+          }
+          await prisma.notification.create({
+            data: { userId: a.userId, type: 'APPOINTMENT_REMINDER', title: 'Turno mañana', message: `Mañana a las ${time} - ${a.service.name}`, referenceId: a.id, channel: 'WHATSAPP' }
+          });
+        } catch (err) {
+          console.error(`Error procesando turno ${a.id} (recordatorio):`, err.message);
         }
-        await prisma.notification.create({
-          data: { userId: a.userId, type: 'APPOINTMENT_REMINDER', title: 'Turno mañana', message: `Mañana a las ${time} - ${a.service.name}`, referenceId: a.id, channel: 'WHATSAPP' }
-        });
       }
     } catch (err) { console.error('❌ Error en job recordatorio turnos:', err.message); }
   });
@@ -155,19 +309,23 @@ function initJobs(prisma) {
       });
 
       for (const m of activeMembers) {
-        if (!m.user.arizarContactId) continue;
+        try {
+          if (!m.user.arizarContactId) continue;
 
-        // Find last completed service
-        const lastService = await prisma.serviceRecord.findFirst({
-          where: { appointment: { userId: m.userId }, completedAt: { not: null } },
-          orderBy: { completedAt: 'desc' },
-        });
+          // Find last completed service
+          const lastService = await prisma.serviceRecord.findFirst({
+            where: { appointment: { userId: m.userId }, completedAt: { not: null } },
+            orderBy: { completedAt: 'desc' },
+          });
 
-        if (lastService?.completedAt) {
-          const daysSince = Math.floor((Date.now() - new Date(lastService.completedAt).getTime()) / (1000 * 60 * 60 * 24));
-          if (daysSince >= 15) {
-            await sync.syncInactivity(m.user, daysSince);
+          if (lastService?.completedAt) {
+            const daysSince = Math.floor((Date.now() - new Date(lastService.completedAt).getTime()) / (1000 * 60 * 60 * 24));
+            if (daysSince >= 15) {
+              await sync.syncInactivity(m.user, daysSince);
+            }
           }
+        } catch (err) {
+          console.error(`Error procesando miembro ${m.userId} (inactividad):`, err.message);
         }
       }
     } catch (err) { console.error('❌ Error en job inactividad:', err.message); }
@@ -192,8 +350,12 @@ function initJobs(prisma) {
       });
 
       for (const m of expiring) {
-        if (m.user.arizarContactId) {
-          await sync.syncRenewalReminder(m.user, m);
+        try {
+          if (m.user.arizarContactId) {
+            await sync.syncRenewalReminder(m.user, m);
+          }
+        } catch (err) {
+          console.error(`Error procesando miembro ${m.userId} (tag renovación):`, err.message);
         }
       }
       if (expiring.length) console.log(`📋 ${expiring.length} contactos marcados para renovación`);
@@ -205,7 +367,6 @@ function initJobs(prisma) {
   // Diario 07:00 — Cobrar automáticamente membresías con autoRenew=true que vencen hoy
   cron.schedule('0 7 * * *', async () => {
     try {
-      const masfazzilService = require('../services/masfazzilService');
       const ArizarSync = require('../services/arizarSync');
       const sync = new ArizarSync(prisma);
 
@@ -221,11 +382,7 @@ function initJobs(prisma) {
         },
         include: {
           plan: true,
-          user: {
-            include: {
-              paymentCards: { where: { isPrimary: true }, take: 1 },
-            },
-          },
+          user: true,
         },
       });
 
@@ -235,105 +392,84 @@ function initJobs(prisma) {
         const { user, plan } = membership;
 
         try {
-          // Buscar tarjeta primaria (o cualquier tarjeta disponible)
-          let card = user.paymentCards[0];
-          if (!card) {
-            card = await prisma.paymentCard.findFirst({
-              where: { userId: user.id },
-              orderBy: { createdAt: 'desc' },
+          // Modo test: extender sin cobrar
+          if (user.isTestMode) {
+            const newEnd = new Date(membership.endDate);
+            newEnd.setMonth(newEnd.getMonth() + 1);
+            await prisma.membership.update({
+              where: { id: membership.id },
+              data: { endDate: newEnd, startDate: new Date(membership.endDate) },
             });
-          }
-
-          // Sin tarjeta o sin UUID de MasFazzil → notificar al usuario
-          if (!card || !user.masfazzilCustomerUuid || user.isTestMode) {
-            if (user.isTestMode) {
-              // Modo test: extender sin cobrar
-              const newEnd = new Date(membership.endDate);
-              newEnd.setMonth(newEnd.getMonth() + 1);
-              await prisma.membership.update({
-                where: { id: membership.id },
-                data: { endDate: newEnd, startDate: new Date(membership.endDate) },
-              });
-              console.log(`🧪 [TEST] Auto-renovación simulada: ${user.email}`);
-            } else {
-              if (user.arizarContactId) {
-                await arizarService.sendWhatsApp(user.arizarContactId,
-                  `⚠️ ${user.firstName}, tu membresía *${plan.name}* vence hoy y no pudimos renovarla porque no tenés una tarjeta registrada.\n\n` +
-                  `💳 Registá tu tarjeta y renová acá:\nhttps://luxurygarage.arizar-ia.cloud/client/membership\n\n` +
-                  `¿Necesitás ayuda? Respondé este mensaje.`
-                );
-              }
-              console.warn(`⚠️ Auto-renew: ${user.email} sin tarjeta o UUID MasFazzil`);
-            }
+            const emailRedactedTest = user.email ? user.email.substring(0, 3) + '***@***' : 'unknown';
+            console.log(`🧪 [TEST] Auto-renovación simulada: ${emailRedactedTest}`);
             continue;
           }
 
-          // ─ Intentar el cobro ─────────────────────────────────────
-          const reference = masfazzilService.generateReference(user.id, 'RENEW');
-          const chargeResult = await masfazzilService.chargeCard({
-            amount:             plan.priceGs,
-            currency:           'PYG',
-            description:        `Renovación ${plan.name} - Luxury Garage`,
-            merchant_reference: reference,
-            card_id:            card.masfazzilCardId,
-            customer_uuid:      user.masfazzilCustomerUuid,
-          });
+          // ─ Intentar el cobro con Bancard ──────────────────────────
+          const result = await renewMembership(prisma, membership);
 
-          if (chargeResult?.status === 'PAID') {
-            // ✔ Cobro exitoso: extender membresía 1 mes
-            const newStart = new Date(membership.endDate);
-            const newEnd   = new Date(membership.endDate);
-            newEnd.setMonth(newEnd.getMonth() + 1);
+          if (result.success) {
+            // ✔ Cobro exitoso
+            const { newStart, newEnd } = result;
 
-            await prisma.membership.update({
-              where: { id: membership.id },
-              data: { status: 'ACTIVE', startDate: newStart, endDate: newEnd },
-            });
-
-            await prisma.payment.create({
-              data: {
-                userId:             user.id,
-                membershipId:       membership.id,
-                amountGs:           plan.priceGs,
-                paymentMethod:      'masfazzil_autorenew',
-                arizarTransactionId: chargeResult.transaction_id,
-                status:             'COMPLETED',
-                description:        `Auto-renovación ${plan.name} - ${reference}`,
-              },
+            // Buscar tarjeta primaria para mostrar últimos 4 dígitos en el mensaje
+            const primaryCard = await prisma.paymentCard.findFirst({
+              where: { userId: user.id, isPrimary: true },
             });
 
             // WhatsApp de confirmación
             if (user.arizarContactId) {
-              await arizarService.sendWhatsApp(user.arizarContactId,
-                `✅ *¡Tu membresía fue renovada automáticamente!*\n\n` +
-                `📋 Plan: ${plan.name}\n` +
-                `📅 Nueva vigencia: ${newStart.toLocaleDateString('es-PY')} al ${newEnd.toLocaleDateString('es-PY')}\n` +
-                `💳 Cobrado: ₲${plan.priceGs.toLocaleString()} a tu tarjeta **** ${card.maskedNumber?.slice(-4) || ''}\n\n` +
-                `🚗💎 ¡Seguís disfrutando de Luxury Garage!\n` +
-                `Agendá tu próximo turno: https://luxurygarage.arizar-ia.cloud/client/book`
-              );
+              try {
+                await arizarService.sendWhatsApp(user.arizarContactId,
+                  `✅ *¡Tu membresía fue renovada automáticamente!*\n\n` +
+                  `📋 Plan: ${plan.name}\n` +
+                  `📅 Nueva vigencia: ${newStart.toLocaleDateString('es-PY')} al ${newEnd.toLocaleDateString('es-PY')}\n` +
+                  `💳 Cobrado: ₲${plan.priceGs.toLocaleString()} a tu tarjeta **** ${primaryCard?.maskedNumber?.slice(-4) || ''}\n\n` +
+                  `🚗💎 ¡Seguís disfrutando de Luxury Garage!\n` +
+                  `Agendá tu próximo turno: https://luxurygarage.arizar-ia.cloud/client/book`
+                );
+              } catch (e) { console.error('Error enviando WA confirmación renovación:', e.message); }
               // Sync a ARIZAR IA
-              await sync.syncMembershipActivated(user, { ...membership, plan, endDate: newEnd, startDate: newStart });
+              try {
+                await sync.syncMembershipActivated(user, { ...membership, plan, endDate: newEnd, startDate: newStart });
+              } catch (e) { console.error('Error sync ARIZAR renovación:', e.message); }
             }
 
-            console.log(`✅ Auto-renovación OK: ${user.email} → ${plan.name} hasta ${newEnd.toLocaleDateString()}`);
+            const emailRedactedOk = user.email ? user.email.substring(0, 3) + '***@***' : 'unknown';
+            console.log(`✅ Auto-renovación OK: ${emailRedactedOk} → ${plan.name} hasta ${newEnd.toLocaleDateString()}`);
 
           } else {
-            // ❌ Cobro fallido
+            // ❌ Cobro fallido o sin tarjeta/usuario Bancard
+            const reason = result.reason;
+            const noCard = reason === 'no_card' || reason === 'no_bancard_user' || reason === 'card_not_found_in_bancard';
+
             if (user.arizarContactId) {
-              await arizarService.sendWhatsApp(user.arizarContactId,
-                `❌ ${user.firstName}, no pudimos renovar tu membresía *${plan.name}* hoy.\n\n` +
-                `El cobro a tu tarjeta no fue aprobado.\n\n` +
-                `Para no perder tu membresía, renová manualmente acá:\n` +
-                `https://luxurygarage.arizar-ia.cloud/client/membership\n\n` +
-                `¿Necesitás ayuda? Respondé este mensaje. 🙏`
-              );
+              try {
+                if (noCard) {
+                  await arizarService.sendWhatsApp(user.arizarContactId,
+                    `⚠️ ${user.firstName}, tu membresía *${plan.name}* vence hoy y no pudimos renovarla porque no tenés una tarjeta registrada.\n\n` +
+                    `💳 Registá tu tarjeta y renová acá:\nhttps://luxurygarage.arizar-ia.cloud/client/membership\n\n` +
+                    `¿Necesitás ayuda? Respondé este mensaje.`
+                  );
+                } else {
+                  await arizarService.sendWhatsApp(user.arizarContactId,
+                    `❌ ${user.firstName}, no pudimos renovar tu membresía *${plan.name}* hoy.\n\n` +
+                    `El cobro a tu tarjeta no fue aprobado.\n\n` +
+                    `Para no perder tu membresía, renová manualmente acá:\n` +
+                    `https://luxurygarage.arizar-ia.cloud/client/membership\n\n` +
+                    `¿Necesitás ayuda? Respondé este mensaje. 🙏`
+                  );
+                }
+              } catch (e) { console.error('Error enviando WA fallo renovación:', e.message); }
             }
-            console.error(`❌ Auto-renovación fallida (cobro rechazado): ${user.email}`);
+
+            const emailRedactedFail = user.email ? user.email.substring(0, 3) + '***@***' : 'unknown';
+            console.error(`❌ Auto-renovación fallida (${reason}): ${emailRedactedFail}`);
           }
 
         } catch (err) {
-          console.error(`❌ Error auto-renovación ${user.email}:`, err.message);
+          const emailRedactedErr = user.email ? user.email.substring(0, 3) + '***@***' : 'unknown';
+          console.error(`❌ Error auto-renovación ${emailRedactedErr}:`, err.message);
           // Aún así notificar al usuario para que renueve manual
           if (user.arizarContactId) {
             try {

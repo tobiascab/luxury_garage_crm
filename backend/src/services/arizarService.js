@@ -665,14 +665,19 @@ class ArizarService {
   /** Move opportunity to a specific stage */
   async moveToStage(contactId, stageId) {
     return this._safe(async () => {
-      // Find opportunity for this contact
-      const searchRes = await this.client.get('/opportunities/search', {
-        params: { location_id: this.locationId, contact_id: contactId, pipeline_id: this.pipelineId }
-      });
-      const opp = searchRes.data?.opportunities?.[0];
+      // Find opportunity for this contact. Retry once: GHL search index can lag
+      // a few seconds after POST /opportunities/
+      let opp = null;
+      for (let attempt = 0; attempt < 3 && !opp; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+        const searchRes = await this.client.get('/opportunities/search', {
+          params: { location_id: this.locationId, contact_id: contactId, pipeline_id: this.pipelineId }
+        });
+        opp = searchRes.data?.opportunities?.[0];
+      }
       if (opp) {
-        await this.client.put(`/opportunities/${opp.id}/status`, {
-          status: 'open', stageId,
+        await this.client.put(`/opportunities/${opp.id}`, {
+          pipelineStageId: stageId, status: 'open',
         });
       }
     });
@@ -684,13 +689,17 @@ class ArizarService {
   async moveToMiembro(contactId) { return this.moveToStage(contactId, this.stages.miembroActivo); }
   async moveToNoConvirtio(contactId) {
     return this._safe(async () => {
-      const searchRes = await this.client.get('/opportunities/search', {
-        params: { location_id: this.locationId, contact_id: contactId, pipeline_id: this.pipelineId }
-      });
-      const opp = searchRes.data?.opportunities?.[0];
+      let opp = null;
+      for (let attempt = 0; attempt < 3 && !opp; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+        const searchRes = await this.client.get('/opportunities/search', {
+          params: { location_id: this.locationId, contact_id: contactId, pipeline_id: this.pipelineId }
+        });
+        opp = searchRes.data?.opportunities?.[0];
+      }
       if (opp) {
-        await this.client.put(`/opportunities/${opp.id}/status`, {
-          status: 'lost', stageId: this.stages.noConvirtio,
+        await this.client.put(`/opportunities/${opp.id}`, {
+          pipelineStageId: this.stages.noConvirtio, status: 'lost',
         });
       }
     });

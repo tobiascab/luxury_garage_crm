@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wallet, Plus, ArrowDownLeft, ArrowUpRight, Clock, X, CreditCard, CheckCircle2, RefreshCw, AlertCircle, Shield, Check, Loader2, TrendingUp, TrendingDown, Banknote } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
 import { API_URL } from '../config';
 import api from '../../services/api';
 const rechargeOptions = [20000, 50000, 100000, 200000];
@@ -44,6 +45,11 @@ const Billetera = memo(function Billetera() {
     const [paymentMethod, setPaymentMethod] = useState<'card' | 'transfer'>('card');
     const [step, setStep] = useState<'amount' | 'processing' | 'success' | 'error'>('amount');
     const [errorMsg, setErrorMsg] = useState('');
+    const [cardRegistration, setCardRegistration] = useState<{
+        processId: string;
+        jsLibUrl: string;
+    } | null>(null);
+    const [cardRegistrationLoading, setCardRegistrationLoading] = useState(false);
 
     const token = localStorage.getItem('luxury_token');
     const headers: any = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -76,11 +82,75 @@ const Billetera = memo(function Billetera() {
                 if (primary) setSelectedCard(primary.id);
                 else if (cardsData.data?.length > 0) setSelectedCard(cardsData.data[0].id);
             }
-        } catch { /* silent */ }
+        } catch (error) {
+            console.error('Error cargando datos de billetera:', error);
+        }
         setLoading(false);
     }, []);
 
     useEffect(() => { loadData(); }, []);
+
+    const handleAddCard = async () => {
+        setCardRegistrationLoading(true);
+        try {
+            const res = await api.post('/payments/card/register', {
+                returnUrl: window.location.origin + '/billetera',
+            });
+            const { processId, jsLibUrl } = res.data.data;
+            setCardRegistration({ processId, jsLibUrl });
+        } catch (err: any) {
+            toast.error(err.response?.data?.message || 'Error al iniciar catastro de tarjeta');
+        } finally {
+            setCardRegistrationLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!cardRegistration) return;
+
+        const handleMessage = async (event: MessageEvent) => {
+            if (event.data?.status === 'add_new_card_success') {
+                try {
+                    await api.post('/payments/card/sync');
+                    toast.success('¡Tarjeta agregada exitosamente!');
+                } catch {
+                    toast.error('Tarjeta agregada, pero hubo un error al sincronizar');
+                } finally {
+                    setCardRegistration(null);
+                    loadData();
+                }
+            } else if (event.data?.status === 'add_new_card_fail') {
+                toast.error(event.data.description || 'No se pudo agregar la tarjeta');
+                setCardRegistration(null);
+            }
+        };
+
+        window.addEventListener('message', handleMessage);
+
+        const script = document.createElement('script');
+        script.src = cardRegistration.jsLibUrl;
+        script.onload = () => {
+            if ((window as any).Bancard) {
+                const styles = {
+                    'form-background-color': '#0f172a',
+                    'button-background-color': '#8b5cf6',
+                    'button-text-color': '#ffffff',
+                    'button-border-color': '#7c3aed',
+                    'input-background-color': '#1e293b',
+                    'input-text-color': '#f1f5f9',
+                    'input-placeholder-color': '#64748b',
+                };
+                (window as any).Bancard.Cards.createForm('bancard-iframe-container', cardRegistration.processId, styles);
+            }
+        };
+        document.head.appendChild(script);
+
+        return () => {
+            window.removeEventListener('message', handleMessage);
+            const existingScript = document.querySelector(`script[src="${cardRegistration.jsLibUrl}"]`);
+            if (existingScript) document.head.removeChild(existingScript);
+        };
+    }, [cardRegistration]);
 
     // Memoizamos cálculos de estadísticas mensuales
     const monthlyStats = useMemo(() => {
@@ -126,8 +196,9 @@ const Billetera = memo(function Billetera() {
                     setErrorMsg(data.message || 'Error procesando el cobro');
                     setStep('error');
                 }
-            } catch {
-                setErrorMsg('Error de conexión');
+            } catch (error: any) {
+                console.error('Error recargando con tarjeta:', error);
+                setErrorMsg(error?.response?.data?.message || 'Error de conexión');
                 setStep('error');
             }
         } else {
@@ -151,8 +222,9 @@ const Billetera = memo(function Billetera() {
                     setErrorMsg(data.message || 'Error');
                     setStep('error');
                 }
-            } catch {
-                setErrorMsg('Error de conexión');
+            } catch (error: any) {
+                console.error('Error recargando por transferencia:', error);
+                setErrorMsg(error?.response?.data?.message || 'Error de conexión');
                 setStep('error');
             }
         }
@@ -296,14 +368,18 @@ const Billetera = memo(function Billetera() {
                 )}
             </div>
 
-            {/* Quick link to Tarjetas */}
+            {/* Agregar tarjeta con Bancard */}
             {cards.length === 0 && (
                 <button
-                    onClick={() => navigate('/tarjetas')}
-                    className="w-full bg-primary/5 dark:bg-blue-500/10 border border-primary/20 dark:border-blue-500/20 rounded-[2rem] p-5 flex items-center gap-4 hover:bg-primary/10 transition-all active:scale-[0.98]"
+                    onClick={handleAddCard}
+                    disabled={cardRegistrationLoading}
+                    className="w-full bg-primary/5 dark:bg-blue-500/10 border border-primary/20 dark:border-blue-500/20 rounded-[2rem] p-5 flex items-center gap-4 hover:bg-primary/10 transition-all active:scale-[0.98] disabled:opacity-60"
                 >
                     <div className="w-12 h-12 bg-primary/10 dark:bg-blue-500/20 rounded-2xl flex items-center justify-center">
-                        <CreditCard size={22} className="text-primary dark:text-blue-400" />
+                        {cardRegistrationLoading
+                            ? <Loader2 size={22} className="text-primary dark:text-blue-400 animate-spin" />
+                            : <CreditCard size={22} className="text-primary dark:text-blue-400" />
+                        }
                     </div>
                     <div className="text-left flex-1">
                         <p className="font-bold text-sm text-slate-900 dark:text-white">Agregá una tarjeta</p>
@@ -311,8 +387,29 @@ const Billetera = memo(function Billetera() {
                             Para recargar con tu tarjeta de débito/crédito
                         </p>
                     </div>
-                    <ArrowUpRight size={16} className="text-primary dark:text-blue-400" />
+                    {!cardRegistrationLoading && <ArrowUpRight size={16} className="text-primary dark:text-blue-400" />}
                 </button>
+            )}
+
+            {/* Modal iframe Bancard — catastro de tarjeta */}
+            {cardRegistration && (
+                <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 rounded-2xl w-full max-w-md shadow-2xl border border-slate-800">
+                        <div className="flex items-center justify-between p-4 border-b border-slate-800">
+                            <div className="flex items-center gap-3">
+                                <CreditCard size={18} className="text-purple-400" />
+                                <h3 className="font-bold text-white text-sm uppercase tracking-wide">Agregar tarjeta</h3>
+                            </div>
+                            <button
+                                onClick={() => setCardRegistration(null)}
+                                className="p-1.5 rounded-full hover:bg-slate-800 transition-all text-slate-400 hover:text-white"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div id="bancard-iframe-container" className="p-4 min-h-[400px]" />
+                    </div>
+                </div>
             )}
 
             {/* Recharge Modal */}
@@ -378,7 +475,7 @@ const Billetera = memo(function Billetera() {
                                                 <CreditCard size={20} className={paymentMethod === 'card' ? 'text-primary dark:text-blue-400' : 'text-slate-400'} />
                                             </div>
                                             <div className="text-left flex-1">
-                                                <p className="font-black text-xs dark:text-slate-100 uppercase italic tracking-tight">Tarjeta MasFazzil</p>
+                                                <p className="font-black text-xs dark:text-slate-100 uppercase italic tracking-tight">Tarjeta Bancard</p>
                                                 <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-0.5">
                                                     {cards.length > 0 ? `${cards.length} tarjeta(s) registrada(s)` : 'Sin tarjetas — agregá una primero'}
                                                 </p>
@@ -446,10 +543,14 @@ const Billetera = memo(function Billetera() {
 
                                     {paymentMethod === 'card' && cards.length === 0 && (
                                         <button
-                                            onClick={() => { setShowRechargeModal(false); navigate('/tarjetas'); }}
-                                            className="w-full mb-6 p-4 rounded-[1.5rem] bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-300 text-center text-xs font-bold active:scale-95 transition-all"
+                                            onClick={() => { setShowRechargeModal(false); handleAddCard(); }}
+                                            disabled={cardRegistrationLoading}
+                                            className="w-full mb-6 p-4 rounded-[1.5rem] bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-300 text-center text-xs font-bold active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
                                         >
-                                            ⚠️ Agregá una tarjeta primero →
+                                            {cardRegistrationLoading
+                                                ? <><Loader2 size={14} className="animate-spin" /> Iniciando catastro…</>
+                                                : '⚠️ Agregá una tarjeta primero →'
+                                            }
                                         </button>
                                     )}
 
@@ -467,7 +568,7 @@ const Billetera = memo(function Billetera() {
                                 <div className="text-center py-14">
                                     <Loader2 size={48} className="text-primary dark:text-blue-400 animate-spin mx-auto mb-6" />
                                     <h3 className="font-headline text-xl font-black text-slate-900 dark:text-white italic uppercase tracking-tighter mb-2">Procesando…</h3>
-                                    <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Contactando pasarela de pagos MasFazzil</p>
+                                    <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Contactando pasarela de pagos Bancard</p>
                                 </div>
                             )}
 

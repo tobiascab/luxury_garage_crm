@@ -55,7 +55,8 @@ export function LuxuryUserProvider({ children }: { children: React.ReactNode }) 
 
     useEffect(() => {
         refreshProfile();
-    }, [user, refreshProfile]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user]);
 
     return (
         <LuxuryUserContext.Provider value={{ fullUser, loading, refreshProfile }}>

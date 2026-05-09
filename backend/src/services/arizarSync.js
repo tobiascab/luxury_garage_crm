@@ -280,9 +280,12 @@ class ArizarSync {
     try {
       await arizarService.notifyWalletTopUp(user, amount);
 
-      // Get current wallet balance
-      const wallet = await this.prisma.walletTransaction.aggregate({
-        where: { userId: user.id },
+      // Get current wallet balance (credits table, minus consumed)
+      const wallet = await this.prisma.credit.aggregate({
+        where: {
+          userId: user.id,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
         _sum: { amount: true },
       });
       await arizarService.syncContactCustomFields(user.arizarContactId, {
@@ -443,7 +446,7 @@ class ArizarSync {
           action,
           entityId: contactId || 'unknown',
           userId,
-          details: { contactId, ...extra },
+          detailsJson: { contactId, ...extra },
         }
       });
     } catch (err) {

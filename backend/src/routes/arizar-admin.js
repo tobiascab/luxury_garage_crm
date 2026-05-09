@@ -94,7 +94,7 @@ router.post('/send-message', async (req, res, next) => {
 
     // Audit log
     await req.prisma.auditLog.create({
-      data: { entity: 'arizar_message', action: `send_${channel}`, entityId: user.arizarContactId, userId: req.user.id, details: { to: user.email, channel, messagePreview: message.substring(0, 100) } }
+      data: { entity: 'arizar_message', action: `send_${channel}`, entityId: user.arizarContactId, userId: req.user.id, detailsJson: { to: user.email, channel, messagePreview: message.substring(0, 100) } }
     });
 
     res.json({ success: true, data: result, message: `${channel.toUpperCase()} enviado a ${user.firstName}` });
@@ -142,7 +142,7 @@ router.post('/broadcast', async (req, res, next) => {
 
     // Audit log
     await req.prisma.auditLog.create({
-      data: { entity: 'arizar_broadcast', action: `broadcast_${channel}`, entityId: 'all', userId: req.user.id, details: { channel, filter, sent, errors, total: users.length } }
+      data: { entity: 'arizar_broadcast', action: `broadcast_${channel}`, entityId: 'all', userId: req.user.id, detailsJson: { channel, filter, sent, errors, total: users.length } }
     });
 
     res.json({ success: true, data: { sent, errors, total: users.length }, message: `Broadcast enviado: ${sent}/${users.length} exitosos` });
@@ -334,7 +334,7 @@ router.post('/conversations/:contactId/reply', async (req, res, next) => {
         action: 'admin_reply',
         entityId: req.params.contactId,
         userId: req.user.id,
-        details: { sentBy: req.user.email, preview: message.substring(0, 100) },
+        detailsJson: { sentBy: req.user.email, preview: message.substring(0, 100) },
       },
     });
 

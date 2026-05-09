@@ -252,7 +252,7 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
     }).catch(() => setServices([]));
   }, []);
 
-  useEffect(() => { fetchBookings(); }, [user.id]);
+  useEffect(() => { fetchBookings(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchBookings = async () => {
     try {

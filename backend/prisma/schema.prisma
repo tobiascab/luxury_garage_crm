@@ -17,8 +17,9 @@ model User {
   avatarUrl         String?         @map("avatar_url")
   documentNumber    String?         @map("document_number")
   documentType      String?         @default("CI") @map("document_type")
-  arizarContactId   String?         @map("arizar_contact_id")
-  masfazzilCustomerUuid String?     @unique @map("masfazzil_customer_uuid")
+  arizarContactId   String?         @unique @map("arizar_contact_id")
+  masfazzilCustomerUuid String?     @unique @map("masfazzil_customer_uuid") // deprecated: reemplazado por bancardUserId
+  bancardUserId     Int?            @unique @map("bancard_user_id")
   isActive          Boolean         @default(true) @map("is_active")
   isTestMode        Boolean         @default(false) @map("is_test_mode")
   lastLoginAt       DateTime?       @map("last_login_at")
@@ -36,6 +37,7 @@ model User {
   reviews           Review[]
   serviceRecords    ServiceRecord[] @relation("employee_records")
   vehicles          Vehicle[]
+  bancardOperations BancardOperation[]
 
   @@map("users")
 }
@@ -73,11 +75,13 @@ model Membership {
   createdAt            DateTime         @default(now()) @map("created_at")
   updatedAt            DateTime         @updatedAt @map("updated_at")
   plan                 Plan             @relation(fields: [planId], references: [id])
-  user                 User             @relation(fields: [userId], references: [id])
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   payments             Payment[]
 
   @@index([userId])
   @@index([status])
+  @@index([userId, status])
+  @@index([endDate])
   @@map("memberships")
 }
 
@@ -95,7 +99,7 @@ model Vehicle {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
   appointments Appointment[]
-  user         User          @relation(fields: [userId], references: [id])
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("vehicles")
@@ -132,11 +136,11 @@ model Appointment {
   endTime             DateTime          @map("end_time")
   status              AppointmentStatus @default(PENDING)
   notes               String?
-  arizarAppointmentId String?           @map("arizar_appointment_id")
+  arizarAppointmentId String?           @unique @map("arizar_appointment_id")
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
   service             Service           @relation(fields: [serviceId], references: [id])
-  user                User              @relation(fields: [userId], references: [id])
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   vehicle             Vehicle           @relation(fields: [vehicleId], references: [id])
   serviceRecord       ServiceRecord?
 
@@ -159,9 +163,10 @@ model ServiceRecord {
   vehicleObservations String?     @map("vehicle_observations")
   createdAt           DateTime    @default(now()) @map("created_at")
   review              Review?
-  appointment         Appointment @relation(fields: [appointmentId], references: [id])
+  appointment         Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   employee            User        @relation("employee_records", fields: [employeeId], references: [id])
 
+  @@index([employeeId, createdAt])
   @@map("service_records")
 }
 
@@ -173,8 +178,8 @@ model Review {
   comment         String?
   adminResponse   String?       @map("admin_response")
   createdAt       DateTime      @default(now()) @map("created_at")
-  serviceRecord   ServiceRecord @relation(fields: [serviceRecordId], references: [id])
-  user            User          @relation(fields: [userId], references: [id])
+  serviceRecord   ServiceRecord @relation(fields: [serviceRecordId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("reviews")
 }
@@ -188,9 +193,10 @@ model Referral {
   status         String   @default("invited")
   rewardType     String?  @map("reward_type")
   rewardAmount   Int?     @map("reward_amount")
+  code           String?  @unique @map("code")
   createdAt      DateTime @default(now()) @map("created_at")
   referred       User?    @relation("referred", fields: [referredUserId], references: [id])
-  referrer       User     @relation("referrer", fields: [referrerId], references: [id])
+  referrer       User     @relation("referrer", fields: [referrerId], references: [id], onDelete: Cascade)
 
   @@map("referrals")
 }
@@ -204,9 +210,10 @@ model Credit {
   referenceId String?   @map("reference_id")
   expiresAt   DateTime? @map("expires_at")
   createdAt   DateTime  @default(now()) @map("created_at")
-  user        User      @relation(fields: [userId], references: [id])
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, createdAt])
   @@map("credits")
 }
 
@@ -218,11 +225,14 @@ model Payment {
   paymentMethod       String?       @map("payment_method")
   arizarTransactionId String?       @map("arizar_transaction_id")
   arizarInvoiceId     String?       @map("arizar_invoice_id")
+  bancardShopProcessId Int?         @unique @map("bancard_shop_process_id")
+  bancardTicketNumber String?       @map("bancard_ticket_number")
+  bancardAuthNumber   String?       @map("bancard_auth_number")
   status              PaymentStatus @default(PENDING)
   description         String?
   createdAt           DateTime      @default(now()) @map("created_at")
   membership          Membership?   @relation(fields: [membershipId], references: [id])
-  user                User          @relation(fields: [userId], references: [id])
+  user                User          @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@index([userId])
   @@index([membershipId])
@@ -230,17 +240,20 @@ model Payment {
 }
 
 model PaymentCard {
-  id                String   @id @default(uuid())
-  userId            String   @map("user_id")
-  masfazzilCardId   String   @unique @map("masfazzil_card_id")
-  alias             String?
-  maskedNumber      String   @map("masked_number")
-  brand             String
-  issuer            String?
-  cardType          String?  @map("card_type")
-  isPrimary         Boolean  @default(false) @map("is_primary")
-  createdAt         DateTime @default(now()) @map("created_at")
-  user              User     @relation(fields: [userId], references: [id])
+  id                  String   @id @default(uuid())
+  userId              String   @map("user_id")
+  masfazzilCardId     String?  @map("masfazzil_card_id")
+  bancardCardId       Int?     @unique @map("bancard_card_id")
+  bancardAliasToken   String?  @map("bancard_alias_token")
+  expirationDate      String?  @map("expiration_date")
+  alias               String?
+  maskedNumber        String   @map("masked_number")
+  brand               String
+  issuer              String?
+  cardType            String?  @map("card_type")
+  isPrimary           Boolean  @default(false) @map("is_primary")
+  createdAt           DateTime @default(now()) @map("created_at")
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("payment_cards")
@@ -278,19 +291,21 @@ model InventoryItem {
 }
 
 model Notification {
-  id        String    @id @default(uuid())
-  userId    String    @map("user_id")
-  type      String
-  title     String
-  message   String
-  isRead    Boolean   @default(false) @map("is_read")
-  channel   String    @default("app")
-  sentAt    DateTime? @map("sent_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  user      User      @relation(fields: [userId], references: [id])
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  type        String
+  title       String
+  message     String
+  isRead      Boolean   @default(false) @map("is_read")
+  channel     String    @default("app")
+  referenceId String?   @map("reference_id")
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, isRead])
+  @@index([userId, createdAt])
   @@map("notifications")
 }
 
@@ -303,8 +318,10 @@ model AuditLog {
   detailsJson Json?    @map("details_json")
   ipAddress   String?  @map("ip_address")
   createdAt   DateTime @default(now()) @map("created_at")
-  user        User?    @relation(fields: [userId], references: [id])
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@index([entity, createdAt])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
@@ -316,6 +333,24 @@ model Setting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("settings")
+}
+
+model BancardOperation {
+  id            String   @id @default(uuid())
+  shopProcessId Int      @unique @map("shop_process_id")
+  userId        String   @map("user_id")
+  type          String   // "single_buy", "charge", "card_registration"
+  status        String   @default("PENDING") // PENDING, COMPLETED, FAILED, ROLLED_BACK
+  amountGs      Int?     @map("amount_gs")
+  processId     String?  @map("process_id")
+  metadataJson  Json?    @map("metadata_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("bancard_operations")
 }
 
 enum Role {
@@ -331,6 +366,7 @@ enum MembershipStatus {
   CANCELLED
   SUSPENDED
   PENDING
+  REPLACED
 }
 
 enum AppointmentStatus {

@@ -311,7 +311,7 @@ export default function AppointmentsCalendar() {
                       <div className="flex-1 p-6 flex gap-6 overflow-x-auto scrollbar-hide relative min-w-0">
                         {currentHourMatches.length === 0 && (
                           <div className="flex items-center px-4 w-full opacity-0 group-hover:opacity-100 transition-all duration-500">
-                            <span className="text-sm text-slate-300 dark:text-slate-600">Horario disponible</span>
+                            <span className="text-sm text-slate-500 dark:text-slate-500">Horario disponible</span>
                           </div>
                         )}
 
@@ -431,7 +431,7 @@ export default function AppointmentsCalendar() {
                       <tr>
                         <td colSpan="6" className="text-center py-20">
                           <div className="flex flex-col items-center gap-4">
-                            <CalendarDays size={48} className="text-slate-200 dark:text-slate-700" />
+                            <CalendarDays size={48} className="text-slate-400 dark:text-slate-600" />
                             <h3 className="text-base font-bold text-slate-400">No hay turnos para esta fecha</h3>
                             <p className="text-sm text-slate-400">Seleccioná otra fecha o creá un nuevo turno.</p>
                           </div>
