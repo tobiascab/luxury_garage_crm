@@ -32,7 +32,6 @@ import {
 import api from '../../services/api';
 import { toast as hotToast } from 'react-hot-toast';
 import BottomSheet from '../components/BottomSheet';
-import AddCardCustomForm, { CardSubmitPayload } from '../components/AddCardCustomForm';
 
 interface ProfileProps {
   user: any;
@@ -234,9 +233,6 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
   const [loadingCards, setLoadingCards] = useState(true);
   const [registering, setRegistering] = useState(false);
   const [cardRegistration, setCardRegistration] = useState<{ processId: string; jsLibUrl: string } | null>(null);
-  const [showCustomForm, setShowCustomForm] = useState(false);
-  const [customFormSubmitting, setCustomFormSubmitting] = useState(false);
-  const [customFormError, setCustomFormError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
@@ -282,16 +278,11 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
     finally { setLoadingInvoices(false); }
   };
 
-  const handleAddCard = () => {
-    setCustomFormError('');
-    setShowCustomForm(true);
-  };
-
-  const handleAddCardLegacyIframe = async () => {
+  const handleAddCard = async () => {
     setRegistering(true);
     try {
       const res = await api.post('/payments/card/register', {
-        returnUrl: window.location.origin + '/tarjetas',
+        returnUrl: window.location.origin + '/perfil',
       });
       const { processId, jsLibUrl } = res.data.data;
       setCardRegistration({ processId, jsLibUrl });
@@ -299,42 +290,6 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
       hotToast.error(err.response?.data?.message || 'Error al iniciar catastro');
     } finally {
       setRegistering(false);
-    }
-  };
-
-  const handleCustomFormSubmit = async (payload: CardSubmitPayload) => {
-    setCustomFormError('');
-    setCustomFormSubmitting(true);
-    try {
-      const res = await api.post('/payments/card/register-direct', {
-        cardNumber: payload.number,
-        cardHolder: payload.name,
-        expiryMonth: payload.expiryMonth,
-        expiryYear: payload.expiryYear,
-        cvv: payload.cvv,
-        documentNumber: payload.documentNumber,
-      });
-      const data = res.data;
-      if (data.success) {
-        hotToast.success('¡Tarjeta agregada!');
-        setShowCustomForm(false);
-        loadCards();
-        onUpdate?.();
-      } else {
-        setCustomFormError(data.message || 'No se pudo registrar la tarjeta');
-      }
-    } catch (err: any) {
-      const status = err?.response?.status;
-      const msg = err?.response?.data?.message;
-      if (status === 404) {
-        setCustomFormError(
-          'El backend aún no expone /payments/card/register-direct. La animación funciona — falta confirmar tokenización JS con Bancard.'
-        );
-      } else {
-        setCustomFormError(msg || 'Error de conexión con la pasarela');
-      }
-    } finally {
-      setCustomFormSubmitting(false);
     }
   };
 
@@ -608,15 +563,6 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
             </div>
           )}
 
-          {/* Fallback: legacy iframe Bancard */}
-          <button
-            onClick={handleAddCardLegacyIframe}
-            disabled={registering}
-            className="w-full py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all disabled:opacity-30"
-          >
-            {registering ? '...' : 'Usar formulario clásico Bancard'}
-          </button>
-
           {/* Security note */}
           <div className="bg-slate-50 dark:bg-slate-900/40 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 flex items-start gap-2">
             <Shield size={14} className="text-emerald-500 shrink-0 mt-0.5" />
@@ -625,17 +571,7 @@ function PaymentMethods({ methods, userId, onUpdate, user }: { methods: any[], u
             </p>
           </div>
 
-          {/* Custom card form with animated preview */}
-          <AddCardCustomForm
-            open={showCustomForm}
-            onClose={() => setShowCustomForm(false)}
-            onSubmit={handleCustomFormSubmit}
-            initialDocumentNumber={user?.documentNumber || ''}
-            submitting={customFormSubmitting}
-            errorMessage={customFormError}
-          />
-
-          {/* Legacy Bancard iframe modal (fallback) */}
+          {/* Bancard iframe modal */}
           {cardRegistration && (
             <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4">
               <div className="bg-slate-900 rounded-2xl w-full max-w-md">

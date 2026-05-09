@@ -4,7 +4,6 @@ import { CreditCard, Plus, Trash2, Star, RefreshCw, Shield, AlertCircle, Externa
 import { toast } from 'react-hot-toast';
 import { API_URL } from '../config';
 import api from '../../services/api';
-import AddCardCustomForm, { CardSubmitPayload } from '../components/AddCardCustomForm';
 
 interface TarjetasProps {
     user: any;
@@ -17,9 +16,6 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
     const [syncing, setSyncing] = useState(false);
     const [registering, setRegistering] = useState(false);
     const [cardRegistration, setCardRegistration] = useState<{ processId: string; jsLibUrl: string } | null>(null);
-    const [showCustomForm, setShowCustomForm] = useState(false);
-    const [customFormSubmitting, setCustomFormSubmitting] = useState(false);
-    const [customFormError, setCustomFormError] = useState('');
     const [deleting, setDeleting] = useState<string | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState<any>(null);
     const [paymentStatus, setPaymentStatus] = useState<any>(null);
@@ -105,12 +101,7 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
         setSavingCI(false);
     };
 
-    const handleAddCard = () => {
-        setCustomFormError('');
-        setShowCustomForm(true);
-    };
-
-    const handleAddCardLegacyIframe = async () => {
+    const handleAddCard = async () => {
         setRegistering(true);
         try {
             const res = await api.post('/payments/card/register', {
@@ -122,42 +113,6 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
             toast.error(err.response?.data?.message || 'Error al iniciar catastro');
         } finally {
             setRegistering(false);
-        }
-    };
-
-    const handleCustomFormSubmit = async (payload: CardSubmitPayload) => {
-        setCustomFormError('');
-        setCustomFormSubmitting(true);
-        try {
-            const res = await api.post('/payments/card/register-direct', {
-                cardNumber: payload.number,
-                cardHolder: payload.name,
-                expiryMonth: payload.expiryMonth,
-                expiryYear: payload.expiryYear,
-                cvv: payload.cvv,
-                documentNumber: payload.documentNumber,
-            });
-            const data = res.data;
-            if (data.success) {
-                toast.success('¡Tarjeta agregada!');
-                setShowCustomForm(false);
-                loadCards();
-                onUpdate?.();
-            } else {
-                setCustomFormError(data.message || 'No se pudo registrar la tarjeta');
-            }
-        } catch (err: any) {
-            const status = err?.response?.status;
-            const msg = err?.response?.data?.message;
-            if (status === 404) {
-                setCustomFormError(
-                    'El backend aún no expone el endpoint de tokenización directa de Bancard. La animación del form ya funciona — falta confirmar con Bancard si habilitan tokenización JS, o reactivar el iframe legacy.'
-                );
-            } else {
-                setCustomFormError(msg || 'Error de conexión con la pasarela');
-            }
-        } finally {
-            setCustomFormSubmitting(false);
         }
     };
 
@@ -392,15 +347,6 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
                         {syncing ? 'Sincronizando...' : 'Sincronizar Tarjetas'}
                     </button>
 
-                    {/* Fallback: legacy iframe Bancard */}
-                    <button
-                        onClick={handleAddCardLegacyIframe}
-                        disabled={registering || !paymentStatus?.configured}
-                        className="w-full py-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all disabled:opacity-30"
-                    >
-                        {registering ? '...' : 'Usar formulario clásico Bancard'}
-                    </button>
-
                     {!paymentStatus?.configured && (
                         <p className="text-center text-[10px] text-slate-400 dark:text-slate-600 font-medium">
                             ⚙️ Bancard no configurado. Contactá al administrador.
@@ -433,16 +379,6 @@ export default function Tarjetas({ user, onUpdate }: TarjetasProps) {
                     </div>
                 </div>
             )}
-
-            {/* Custom card form with animated preview */}
-            <AddCardCustomForm
-                open={showCustomForm}
-                onClose={() => setShowCustomForm(false)}
-                onSubmit={handleCustomFormSubmit}
-                initialDocumentNumber={user?.documentNumber || ''}
-                submitting={customFormSubmitting}
-                errorMessage={customFormError}
-            />
 
             {/* Delete confirmation modal */}
             <AnimatePresence>
