@@ -74,12 +74,18 @@ app.use(cors({
 // ── 4. HTTP Parameter Pollution ───────────────────────────────────────────
 app.use(hppProtection);
 
+// ── Prisma on request (movido arriba: el webhook de Stripe lo necesita) ───
+app.use((req, res, next) => {
+  req.prisma = prisma;
+  next();
+});
+
 // ── 5. Body parsing (strict limits) ──────────────────────────────────────
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ── 6. Logging ────────────────────────────────────────────────────────────
-app.use(morgan('dev'));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // ── 7. General rate limiter + slow-down (on all /api/* routes) ───────────
 app.use('/api', generalLimiter);
@@ -88,24 +94,20 @@ app.use('/api', speedLimiter);
 // ── 8. Static files ───────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// ── 9. Prisma on request ──────────────────────────────────────────────────
-app.use((req, res, next) => {
-  req.prisma = prisma;
-  next();
-});
-
 // ── Routes ────────────────────────────────────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/plans', require('./routes/plans'));
 app.use('/api/services', require('./routes/services'));
+app.use('/api/vehicle-sizes', require('./routes/vehicle-sizes'));
 app.use('/api/members', require('./routes/members'));
 app.use('/api/memberships', require('./routes/memberships'));
 app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/appointments', require('./routes/appointments'));
 app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/referrals', require('./routes/referrals'));
-app.use('/api/payments', require('./routes/payments'));
+app.use('/api/payments', require('./routes/payments')); // Bancard VPOS: tarjetas, cobros, recargas
 app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/reports', require('./routes/reports'));
 app.use('/api/webhooks', require('./routes/webhooks'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/promotions', require('./routes/promotions'));
@@ -113,7 +115,10 @@ app.use('/api/uploads', require('./routes/uploads'));
 app.use('/api/audit', require('./routes/audit'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/credits', require('./routes/credits'));
+app.use('/api/membership-requests', require('./routes/membership-requests')); // Solicitudes de membresía (lead público + admin + ARIZAR)
+app.use('/api/push', require('./routes/push'));
 app.use('/api/inventory', require('./routes/inventory'));
+app.use('/api/accounting', require('./routes/accounting'));
 app.use('/api/scans', require('./routes/scans'));
 app.use('/api/arizar/oauth', require('./routes/arizar-oauth'));
 app.use('/api/arizar', require('./routes/arizar-admin'));
@@ -128,12 +133,21 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'Luxury Garage API', timestamp: new Date().toISOString() });
 });
 
-// ── Error handler ─────────────────────────────────────────────────────────
-app.use(errorHandler);
-
-// ── 404 — no leakamos rutas internas ─────────────────────────────────────
+// ── 404 — no leakamos rutas internas (antes del errorHandler) ────────────
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Recurso no encontrado' });
+});
+
+// ── Error handler (DEBE ser el último middleware de la cadena) ───────────
+app.use(errorHandler);
+
+// ── Resiliencia: una promesa sin catch o una excepción async NO debe tumbar el proceso.
+//    Con jobs cron async, un error que escape el try/catch terminaría el proceso en Node moderno.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason instanceof Error ? (reason.stack || reason.message) : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err?.stack || err);
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────
@@ -143,6 +157,13 @@ const server = app.listen(PORT, () => {
   console.log(`🚗 Luxury Garage API corriendo en puerto ${PORT}`);
   console.log(`📊 Entorno: ${process.env.NODE_ENV || 'development'}`);
   initJobs(prisma);
+
+  // Reconciliación de cobros Bancard PENDING — red de seguridad para pagos huérfanos (timeout de
+  // red, navegador cerrado tras 3DS, webhook perdido). Cada 5 min, idempotente (lock + re-check).
+  const { reconcilePendingCharges } = require('./services/paymentReconciliation');
+  setInterval(() => {
+    reconcilePendingCharges(prisma).catch((e) => console.error('[Reconciliación] error:', e.message));
+  }, 5 * 60 * 1000);
 });
 
 process.on('SIGTERM', async () => {

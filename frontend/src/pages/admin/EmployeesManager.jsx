@@ -1,334 +1,469 @@
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useCallback } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
-  Users, Plus, Mail, Phone,
-  Shield, UserCircle, Edit, Trash2,
-  CheckCircle2, XCircle, Search, Filter,
-  Briefcase, Award, Zap, MoreVertical,
-  ExternalLink, MessageCircle, MapPin, RefreshCcw,
-  Loader2, BadgeCheck, HardHat, UserMinus, UserPlus,
-  ArrowUpRight, ShieldCheck, Lock
+  Users, Mail, Phone, Search, UserPlus, Pencil, Trash2,
+  KeyRound, RefreshCcw, ShieldCheck, ShieldAlert, Shield, HardHat,
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import StatCard from '../../components/StatCard';
+import AnimatedNumber from '../../components/AnimatedNumber';
+import FormModal from '../../components/FormModal';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import FormField from '../../components/FormField';
+import EmptyState from '../../components/EmptyState';
+import { SkeletonStats, SkeletonTable } from '../../components/Skeleton';
+
+const EMPTY_CREATE = { email: '', password: '', firstName: '', lastName: '', phone: '', role: 'EMPLOYEE' };
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString('es-PY', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const ROLE_LABEL = { EMPLOYEE: 'Empleado', ADMIN: 'Administrador', SUPER_ADMIN: 'Super Admin' };
 
 export default function EmployeesManager() {
+  const reduceMotion = useReducedMotion();
+  const tap = reduceMotion ? undefined : { scale: 0.96 };
+  const tapSm = reduceMotion ? undefined : { scale: 0.9 };
+  const [searchFocused, setSearchFocused] = useState(false);
   const [employees, setEmployees] = useState([]);
+  const [admins, setAdmins] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState({
-    email: '', password: '', firstName: '',
-    lastName: '', phone: ''
-  });
 
-  useEffect(() => { loadEmployees(); }, []);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE);
+  const [createErrors, setCreateErrors] = useState({});
+  const [creating, setCreating] = useState(false);
 
-  const loadEmployees = async () => {
+  const [editing, setEditing] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [editErrors, setEditErrors] = useState({});
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const [pwdTarget, setPwdTarget] = useState(null);
+  const [pwdForm, setPwdForm] = useState({ newPassword: '', confirm: '' });
+  const [pwdErrors, setPwdErrors] = useState({});
+  const [savingPwd, setSavingPwd] = useState(false);
+
+  const [toDelete, setToDelete] = useState(null);
+  const [toggleTarget, setToggleTarget] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const loadStaff = useCallback(async () => {
+    setLoading(true);
     try {
-      const r = await api.get('/members?role=EMPLOYEE');
-      setEmployees(r.data.data || []);
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
-  };
-
-  const handleCreate = async (e) => {
-    e.preventDefault();
-    try {
-      await api.post('/auth/register', { ...form, role: 'EMPLOYEE' });
-      toast.success('Perfil de colaborador activado');
-      setShowCreate(false);
-      setForm({ email: '', password: '', firstName: '', lastName: '', phone: '' });
-      loadEmployees();
+      api.invalidate('/members');
+      const [empRes, admRes] = await Promise.all([
+        api.get('/members?role=EMPLOYEE&limit=100'),
+        api.get('/members?role=ADMIN&limit=100'),
+      ]);
+      setEmployees(empRes.data.data || []);
+      setAdmins(admRes.data.data || []);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Error en el alta técnica');
+      toast.error(err.response?.data?.message || 'Error al cargar el personal');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const filteredEmployees = employees.filter(e =>
+  useEffect(() => { loadStaff(); }, [loadStaff]);
+
+  const staff = [...employees, ...admins];
+  const filtered = staff.filter(e =>
     `${e.firstName} ${e.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
     e.email.toLowerCase().includes(search.toLowerCase())
   );
+  const activeCount = staff.filter(e => e.isActive).length;
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-      <Loader2 size={40} className="text-primary animate-spin" />
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Analizando Estructura Organizacional...<br /><span className="text-[8px] opacity-50 font-bold italic tracking-normal lowercase">Sincronizando nómina Luxury Garage</span></p>
-    </div>
-  );
+  // ── Create ──
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!createForm.firstName.trim()) errs.firstName = 'Requerido';
+    if (!createForm.lastName.trim()) errs.lastName = 'Requerido';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(createForm.email)) errs.email = 'Email inválido';
+    if (createForm.password.length < 8) errs.password = 'Mínimo 8 caracteres';
+    else if (!/[A-Z]/.test(createForm.password)) errs.password = 'Incluí una mayúscula';
+    else if (!/[0-9]/.test(createForm.password)) errs.password = 'Incluí un número';
+    setCreateErrors(errs);
+    if (Object.keys(errs).length) return;
+
+    setCreating(true);
+    try {
+      await api.post('/members/staff', {
+        email: createForm.email.trim(),
+        password: createForm.password,
+        firstName: createForm.firstName.trim(),
+        lastName: createForm.lastName.trim(),
+        phone: createForm.phone.trim() || undefined,
+        role: createForm.role,
+      });
+      toast.success('Colaborador creado');
+      setShowCreate(false);
+      setCreateForm(EMPTY_CREATE);
+      setCreateErrors({});
+      loadStaff();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al crear el colaborador');
+    }
+    setCreating(false);
+  };
+
+  // ── Edit ──
+  const openEdit = (emp) => {
+    setEditing(emp);
+    setEditForm({ firstName: emp.firstName || '', lastName: emp.lastName || '', email: emp.email || '', phone: emp.phone || '', role: emp.role });
+    setEditErrors({});
+  };
+
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!editForm.firstName.trim()) errs.firstName = 'Requerido';
+    if (!editForm.lastName.trim()) errs.lastName = 'Requerido';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email)) errs.email = 'Email inválido';
+    setEditErrors(errs);
+    if (Object.keys(errs).length) return;
+
+    setSavingEdit(true);
+    try {
+      const payload = {
+        firstName: editForm.firstName.trim(),
+        lastName: editForm.lastName.trim(),
+        email: editForm.email.trim(),
+        phone: editForm.phone.trim() || null,
+      };
+      if (editForm.role !== editing.role) payload.role = editForm.role;
+      await api.put(`/members/${editing.id}`, payload);
+      toast.success('Datos actualizados');
+      setEditing(null);
+      setEditForm(null);
+      loadStaff();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al guardar');
+    }
+    setSavingEdit(false);
+  };
+
+  // ── Password ──
+  const openPwd = (emp) => {
+    setPwdTarget(emp);
+    setPwdForm({ newPassword: '', confirm: '' });
+    setPwdErrors({});
+  };
+
+  const handlePwd = async (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (pwdForm.newPassword.length < 8) errs.newPassword = 'Mínimo 8 caracteres';
+    else if (!/[A-Z]/.test(pwdForm.newPassword)) errs.newPassword = 'Incluí una mayúscula';
+    else if (!/[0-9]/.test(pwdForm.newPassword)) errs.newPassword = 'Incluí un número';
+    if (pwdForm.confirm !== pwdForm.newPassword) errs.confirm = 'No coinciden';
+    setPwdErrors(errs);
+    if (Object.keys(errs).length) return;
+
+    setSavingPwd(true);
+    try {
+      await api.put(`/members/${pwdTarget.id}/password`, { newPassword: pwdForm.newPassword });
+      toast.success('Contraseña actualizada');
+      setPwdTarget(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al cambiar la contraseña');
+    }
+    setSavingPwd(false);
+  };
+
+  // ── Delete ──
+  const handleDelete = async () => {
+    setActionLoading(true);
+    try {
+      const r = await api.delete(`/members/${toDelete.id}`);
+      toast.success(r.data?.softDeleted ? 'Tenía historial: se desactivó su acceso' : 'Colaborador eliminado');
+      setToDelete(null);
+      loadStaff();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo eliminar');
+    }
+    setActionLoading(false);
+  };
+
+  // ── Activate/Suspend ──
+  const handleToggle = async () => {
+    const newStatus = !toggleTarget.isActive;
+    setActionLoading(true);
+    try {
+      await api.put(`/members/${toggleTarget.id}/status`, { isActive: newStatus });
+      toast.success(newStatus ? 'Colaborador reactivado' : 'Colaborador suspendido');
+      setToggleTarget(null);
+      loadStaff();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error al cambiar estado');
+    }
+    setActionLoading(false);
+  };
 
   return (
     <div className="page-content pb-20">
       {/* Header */}
-      <header className="admin-page-header">
-        <div>
-          <h1 className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
-              <HardHat size={24} />
-            </div>
-            Gestión de Capital Humano
-          </h1>
-          <p>Coordina la élite profesional de Luxury Garage Detailing</p>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setLoading(true); loadEmployees(); }}
-            className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-400 hover:text-primary transition-all"
-          >
-            <RefreshCcw size={16} />
-          </button>
-          <button
-            className="admin-btn-primary"
-            onClick={() => setShowCreate(true)}
-          >
-            <UserPlus size={16} /> Alta de Personal
-          </button>
-        </div>
-      </header>
-
-      {/* Corporate Dashboard Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-        {[
-          { label: 'Staff Desplegado', val: employees.length, icon: <Users size={18} />, col: 'text-indigo-500' },
-          { label: 'Estatus Activo', val: '100%', icon: <ShieldCheck size={18} />, col: 'text-emerald-500' },
-          { label: 'Roles Operativos', val: employees.length, icon: <HardHat size={18} />, col: 'text-amber-500' },
-          { label: 'Retención Anual', val: '94%', icon: <Zap size={18} />, col: 'text-primary' }
-        ].map((s, idx) => (
-          <motion.div
-            key={idx}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            className="admin-card !p-6 flex items-center justify-between group hover:border-primary/20 transition-all"
-          >
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">{s.label}</p>
-              <h3 className="text-2xl font-black italic text-slate-900 dark:text-white leading-none">{s.val}</h3>
-            </div>
-            <div className={`w-12 h-12 rounded-2xl bg-slate-50 dark:bg-white/5 flex items-center justify-center ${s.col} group-hover:scale-110 transition-transform`}>
-              {s.icon}
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="w-full max-w-md">
-          <div className="admin-search-wrapper">
-            <Search className="admin-search-icon" size={18} />
-            <input
-              type="text"
-              className="admin-search-input"
-              placeholder="FILTRAR POR NOMBRE O IDENTIFICADOR..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <span className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shadow-indigo-600/20">
+            <HardHat size={22} />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Personal</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Empleados y administradores de Luxury Garage</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-2">Filtros Avanzados:</p>
-          <button className="h-10 px-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-            <Filter size={14} /> Todos los Roles
-          </button>
+          <motion.button
+            whileTap={tapSm}
+            onClick={loadStaff}
+            title="Recargar"
+            className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition-colors"
+          >
+            <RefreshCcw size={16} />
+          </motion.button>
+          <motion.button
+            whileTap={tap}
+            onClick={() => { setCreateForm(EMPTY_CREATE); setCreateErrors({}); setShowCreate(true); }}
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm shadow-indigo-600/20 transition-colors"
+          >
+            <UserPlus size={18} /> Alta de personal
+          </motion.button>
         </div>
       </div>
 
-      {/* Grid of Employees */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-        <AnimatePresence mode='popLayout'>
-          {filteredEmployees.map((emp, i) => (
-            <motion.div
-              key={emp.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="admin-card !p-0 relative group overflow-hidden border-b-4 border-b-indigo-500/10 hover:border-b-indigo-500 transition-all duration-500"
-            >
-              {/* Profile Background Banner */}
-              <div className="h-20 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 relative">
-                <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#ffffff33_1px,transparent_1px)] [background-size:16px_16px]" />
-                <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[var(--admin-card-bg)] to-transparent" />
-              </div>
+      {/* Stats (reales) */}
+      {loading ? (
+        <SkeletonStats count={3} className="mb-6 lg:grid-cols-3" />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <StatCard icon={<Users size={18} />} title="Empleados" value={<AnimatedNumber value={employees.length} format="int" />} color="#6366f1" />
+          <StatCard icon={<ShieldCheck size={18} />} title="Administradores" value={<AnimatedNumber value={admins.length} format="int" />} color="#10b981" />
+          <StatCard icon={<Shield size={18} />} title="Activos" value={<AnimatedNumber value={activeCount} format="int" />} color="#f59e0b" />
+        </div>
+      )}
 
-              <div className="px-8 pb-8 relative -mt-10">
-                <div className="relative inline-block mb-4">
-                  <div className="w-24 h-24 rounded-[2.5rem] bg-indigo-600 border-8 border-[var(--admin-card-bg)] shadow-xl flex items-center justify-center text-white font-black text-3xl italic tracking-tighter group-hover:scale-105 transition-transform duration-500">
-                    {emp.firstName?.[0]}{emp.lastName?.[0]}
-                  </div>
-                  <div className="absolute bottom-2 right-1 w-6 h-6 rounded-lg bg-emerald-500 border-4 border-[var(--admin-card-bg)] flex items-center justify-center shadow-lg" title="Activo en Sistema">
-                    <CheckCircle2 size={10} className="text-white" />
-                  </div>
-                </div>
-
-                <h3 className="text-xl font-black italic uppercase tracking-tighter text-slate-900 dark:text-white leading-tight mb-1 truncate">
-                  {emp.firstName} {emp.lastName}
-                </h3>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-500 italic mb-6">
-                  OPERATIVO DE ALTO NIVEL
-                </p>
-
-                <div className="space-y-4 mb-8">
-                  <div className="flex items-center gap-3 py-3 px-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-white/5 group-hover:border-indigo-500/20 transition-all">
-                    <Mail size={14} className="text-slate-400 shrink-0" />
-                    <p className="text-[10px] font-bold text-slate-500 truncate">{emp.email}</p>
-                  </div>
-                  <div className="flex items-center gap-3 py-3 px-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-white/5 group-hover:border-indigo-500/20 transition-all">
-                    <Phone size={14} className="text-slate-400 shrink-0" />
-                    <p className="text-[10px] font-bold text-slate-500">{emp.phone || '— Sin Contacto —'}</p>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-slate-100 dark:border-white/5 flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 opacity-60">Antigüedad</span>
-                    <span className="text-[10px] font-bold text-slate-700 dark:text-slate-200">
-                      {new Date(emp.createdAt).toLocaleDateString('es-PY', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center text-slate-500 hover:text-indigo-500 transition-all hover:scale-110">
-                      <Edit size={14} />
-                    </button>
-                    <button className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center text-slate-500 hover:text-rose-500 transition-all hover:scale-110">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Ribbon */}
-              <div className="absolute top-2 left-2 pointer-events-none">
-                <div className="bg-indigo-600 text-white text-[7px] font-black px-2 py-1 rounded shadow-lg uppercase tracking-widest">
-                  LVL {Math.floor(Math.random() * 5) + 5} STAFF
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+      {/* Search */}
+      <div className="relative mb-6 max-w-md">
+        <Search size={18} className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors duration-200 ${searchFocused ? 'text-primary' : 'text-slate-400'}`} />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => setSearchFocused(false)}
+          placeholder="Buscar por nombre o email…"
+          className={`w-full bg-white dark:bg-slate-900 border rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all duration-200 ${
+            searchFocused
+              ? 'border-primary ring-2 ring-primary/15'
+              : 'border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20'
+          }`}
+        />
       </div>
 
-      {/* Employee Creation Modal */}
-      <AnimatePresence>
-        {showCreate && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
-              onClick={() => setShowCreate(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-xl bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10"
-            >
-              <div className="p-10">
-                <div className="flex justify-between items-center mb-10 pb-6 border-b border-slate-100 dark:border-white/10">
-                  <div>
-                    <h2 className="text-2xl font-black italic uppercase tracking-tighter text-slate-900 dark:text-white leading-none">
-                      Alta de Capital Humano
-                    </h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Personal operativo especializado</p>
-                  </div>
-                  <button onClick={() => setShowCreate(false)} className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white flex items-center justify-center transition-all shadow-inner">
-                    <XCircle size={24} />
-                  </button>
-                </div>
-
-                <form onSubmit={handleCreate} className="space-y-6">
-                  <div className="grid grid-cols-2 gap-6">
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Nombres</label>
-                      <div className="relative">
-                        <UserCircle className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                        <input
-                          className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-2xl pl-14 pr-6 py-5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 transition-all shadow-inner uppercase"
-                          required
-                          value={form.firstName}
-                          onChange={e => setForm({ ...form, firstName: e.target.value.toUpperCase() })}
-                          placeholder="EX: NICOLÁS"
-                        />
+      {/* List */}
+      {loading ? (
+        <SkeletonTable rows={6} cols={4} />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon="🧰"
+          title="Sin colaboradores"
+          message={search ? 'No hay personal que coincida con la búsqueda.' : 'Todavía no diste de alta a ningún colaborador.'}
+          action="Alta de personal"
+          onAction={() => setShowCreate(true)}
+        />
+      ) : (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/60 dark:bg-white/[0.02] text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  <th className="px-5 py-3.5">Colaborador</th>
+                  <th className="px-5 py-3.5 hidden md:table-cell">Contacto</th>
+                  <th className="px-5 py-3.5">Rol</th>
+                  <th className="px-5 py-3.5">Estado</th>
+                  <th className="px-5 py-3.5 hidden lg:table-cell">Alta</th>
+                  <th className="px-5 py-3.5 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((emp) => (
+                  <tr
+                    key={emp.id}
+                    className="border-b border-slate-50 dark:border-white/5 last:border-0 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors"
+                  >
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center font-semibold text-xs shrink-0">
+                          {emp.firstName?.[0]}{emp.lastName?.[0]}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{emp.firstName} {emp.lastName}</p>
+                          <p className="text-xs text-slate-400 truncate md:hidden">{emp.email}</p>
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Apellidos</label>
-                      <input
-                        className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-2xl px-6 py-5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 transition-all shadow-inner uppercase"
-                        required
-                        value={form.lastName}
-                        onChange={e => setForm({ ...form, lastName: e.target.value.toUpperCase() })}
-                        placeholder="EX: ARIZAR"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Correo Corporativo</label>
-                    <div className="relative">
-                      <Mail className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                      <input
-                        type="email"
-                        className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-2xl pl-14 pr-6 py-5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 transition-all shadow-inner lowercase"
-                        required
-                        value={form.email}
-                        onChange={e => setForm({ ...form, email: e.target.value })}
-                        placeholder="email@luxurygarage.com"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-6">
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Contraseña Defecto</label>
-                      <div className="relative">
-                        <Lock className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                        <input
-                          type="password"
-                          className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-2xl pl-14 pr-6 py-5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 transition-all shadow-inner"
-                          required minLength={8}
-                          value={form.password}
-                          onChange={e => setForm({ ...form, password: e.target.value })}
-                          placeholder="••••••••"
-                        />
+                    </td>
+                    <td className="px-5 py-4 hidden md:table-cell">
+                      <div className="space-y-0.5">
+                        <p className="text-sm text-slate-600 dark:text-slate-300 flex items-center gap-1.5"><Mail size={12} className="text-slate-400" /> {emp.email}</p>
+                        {emp.phone && <p className="text-sm text-slate-500 flex items-center gap-1.5"><Phone size={12} className="text-slate-400" /> {emp.phone}</p>}
                       </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Teléfono Corporativo</label>
-                      <div className="relative">
-                        <Phone className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                        <input
-                          className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-2xl pl-14 pr-6 py-5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 transition-all shadow-inner"
-                          value={form.phone}
-                          onChange={e => setForm({ ...form, phone: e.target.value })}
-                          placeholder="+595 9XX..."
-                        />
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${emp.role === 'EMPLOYEE' ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400' : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'}`}>
+                        {emp.role === 'EMPLOYEE' ? <HardHat size={12} /> : <ShieldCheck size={12} />}
+                        {ROLE_LABEL[emp.role] || emp.role}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${emp.isActive ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${emp.isActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                        {emp.isActive ? 'Activo' : 'Suspendido'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 hidden lg:table-cell">
+                      <span className="text-sm text-slate-500 tabular-nums">{fmtDate(emp.createdAt)}</span>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <motion.button whileTap={tapSm} onClick={() => openEdit(emp)} title="Editar"
+                          className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 hover:bg-indigo-600 hover:text-white flex items-center justify-center transition-colors">
+                          <Pencil size={15} />
+                        </motion.button>
+                        <motion.button whileTap={tapSm} onClick={() => openPwd(emp)} title="Cambiar contraseña"
+                          className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 hover:bg-indigo-600 hover:text-white flex items-center justify-center transition-colors">
+                          <KeyRound size={15} />
+                        </motion.button>
+                        <motion.button whileTap={tapSm} onClick={() => setToggleTarget(emp)} title={emp.isActive ? 'Suspender' : 'Reactivar'}
+                          className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 hover:bg-amber-500 hover:text-white flex items-center justify-center transition-colors">
+                          {emp.isActive ? <ShieldAlert size={15} /> : <Shield size={15} />}
+                        </motion.button>
+                        <motion.button whileTap={tapSm} onClick={() => setToDelete(emp)} title="Eliminar"
+                          className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 hover:bg-rose-600 hover:text-white flex items-center justify-center transition-colors">
+                          <Trash2 size={15} />
+                        </motion.button>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-4 pt-6">
-                    <button
-                      type="button"
-                      onClick={() => setShowCreate(false)}
-                      className="flex-1 px-8 py-5 rounded-[2rem] bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400 transition-all hover:bg-slate-200"
-                    >
-                      Cancelar Operación
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex-1 px-8 py-5 rounded-[2rem] bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest transition-all hover:-translate-y-1 shadow-2xl shadow-indigo-600/20 active:scale-95"
-                    >
-                      Confirmar Alta Técnica
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </motion.div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        </div>
+      )}
+
+      {/* ── CREATE MODAL ── */}
+      <FormModal
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+        title="Alta de personal"
+        subtitle="Crea una cuenta de empleado o administrador"
+        icon={<UserPlus size={18} />}
+        formId="create-staff-form"
+        submitting={creating}
+        submitLabel="Crear colaborador"
+        size="md"
+      >
+        <form id="create-staff-form" onSubmit={handleCreate} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Nombre" name="firstName" required value={createForm.firstName} error={createErrors.firstName}
+              onChange={(e) => setCreateForm({ ...createForm, firstName: e.target.value })} placeholder="Nicolás" />
+            <FormField label="Apellido" name="lastName" required value={createForm.lastName} error={createErrors.lastName}
+              onChange={(e) => setCreateForm({ ...createForm, lastName: e.target.value })} placeholder="Giménez" />
+          </div>
+          <FormField label="Email" name="email" type="email" required value={createForm.email} error={createErrors.email}
+            onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder="empleado@luxurygarage.com" />
+          <FormField label="Teléfono" name="phone" value={createForm.phone}
+            onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })} placeholder="+595 9XX XXX XXX" />
+          <FormField as="select" label="Rol" name="role" value={createForm.role}
+            onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
+            hint="Administrador requiere permisos de Super Admin">
+            <option value="EMPLOYEE">Empleado</option>
+            <option value="ADMIN">Administrador</option>
+          </FormField>
+          <FormField label="Contraseña" name="password" type="password" required value={createForm.password} error={createErrors.password}
+            onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+            hint="Mínimo 8 caracteres, 1 mayúscula y 1 número" />
+        </form>
+      </FormModal>
+
+      {/* ── EDIT MODAL ── */}
+      <FormModal
+        isOpen={!!editing}
+        onClose={() => setEditing(null)}
+        title="Editar colaborador"
+        icon={<Pencil size={18} />}
+        formId="edit-staff-form"
+        submitting={savingEdit}
+        size="md"
+      >
+        {editForm && (
+          <form id="edit-staff-form" onSubmit={handleEdit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <FormField label="Nombre" name="e-firstName" required value={editForm.firstName} error={editErrors.firstName}
+                onChange={(e) => setEditForm({ ...editForm, firstName: e.target.value })} />
+              <FormField label="Apellido" name="e-lastName" required value={editForm.lastName} error={editErrors.lastName}
+                onChange={(e) => setEditForm({ ...editForm, lastName: e.target.value })} />
+            </div>
+            <FormField label="Email" name="e-email" type="email" required value={editForm.email} error={editErrors.email}
+              onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+            <FormField label="Teléfono" name="e-phone" value={editForm.phone}
+              onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="+595 9XX XXX XXX" />
+            <FormField as="select" label="Rol" name="e-role" value={editForm.role}
+              onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+              hint="Cambiar a Administrador requiere permisos de Super Admin">
+              <option value="EMPLOYEE">Empleado</option>
+              <option value="ADMIN">Administrador</option>
+            </FormField>
+          </form>
         )}
-      </AnimatePresence>
+      </FormModal>
+
+      {/* ── PASSWORD MODAL ── */}
+      <FormModal
+        isOpen={!!pwdTarget}
+        onClose={() => setPwdTarget(null)}
+        title="Cambiar contraseña"
+        subtitle={pwdTarget ? `Para ${pwdTarget.firstName} ${pwdTarget.lastName}` : ''}
+        icon={<KeyRound size={18} />}
+        formId="staff-pwd-form"
+        submitting={savingPwd}
+        submitLabel="Actualizar"
+        size="sm"
+      >
+        <form id="staff-pwd-form" onSubmit={handlePwd} className="space-y-4">
+          <FormField label="Nueva contraseña" name="newPassword" type="password" required value={pwdForm.newPassword} error={pwdErrors.newPassword}
+            onChange={(e) => setPwdForm({ ...pwdForm, newPassword: e.target.value })}
+            hint="Mínimo 8 caracteres, 1 mayúscula y 1 número" />
+          <FormField label="Confirmar contraseña" name="confirm" type="password" required value={pwdForm.confirm} error={pwdErrors.confirm}
+            onChange={(e) => setPwdForm({ ...pwdForm, confirm: e.target.value })} />
+        </form>
+      </FormModal>
+
+      {/* ── CONFIRM: delete ── */}
+      <ConfirmDialog
+        isOpen={!!toDelete}
+        onClose={() => setToDelete(null)}
+        onConfirm={handleDelete}
+        loading={actionLoading}
+        variant="danger"
+        title="Eliminar colaborador"
+        message={toDelete ? `¿Eliminar a ${toDelete.firstName} ${toDelete.lastName} del equipo? Si tiene historial de servicios se desactivará en lugar de borrarse.` : ''}
+        confirmLabel="Eliminar"
+      />
+
+      {/* ── CONFIRM: toggle status ── */}
+      <ConfirmDialog
+        isOpen={!!toggleTarget}
+        onClose={() => setToggleTarget(null)}
+        onConfirm={handleToggle}
+        loading={actionLoading}
+        variant={toggleTarget?.isActive ? 'danger' : 'primary'}
+        title={toggleTarget?.isActive ? 'Suspender colaborador' : 'Reactivar colaborador'}
+        message={toggleTarget
+          ? `¿${toggleTarget.isActive ? 'Suspender' : 'Reactivar'} a ${toggleTarget.firstName} ${toggleTarget.lastName}? ${toggleTarget.isActive ? 'No podrá iniciar sesión.' : 'Podrá volver a iniciar sesión.'}`
+          : ''}
+        confirmLabel={toggleTarget?.isActive ? 'Suspender' : 'Reactivar'}
+      />
     </div>
   );
 }

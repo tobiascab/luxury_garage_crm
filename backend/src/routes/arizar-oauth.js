@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { authenticate, authorize } = require('../middleware/auth');
 const router = express.Router();
 
 /**
@@ -67,8 +68,9 @@ router.get('/callback', async (req, res) => {
 
 /**
  * Refresh token endpoint
+ * SEGURIDAD: requiere auth + rol elevado (renueva credenciales OAuth de la integración ARIZAR).
  */
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res) => {
   try {
     const tokensPath = path.join(__dirname, '../../.arizar-oauth-tokens.json');
     if (!fs.existsSync(tokensPath)) {
@@ -108,19 +110,24 @@ router.post('/refresh', async (req, res) => {
 /**
  * Get current token status
  */
-router.get('/status', (req, res) => {
-  const tokensPath = path.join(__dirname, '../../.arizar-oauth-tokens.json');
-  if (!fs.existsSync(tokensPath)) {
-    return res.json({ success: true, connected: false });
+router.get('/status', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), (req, res) => {
+  try {
+    const tokensPath = path.join(__dirname, '../../.arizar-oauth-tokens.json');
+    if (!fs.existsSync(tokensPath)) {
+      return res.json({ success: true, connected: false });
+    }
+    const tokens = JSON.parse(fs.readFileSync(tokensPath, 'utf8'));
+    res.json({
+      success: true,
+      connected: true,
+      locationId: tokens.locationId,
+      expires_at: tokens.expires_at,
+      expired: new Date(tokens.expires_at) < new Date(),
+    });
+  } catch (e) {
+    // Archivo de tokens corrupto/ilegible → reportar desconectado en vez de tirar 500.
+    res.json({ success: true, connected: false });
   }
-  const tokens = JSON.parse(fs.readFileSync(tokensPath, 'utf8'));
-  res.json({ 
-    success: true, 
-    connected: true, 
-    locationId: tokens.locationId,
-    expires_at: tokens.expires_at,
-    expired: new Date(tokens.expires_at) < new Date(),
-  });
 });
 
 module.exports = router;

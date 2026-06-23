@@ -66,6 +66,7 @@ export default function LoginPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
           >
+            <img src="/logo.png" alt="Luxury Garage" className="w-24 h-24 object-contain mb-8 drop-shadow-2xl" />
             <div className="mb-8 inline-flex items-center gap-3 px-4 py-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
               <Sparkles size={18} className="text-amber-400" />
               <span className="text-sm font-bold tracking-widest uppercase">Membresía Exclusiva</span>
@@ -85,8 +86,9 @@ export default function LoginPage() {
       <div className="flex items-center justify-center p-8 bg-white dark:bg-slate-900 transition-colors">
         <div className="w-full max-w-md">
           <div className="text-center lg:text-left mb-8">
-            <div className="lg:hidden flex justify-center mb-6">
-              <h1 className="text-3xl font-black tracking-tighter text-blue-600 dark:text-blue-400 italic font-headline transition-colors">LUXURY GARAGE</h1>
+            <div className="lg:hidden flex flex-col items-center gap-3 mb-6">
+              <img src="/logo.png" alt="Luxury Garage" className="w-20 h-20 object-contain" />
+              <h1 className="text-2xl font-black tracking-tighter text-blue-600 dark:text-blue-400 italic font-headline transition-colors">LUXURY GARAGE</h1>
             </div>
             <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-1 transition-colors uppercase italic tracking-tighter">Iniciar Sesión</h3>
             <p className="text-slate-500 dark:text-slate-400 text-sm">Ingresa tus credenciales para acceder</p>

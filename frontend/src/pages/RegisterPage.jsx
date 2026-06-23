@@ -59,9 +59,11 @@ export default function RegisterPage() {
         transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
 
         <div className="login-logo">
-          <motion.div className="login-logo-icon" initial={{ rotate: -10 }} animate={{ rotate: 0 }}
-            transition={{ type: 'spring', stiffness: 200, damping: 15 }}>🚗</motion.div>
-          <h1>LUXURY GARAGE</h1>
+          <motion.img src="/logo.png" alt="" className="login-logo-icon"
+            style={{ background: 'none', boxShadow: 'none', borderRadius: 0, objectFit: 'contain' }}
+            initial={{ rotate: -10, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 200, damping: 15 }} />
+          <h1 className="brand-wordmark">LUXURY GARAGE</h1>
           <p>Creá tu cuenta premium</p>
         </div>
 

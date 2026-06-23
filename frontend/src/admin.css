@@ -1,6 +1,15 @@
 @reference "tailwindcss";
 /* Admin Central - Design System */
 
+/*
+ * Dark mode → SOLO por clase .dark, nunca por prefers-color-scheme del SO.
+ * Debe redeclararse aquí porque @reference aísla este archivo del @custom-variant
+ * definido en index.css; sin esto, las reglas `@apply dark:...` de abajo se
+ * compilarían con la media-query por defecto de Tailwind y los títulos quedarían
+ * blancos sobre fondo claro cuando el SO está en modo oscuro.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
     --admin-sidebar-w: 280px;
     --admin-primary: #3b82f6;
@@ -120,7 +129,7 @@
 }
 
 .admin-btn-primary {
-    @apply h-10 px-4 rounded-md font-semibold tracking-normal text-sm flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-[#0040e0] text-white hover:bg-[#0030b0];
+    @apply h-10 px-4 rounded-md font-semibold tracking-normal text-sm flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg shadow-blue-600/25 hover:from-blue-500 hover:to-indigo-500 hover:shadow-blue-600/40;
 }
 
 .admin-btn-secondary {
@@ -229,5 +238,31 @@
 }
 
 .luxury-experience .btn-primary {
-    @apply h-10 px-4 rounded-md font-semibold tracking-normal text-sm flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-[#0040e0] text-white hover:bg-[#0030b0];
+    @apply h-10 px-4 rounded-md font-semibold tracking-normal text-sm flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg shadow-blue-600/25 hover:from-blue-500 hover:to-indigo-500;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Acentos vivos — sistema de color reutilizable para el panel admin.
+ * `admin-itile`: azulejo de ícono con gradiente vibrante + sombra de color.
+ * `admin-accent-bar`: barra/borde superior de color para tarjetas de KPI.
+ * Pensado para inyectar vida sin perder el look limpio (fondos blancos).
+ * ────────────────────────────────────────────────────────────────────────── */
+.admin-itile {
+    @apply flex items-center justify-center rounded-xl text-white shadow-lg;
+}
+.admin-itile-emerald { @apply bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/30; }
+.admin-itile-indigo  { @apply bg-gradient-to-br from-indigo-500 to-violet-500 shadow-indigo-500/30; }
+.admin-itile-sky     { @apply bg-gradient-to-br from-sky-400 to-blue-500 shadow-sky-500/30; }
+.admin-itile-amber   { @apply bg-gradient-to-br from-amber-400 to-orange-500 shadow-amber-500/30; }
+.admin-itile-rose    { @apply bg-gradient-to-br from-rose-400 to-pink-500 shadow-rose-500/30; }
+.admin-itile-violet  { @apply bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-violet-500/30; }
+.admin-itile-cyan    { @apply bg-gradient-to-br from-cyan-400 to-sky-500 shadow-cyan-500/30; }
+
+/* Tinte de fondo muy sutil para tarjetas de stat (combina con el azulejo). */
+.admin-tint-emerald { @apply bg-gradient-to-br from-emerald-50/60 to-transparent dark:from-emerald-500/[0.06] dark:to-transparent; }
+.admin-tint-indigo  { @apply bg-gradient-to-br from-indigo-50/60 to-transparent dark:from-indigo-500/[0.06] dark:to-transparent; }
+.admin-tint-sky     { @apply bg-gradient-to-br from-sky-50/60 to-transparent dark:from-sky-500/[0.06] dark:to-transparent; }
+.admin-tint-amber   { @apply bg-gradient-to-br from-amber-50/60 to-transparent dark:from-amber-500/[0.06] dark:to-transparent; }
+.admin-tint-rose    { @apply bg-gradient-to-br from-rose-50/60 to-transparent dark:from-rose-500/[0.06] dark:to-transparent; }
+.admin-tint-violet  { @apply bg-gradient-to-br from-violet-50/60 to-transparent dark:from-violet-500/[0.06] dark:to-transparent; }
+.admin-tint-cyan    { @apply bg-gradient-to-br from-cyan-50/60 to-transparent dark:from-cyan-500/[0.06] dark:to-transparent; }

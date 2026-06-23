@@ -1,16 +1,16 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect } from 'react';
+import useScrollLock from '../hooks/useScrollLock';
 
 export default function Modal({ isOpen, onClose, title, children, size = 'md' }) {
+  useScrollLock(isOpen);
   useEffect(() => {
     const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
     }
     return () => {
       document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = '';
     };
   }, [isOpen, onClose]);
 

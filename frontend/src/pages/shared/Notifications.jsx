@@ -4,14 +4,13 @@ import api from '../../services/api';
 import {
   Bell, BellOff, CheckCircle2,
   Calendar, CreditCard, Gift,
-  MessageSquare, Clock, Search,
-  Trash2, ChevronRight, Sparkles,
-  Loader2, Info, Plus, Send,
-  X, AlertCircle, Megaphone,
-  Eye, RefreshCcw
+  Clock, Search,
+  Sparkles, Loader2, Info, Plus, Send,
+  X, AlertCircle, Megaphone, Eye,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
+import useScrollLock from '../../hooks/useScrollLock';
 
 export default function Notifications() {
   const { user } = useAuth();
@@ -24,6 +23,9 @@ export default function Notifications() {
   const [showCreate, setShowCreate] = useState(false);
   const [sending, setSending] = useState(false);
   const [form, setForm] = useState({ type: 'info', title: '', message: '', target: 'all', userId: '' });
+
+  // Bloquea el scroll del body mientras el modal de creación esté abierto
+  useScrollLock(showCreate);
 
   useEffect(() => { loadNotifications(); if (isAdmin) loadMembers(); }, []);
 
@@ -79,16 +81,16 @@ export default function Notifications() {
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
   const typeConfig = {
-    RENEWAL_REMINDER: { icon: <Clock size={16} />, color: 'text-amber-500 bg-amber-500/10 border-amber-500/20', label: 'Renovación' },
-    APPOINTMENT_REMINDER: { icon: <Calendar size={16} />, color: 'text-indigo-500 bg-indigo-500/10 border-indigo-500/20', label: 'Agenda' },
-    WELCOME: { icon: <Sparkles size={16} />, color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20', label: 'Bienvenida' },
-    PROMOTION: { icon: <Gift size={16} />, color: 'text-purple-500 bg-purple-500/10 border-purple-500/20', label: 'Promoción' },
-    SERVICE_COMPLETED: { icon: <CheckCircle2 size={16} />, color: 'text-sky-500 bg-sky-500/10 border-sky-500/20', label: 'Servicio' },
-    PAYMENT: { icon: <CreditCard size={16} />, color: 'text-rose-500 bg-rose-500/10 border-rose-500/20', label: 'Pago' },
-    info: { icon: <Info size={16} />, color: 'text-blue-500 bg-blue-500/10 border-blue-500/20', label: 'Info' },
-    promo: { icon: <Megaphone size={16} />, color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20', label: 'Promoción' },
-    alert: { icon: <AlertCircle size={16} />, color: 'text-amber-500 bg-amber-500/10 border-amber-500/20', label: 'Alerta' },
-    reminder: { icon: <Clock size={16} />, color: 'text-purple-500 bg-purple-500/10 border-purple-500/20', label: 'Recordatorio' },
+    RENEWAL_REMINDER: { icon: <Clock size={16} />, color: 'text-amber-600 bg-amber-500/10 border-amber-500/20', label: 'Renovación' },
+    APPOINTMENT_REMINDER: { icon: <Calendar size={16} />, color: 'text-[#0040e0] bg-[#0040e0]/10 border-[#0040e0]/20', label: 'Agenda' },
+    WELCOME: { icon: <Sparkles size={16} />, color: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20', label: 'Bienvenida' },
+    PROMOTION: { icon: <Gift size={16} />, color: 'text-purple-600 bg-purple-500/10 border-purple-500/20', label: 'Promoción' },
+    SERVICE_COMPLETED: { icon: <CheckCircle2 size={16} />, color: 'text-sky-600 bg-sky-500/10 border-sky-500/20', label: 'Servicio' },
+    PAYMENT: { icon: <CreditCard size={16} />, color: 'text-rose-600 bg-rose-500/10 border-rose-500/20', label: 'Pago' },
+    info: { icon: <Info size={16} />, color: 'text-[#0040e0] bg-[#0040e0]/10 border-[#0040e0]/20', label: 'Info' },
+    promo: { icon: <Megaphone size={16} />, color: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20', label: 'Promoción' },
+    alert: { icon: <AlertCircle size={16} />, color: 'text-amber-600 bg-amber-500/10 border-amber-500/20', label: 'Alerta' },
+    reminder: { icon: <Clock size={16} />, color: 'text-purple-600 bg-purple-500/10 border-purple-500/20', label: 'Recordatorio' },
   };
 
   const filtered = notifications.filter(n => {
@@ -99,57 +101,57 @@ export default function Notifications() {
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-      <Loader2 size={40} className="text-primary animate-spin" />
-      <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Cargando notificaciones...</p>
+      <Loader2 size={36} className="text-[#0040e0] animate-spin" />
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Cargando notificaciones...</p>
     </div>
   );
 
   return (
     <div className="page-content pb-20">
       <header className="admin-page-header">
-        <div>
-          <h1 className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
-              <Bell size={24} />
-            </div>
-            Notificaciones
-            {unreadCount > 0 && (
-              <span className="ml-2 w-7 h-7 rounded-full bg-primary text-white text-xs font-bold flex items-center justify-center">{unreadCount}</span>
-            )}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400">
-            {isAdmin ? 'Enviá avisos a tus clientes — sin costo' : 'Tus avisos y alertas'}
-          </p>
-        </div>
         <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[#0040e0]/10 text-[#0040e0] flex items-center justify-center shrink-0">
+            <Bell size={20} />
+          </div>
+          <div>
+            <h1 className="flex items-center gap-2">
+              Notificaciones
+              {unreadCount > 0 && (
+                <span className="inline-flex items-center justify-center min-w-6 h-6 px-2 rounded-md bg-[#0040e0] text-white text-xs font-semibold">{unreadCount}</span>
+              )}
+            </h1>
+            <p>{isAdmin ? 'Enviá avisos a tus clientes — sin costo' : 'Tus avisos y alertas'}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           {unreadCount > 0 && (
-            <button onClick={markAllRead} className="px-5 py-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-primary transition-all">
-              <Eye size={14} className="inline mr-2" /> Marcar todo leído
+            <button onClick={markAllRead} className="admin-btn-outline">
+              <Eye size={16} /> Marcar todo leído
             </button>
           )}
           {isAdmin && (
             <button className="admin-btn-primary" onClick={() => setShowCreate(true)}>
-              <Plus size={18} /> Nueva Notificación
+              <Plus size={16} /> Nueva Notificación
             </button>
           )}
         </div>
       </header>
 
       {/* Filters */}
-      <div className="mb-8 flex flex-col lg:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+      <div className="mb-6 flex flex-col lg:flex-row gap-3">
+        <div className="admin-search-wrapper max-w-none">
+          <Search className="admin-search-icon" size={16} />
           <input
-            className="w-full h-12 pl-12 pr-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-primary transition-all"
+            className="admin-search-input"
             placeholder="Buscar notificaciones..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shrink-0">
           {['ALL', 'UNREAD', 'READ'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${filter === f ? 'bg-white dark:bg-slate-700 text-primary shadow-sm' : 'text-slate-400'}`}>
+              className={`px-4 py-2 rounded-md text-xs font-semibold tracking-normal transition-colors ${filter === f ? 'bg-white dark:bg-slate-900 text-[#0040e0] shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}>
               {f === 'ALL' ? 'Todas' : f === 'UNREAD' ? 'Sin leer' : 'Leídas'}
             </button>
           ))}
@@ -158,10 +160,10 @@ export default function Notifications() {
 
       {/* List */}
       {filtered.length === 0 ? (
-        <div className="admin-card text-center py-20 flex flex-col items-center gap-4">
-          <BellOff size={48} className="text-slate-200 dark:text-slate-700" />
-          <h3 className="text-base font-bold text-slate-400">Sin notificaciones</h3>
-          {isAdmin && <p className="text-sm text-slate-400">Creá tu primer aviso para los clientes.</p>}
+        <div className="admin-card text-center py-16 flex flex-col items-center gap-3">
+          <BellOff size={40} className="text-slate-300 dark:text-slate-700" />
+          <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400">Sin notificaciones</h3>
+          {isAdmin && <p className="text-sm font-normal text-slate-400 dark:text-slate-500">Creá tu primer aviso para los clientes.</p>}
         </div>
       ) : (
         <div className="space-y-3">
@@ -172,31 +174,31 @@ export default function Notifications() {
                 <motion.div
                   key={n.id}
                   layout
-                  initial={{ opacity: 0, y: 5 }}
+                  initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ delay: i * 0.02 }}
-                  className={`admin-card !p-0 overflow-hidden group transition-all cursor-pointer ${!n.isRead ? 'border-l-4 border-l-primary' : 'opacity-70'}`}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={{ delay: Math.min(i * 0.02, 0.2) }}
+                  className={`admin-card !p-0 group transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 ${!n.isRead ? 'border-l-4 border-l-[#0040e0]' : 'opacity-70'}`}
                   onClick={() => !n.isRead && markRead(n.id)}
                 >
                   <div className="p-5 flex items-start gap-4">
-                    <div className={`w-11 h-11 rounded-xl ${config.color} flex items-center justify-center shrink-0 border`}>
+                    <div className={`w-10 h-10 rounded-lg ${config.color} flex items-center justify-center shrink-0 border`}>
                       {config.icon}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${config.color} border`}>{config.label}</span>
-                        <span className="text-xs text-slate-400 dark:text-slate-500">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className={`text-xs font-semibold tracking-normal px-2 py-0.5 rounded-md border ${config.color}`}>{config.label}</span>
+                        <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
                           {new Date(n.createdAt).toLocaleDateString('es-PY', { day: '2-digit', month: 'short' })} · {new Date(n.createdAt).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">{n.title}</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2">{n.message}</p>
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1">{n.title}</h3>
+                      <p className="text-sm font-normal text-slate-500 dark:text-slate-400 line-clamp-2">{n.message}</p>
                       {isAdmin && n.user && (
-                        <p className="text-xs text-slate-400 mt-1">→ {n.user.firstName} {n.user.lastName}</p>
+                        <p className="text-xs font-normal text-slate-400 mt-1">→ {n.user.firstName} {n.user.lastName}</p>
                       )}
                     </div>
-                    {!n.isRead && <div className="w-2.5 h-2.5 rounded-full bg-primary shadow-lg shadow-primary/40 animate-pulse shrink-0 mt-2" />}
+                    {!n.isRead && <div className="w-2.5 h-2.5 rounded-full bg-[#0040e0] shrink-0 mt-1.5" />}
                   </div>
                 </motion.div>
               );
@@ -208,56 +210,59 @@ export default function Notifications() {
       {/* ── CREATE MODAL ── */}
       <AnimatePresence>
         {showCreate && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreate(false)} />
-            <motion.div initial={{ y: 20, opacity: 0, scale: 0.95 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 20, opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700"
+          <div className="admin-modal-overlay">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0" onClick={() => setShowCreate(false)} />
+            <motion.div initial={{ y: 12, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 12, opacity: 0 }}
+              className="admin-modal relative"
               onClick={e => e.stopPropagation()}>
-              <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+              <div className="p-6 border-b border-[var(--admin-border)] flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">Nueva Notificación</h2>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Aparece como popup al cliente — gratis</p>
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Nueva Notificación</h2>
+                  <p className="text-sm font-normal text-slate-500 dark:text-slate-400">Aparece como popup al cliente — gratis</p>
                 </div>
-                <button onClick={() => setShowCreate(false)} className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition-all"><X size={20} /></button>
+                <button onClick={() => setShowCreate(false)} className="w-9 h-9 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"><X size={18} /></button>
               </div>
               <form onSubmit={handleSend} className="p-6 space-y-5">
                 <div>
-                  <label className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-2 block">Tipo</label>
+                  <label className="admin-label">Tipo</label>
                   <div className="grid grid-cols-4 gap-2">
-                    {[['info','Info',<Info size={14}/>],['promo','Promo',<Megaphone size={14}/>],['alert','Alerta',<AlertCircle size={14}/>],['reminder','Recordar',<Clock size={14}/>]].map(([k,l,ic]) => (
+                    {[['info','Info',<Info size={16}/>],['promo','Promo',<Megaphone size={16}/>],['alert','Alerta',<AlertCircle size={16}/>],['reminder','Recordar',<Clock size={16}/>]].map(([k,l,ic]) => (
                       <button key={k} type="button" onClick={() => setForm({...form,type:k})}
-                        className={`p-3 rounded-xl border text-center transition-all ${form.type===k ? (typeConfig[k]?.color||'') + ' shadow-md' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'}`}>
+                        className={`p-3 rounded-md border text-center transition-colors ${form.type===k ? (typeConfig[k]?.color || '') : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>
                         <div className="flex justify-center mb-1">{ic}</div>
-                        <span className="text-[10px] font-bold">{l}</span>
+                        <span className="text-xs font-semibold tracking-normal">{l}</span>
                       </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-2 block">Destinatarios</label>
-                  <select className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-primary" value={form.target} onChange={e => setForm({...form, target:e.target.value})}>
+                  <label className="admin-label">Destinatarios</label>
+                  <select className="admin-select" value={form.target} onChange={e => setForm({...form, target:e.target.value})}>
                     <option value="all">Todos los clientes</option>
                     <option value="active">Solo miembros activos</option>
                     <option value="specific">Un cliente específico</option>
                   </select>
                 </div>
                 {form.target === 'specific' && (
-                  <select className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-primary" value={form.userId} onChange={e => setForm({...form,userId:e.target.value})} required>
-                    <option value="">Seleccionar...</option>
-                    {members.map(m => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
-                  </select>
+                  <div>
+                    <label className="admin-label">Cliente</label>
+                    <select className="admin-select" value={form.userId} onChange={e => setForm({...form,userId:e.target.value})} required>
+                      <option value="">Seleccionar...</option>
+                      {members.map(m => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+                    </select>
+                  </div>
                 )}
                 <div>
-                  <label className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-2 block">Título</label>
-                  <input className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-primary" value={form.title} onChange={e => setForm({...form,title:e.target.value})} placeholder="Ej: ¡Promo de fin de semana!" required />
+                  <label className="admin-label">Título</label>
+                  <input className="admin-input" value={form.title} onChange={e => setForm({...form,title:e.target.value})} placeholder="Ej: ¡Promo de fin de semana!" required />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-2 block">Mensaje</label>
-                  <textarea className="w-full min-h-[100px] px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-primary resize-none" value={form.message} onChange={e => setForm({...form,message:e.target.value})} placeholder="Escribí el mensaje..." required />
+                  <label className="admin-label">Mensaje</label>
+                  <textarea className="admin-input min-h-[100px] py-3 h-auto resize-none" value={form.message} onChange={e => setForm({...form,message:e.target.value})} placeholder="Escribí el mensaje..." required />
                 </div>
-                <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setShowCreate(false)} className="flex-1 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm font-bold text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">Cancelar</button>
-                  <button type="submit" disabled={sending} className="flex-[1.5] h-12 rounded-xl bg-primary text-white text-sm font-bold shadow-lg shadow-primary/20 hover:-translate-y-0.5 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setShowCreate(false)} className="admin-btn-outline">Cancelar</button>
+                  <button type="submit" disabled={sending} className="admin-btn-primary">
                     {sending ? <Loader2 size={16} className="animate-spin" /> : <><Send size={16} /> Enviar</>}
                   </button>
                 </div>

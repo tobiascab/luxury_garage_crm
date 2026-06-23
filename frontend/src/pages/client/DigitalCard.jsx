@@ -28,6 +28,7 @@ export default function DigitalCard() {
 
           <div style={{ position: 'relative', zIndex: 1 }}>
             {/* Logo */}
+            <img src="/logo.png" alt="Luxury Garage" style={{ width: '44px', height: '44px', objectFit: 'contain', marginBottom: '8px', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.35))' }} />
             <div style={{ fontSize: '0.7rem', letterSpacing: '3px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', marginBottom: '8px', fontWeight: 600 }}>
               LUXURY GARAGE
             </div>
@@ -48,6 +49,7 @@ export default function DigitalCard() {
                 level="H"
                 bgColor="#ffffff"
                 fgColor="#0A1628"
+                imageSettings={{ src: '/logo.png', height: 32, width: 32, excavate: true }}
               />
             </motion.div>
 

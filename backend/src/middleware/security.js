@@ -16,7 +16,10 @@ const generalLimiter = rateLimit({
 // 2. Auth-specific limiter — 5 attempts / 15 min
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  // Limita los intentos FALLIDOS por IP (skipSuccessfulRequests: true). En producción
+  // mantenemos un techo razonable; en desarrollo lo subimos para no bloquearnos probando.
+  // La defensa principal anti-fuerza-bruta es loginLockout por cuenta (10 fallos = 30 min).
+  max: process.env.NODE_ENV === 'production' ? 10 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Demasiados intentos de inicio de sesión. Esperá 15 minutos.' },

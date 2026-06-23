@@ -5,19 +5,122 @@ router.get('/admin', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req
   try {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const [totalMembers, activeMembers, newThisMonth, totalRevenue, todayAppointments, membersByPlan, recentPayments, expiringMemberships, lowStockItems, pendingAppointments] = await Promise.all([
+    const startOfDay = new Date(new Date(now).setHours(0, 0, 0, 0));
+    const endOfDay = new Date(new Date(now).setHours(23, 59, 59, 999));
+
+    const [
+      totalMembers,
+      activeMembers,
+      newThisMonth,
+      totalRevenue,
+      todayAppointments,
+      membersByPlanRaw,
+      recentPayments,
+      expiringMemberships,
+      inventoryItems,
+      pendingAppointments,
+      plans,
+      subscriptionRevenue,
+      pendingPaymentsAgg,
+      creditBalanceAgg,
+    ] = await Promise.all([
       req.prisma.user.count({ where: { role: 'CLIENT' } }),
       req.prisma.membership.count({ where: { status: 'ACTIVE' } }),
       req.prisma.user.count({ where: { role: 'CLIENT', createdAt: { gte: startOfMonth } } }),
       req.prisma.payment.aggregate({ where: { status: 'COMPLETED', createdAt: { gte: startOfMonth } }, _sum: { amountGs: true } }),
-      req.prisma.appointment.count({ where: { date: { gte: new Date(new Date(now).setHours(0,0,0,0)), lte: new Date(new Date(now).setHours(23,59,59,999)) }, status: { not: 'CANCELLED' } } }),
-      req.prisma.membership.groupBy({ by: ['planId'], where: { status: 'ACTIVE' }, _count: true }),
-      req.prisma.payment.findMany({ where: { status: 'COMPLETED' }, orderBy: { createdAt: 'desc' }, take: 5, include: { user: { select: { firstName: true, lastName: true } } } }),
+      req.prisma.appointment.count({ where: { date: { gte: startOfDay, lte: endOfDay }, status: { not: 'CANCELLED' } } }),
+      req.prisma.membership.groupBy({ by: ['planId'], where: { status: 'ACTIVE' }, _count: { _all: true } }),
+      req.prisma.payment.findMany({
+        where: { status: 'COMPLETED' },
+        orderBy: { createdAt: 'desc' },
+        take: 6,
+        include: {
+          user: { select: { firstName: true, lastName: true } },
+          membership: { select: { id: true, plan: { select: { name: true } } } },
+        },
+      }),
       req.prisma.membership.count({ where: { status: 'ACTIVE', endDate: { lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } } }),
-      req.prisma.inventoryItem.count({ where: { currentStock: { lte: req.prisma.inventoryItem.minStockAlert } } }),
-      req.prisma.appointment.count({ where: { status: 'PENDING' } })
+      // Fetch the small set of inventory items and filter in JS — the previous
+      // where (currentStock <= req.prisma.inventoryItem.minStockAlert) compared
+      // against an undefined Prisma delegate and never worked.
+      req.prisma.inventoryItem.findMany({ select: { currentStock: true, minStockAlert: true } }),
+      req.prisma.appointment.count({ where: { status: 'PENDING' } }),
+      req.prisma.plan.findMany({ select: { id: true, name: true } }),
+      // Subscription revenue this month = completed payments linked to a membership
+      req.prisma.payment.aggregate({
+        where: { status: 'COMPLETED', membershipId: { not: null }, createdAt: { gte: startOfMonth } },
+        _sum: { amountGs: true },
+      }),
+      // Payments awaiting completion (pending / requires action / processing)
+      req.prisma.payment.aggregate({
+        where: { status: { in: ['PENDING', 'PROCESSING', 'REQUIRES_ACTION'] } },
+        _sum: { amountGs: true },
+        _count: { _all: true },
+      }),
+      // Total active credit balance held by clients (wallet "a favor")
+      req.prisma.credit.aggregate({
+        where: { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+        _sum: { amount: true },
+      }),
     ]);
-    res.json({ success: true, data: { totalMembers, activeMembers, newThisMonth, totalRevenue: totalRevenue._sum.amountGs || 0, todayAppointments, membersByPlan, recentPayments, expiringMemberships, lowStockItems, pendingAppointments } });
+
+    // Enrich membersByPlan with the plan name (groupBy only returns planId)
+    const planNameById = Object.fromEntries(plans.map((p) => [p.id, p.name]));
+    const membersByPlan = membersByPlanRaw.map((row) => ({
+      planId: row.planId,
+      planName: planNameById[row.planId] || 'Sin plan',
+      count: row._count._all,
+    }));
+
+    const lowStockItems = inventoryItems.filter(
+      (i) => (i.currentStock ?? 0) <= (i.minStockAlert ?? 0)
+    ).length;
+
+    const monthRevenue = totalRevenue._sum.amountGs || 0;
+    const subscriptionRevenueGs = subscriptionRevenue._sum.amountGs || 0;
+    // Services / other revenue = total completed this month minus subscription part
+    const servicesRevenueGs = Math.max(0, monthRevenue - subscriptionRevenueGs);
+
+    // ── Revenue time series: last 6 months of COMPLETED payments ──
+    const seriesStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const seriesPayments = await req.prisma.payment.findMany({
+      where: { status: 'COMPLETED', createdAt: { gte: seriesStart } },
+      select: { amountGs: true, createdAt: true, membershipId: true },
+    });
+    const monthlyRevenue = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const next = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      const bucket = seriesPayments.filter((p) => p.createdAt >= d && p.createdAt < next);
+      monthlyRevenue.push({
+        name: d.toLocaleDateString('es-PY', { month: 'short' }),
+        revenue: bucket.reduce((s, p) => s + (p.amountGs || 0), 0),
+        subscriptions: bucket.filter((p) => p.membershipId).reduce((s, p) => s + (p.amountGs || 0), 0),
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        totalMembers,
+        activeMembers,
+        newThisMonth,
+        totalRevenue: monthRevenue,
+        todayAppointments,
+        membersByPlan,
+        recentPayments,
+        expiringMemberships,
+        lowStockItems,
+        pendingAppointments,
+        // Balance / finance breakdown
+        subscriptionRevenue: subscriptionRevenueGs,
+        servicesRevenue: servicesRevenueGs,
+        creditBalance: creditBalanceAgg._sum.amount || 0,
+        pendingPaymentsTotal: pendingPaymentsAgg._sum.amountGs || 0,
+        pendingPaymentsCount: pendingPaymentsAgg._count._all || 0,
+        monthlyRevenue,
+      },
+    });
   } catch (err) { next(err); }
 });
 

@@ -1,66 +1,127 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   Bot, Activity, Users, Percent, Calendar,
   Settings, RefreshCcw, Send, Megaphone,
-  Link, List, CheckCircle2, AlertCircle,
-  Copy, ExternalLink, MessageSquare, Mail,
-  Phone, Globe, Zap, Loader2, ShieldCheck,
-  ChevronRight, Search
+  Link as LinkIcon, List, CheckCircle2, AlertCircle,
+  Copy, MessageSquare, Mail, Phone, Globe,
+  Zap, Loader2, ShieldCheck, ChevronRight, Search,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
+import FormField from '../../components/FormField';
+import Skeleton, { SkeletonStats, SkeletonTable } from '../../components/Skeleton';
+import EmptyState from '../../components/EmptyState';
+import AnimatedNumber from '../../components/AnimatedNumber';
+
+const TABS = [
+  { id: 'dashboard', label: 'Estado', icon: Bot },
+  { id: 'messages', label: 'Mensajería', icon: MessageSquare },
+  { id: 'broadcast', label: 'Difusión', icon: Megaphone },
+  { id: 'links', label: 'Captación', icon: LinkIcon },
+  { id: 'logs', label: 'Auditoría', icon: List },
+];
+
+const CHANNELS = [
+  { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
+  { id: 'sms', label: 'SMS', icon: Phone },
+  { id: 'email', label: 'Email', icon: Mail },
+];
+
+const btnPrimary =
+  'inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-600/20 disabled:opacity-60 disabled:cursor-not-allowed';
+const btnSecondary =
+  'inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 border border-slate-200 dark:border-white/10 transition-colors disabled:opacity-60';
+const card =
+  'bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm';
 
 export default function ArizarPanel() {
+  const reduceMotion = useReducedMotion();
+  const tap = reduceMotion ? undefined : { scale: 0.96 };
+  const tapSmall = reduceMotion ? undefined : { scale: 0.9 };
   const [status, setStatus] = useState(null);
   const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const [tab, setTab] = useState('dashboard');
 
-  // Message forms
+  const [members, setMembers] = useState([]);
   const [msgForm, setMsgForm] = useState({ userId: '', channel: 'whatsapp', message: '', subject: '' });
   const [broadcastForm, setBroadcastForm] = useState({ channel: 'whatsapp', message: '', subject: '', filter: 'active' });
   const [sending, setSending] = useState(false);
-  const [members, setMembers] = useState([]);
+
+  const [registrationLink, setRegistrationLink] = useState('');
 
   useEffect(() => {
     loadStatus();
     loadLogs();
     loadMembers();
+    loadRegistrationLink();
   }, []);
 
   const loadStatus = async () => {
     try {
-      const res = await api.get('/arizar/status');
+      const res = await api.get('/arizar/status', { _noCache: true });
       setStatus(res.data.data);
-    } catch (err) { console.error(err); }
-    setLoading(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo cargar el estado de ARIZAR');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadLogs = async () => {
+    setLogsLoading(true);
     try {
-      const res = await api.get('/arizar/logs?limit=30');
+      const res = await api.get('/arizar/logs?limit=40', { _noCache: true });
       setLogs(res.data.data || []);
-    } catch (err) { console.error(err); }
+    } catch {
+      toast.error('No se pudieron cargar los registros');
+    } finally {
+      setLogsLoading(false);
+    }
   };
 
   const loadMembers = async () => {
     try {
-      const res = await api.get('/members?limit=100');
+      const res = await api.get('/members?limit=200');
       setMembers(res.data.data || []);
-    } catch (err) { console.error(err); }
+    } catch {
+      // selector vacío -> se muestra estado claro en el form
+    }
+  };
+
+  const loadRegistrationLink = async () => {
+    try {
+      const res = await api.get('/arizar/registration-link');
+      setRegistrationLink(res.data?.data?.link || '');
+    } catch {
+      setRegistrationLink('');
+    }
+  };
+
+  const refreshAll = () => {
+    api.invalidate('/arizar/status', '/arizar/logs');
+    loadStatus();
+    loadLogs();
+    toast.success('Datos actualizados');
   };
 
   const handleSyncAll = async () => {
     setSyncing(true);
     try {
       const res = await api.post('/arizar/sync-all');
-      toast.success(res.data.message);
+      toast.success(res.data.message || 'Sincronización completada');
+      api.invalidate('/arizar/status');
       loadStatus();
-    } catch (err) { toast.error('Error sincronizando'); }
-    setSyncing(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error sincronizando contactos');
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const handleTestConnection = async () => {
@@ -69,489 +130,656 @@ export default function ArizarPanel() {
       const res = await api.post('/arizar/test-connection');
       if (res.data.success) toast.success(res.data.message);
       else toast.error(res.data.message);
-    } catch (err) { toast.error('Error de conexión'); }
-    setTesting(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error de conexión');
+    } finally {
+      setTesting(false);
+    }
   };
 
   const handleRegisterWebhooks = async () => {
+    setRegistering(true);
     try {
       const res = await api.post('/arizar/register-webhooks');
-      toast.success(res.data.message);
-    } catch (err) { toast.error('Error registrando webhooks'); }
+      toast.success(res.data.message || 'Webhooks registrados');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error registrando webhooks');
+    } finally {
+      setRegistering(false);
+    }
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
+    if (!msgForm.userId) return toast.error('Seleccioná un destinatario');
+    if (!msgForm.message.trim()) return toast.error('El mensaje no puede estar vacío');
     setSending(true);
     try {
       const res = await api.post('/arizar/send-message', msgForm);
-      toast.success(res.data.message);
-      setMsgForm({ ...msgForm, message: '', subject: '' });
-    } catch (err) { toast.error(err.response?.data?.message || 'Error enviando'); }
-    setSending(false);
+      toast.success(res.data.message || 'Mensaje enviado');
+      setMsgForm((f) => ({ ...f, message: '', subject: '' }));
+      api.invalidate('/arizar/logs');
+      loadLogs();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error enviando el mensaje');
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleBroadcast = async (e) => {
     e.preventDefault();
+    if (!broadcastForm.message.trim()) return toast.error('El mensaje de campaña no puede estar vacío');
     setSending(true);
     try {
       const res = await api.post('/arizar/broadcast', broadcastForm);
-      toast.success(res.data.message);
-    } catch (err) { toast.error('Error enviando broadcast'); }
-    setSending(false);
+      toast.success(res.data.message || 'Difusión enviada');
+      api.invalidate('/arizar/logs');
+      loadLogs();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Error enviando la difusión');
+    } finally {
+      setSending(false);
+    }
   };
 
-  const registrationLink = 'https://luxurygarage.arizar-ia.cloud/register';
-
   const copyLink = () => {
+    if (!registrationLink) return;
     navigator.clipboard.writeText(registrationLink);
-    toast.success('Link copiado al portapapeles');
+    toast.success('Link copiado');
   };
 
   const shareWhatsApp = () => {
-    const msg = encodeURIComponent(`🚗 ¡Registrate en Luxury Garage!\n\nCreá tu cuenta gratis:\n${registrationLink}\n\n✨ Lavados premium, membresías exclusivas y más.`);
+    if (!registrationLink) return toast.error('Link de registro no disponible');
+    const msg = encodeURIComponent(
+      `Registrate en Luxury Garage\n\nCreá tu cuenta:\n${registrationLink}\n\nLavados premium, membresías exclusivas y más.`
+    );
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-      <Loader2 size={40} className="text-primary animate-spin" />
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Iniciando Red Neuronal...</p>
-    </div>
-  );
+  const copyValue = (val, label = 'Copiado') => {
+    if (!val) return;
+    navigator.clipboard.writeText(val);
+    toast.success(label);
+  };
 
-  const tabs = [
-    { id: 'dashboard', label: 'Estatus', icon: <Bot size={16} /> },
-    { id: 'messages', label: 'Mensajería', icon: <MessageSquare size={16} /> },
-    { id: 'broadcast', label: 'Difusión', icon: <Megaphone size={16} /> },
-    { id: 'links', label: 'Captación', icon: <Link size={16} /> },
-    { id: 'logs', label: 'Auditoría', icon: <List size={16} /> },
-  ];
+  // Solo miembros vinculados al CRM pueden recibir mensajes individuales
+  const linkedMembers = members.filter((m) => m.arizarContactId);
+  // Destinatarios reales de la difusión según el filtro
+  const broadcastRecipients =
+    broadcastForm.filter === 'active'
+      ? linkedMembers.filter((m) => m.memberships?.some?.((ms) => ms.status === 'ACTIVE'))
+      : linkedMembers;
+
+  const configured = status?.configured;
+  const online = status?.apiStatus === 'connected';
 
   return (
     <div className="page-content">
-      {/* Header */}
-      <header className="admin-page-header">
-        <div>
-          <h1 className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/30">
-              <Bot size={24} />
-            </div>
-            ARIZAR IA — CRM
-          </h1>
-          <p>Motor de Crecimiento y Automatización de Clientes</p>
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div className="flex items-center gap-3">
+          <span className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shadow-indigo-600/20">
+            <Bot size={22} />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">ARIZAR IA — CRM</h1>
+            <p className="text-sm text-slate-500">Integración de contactos, mensajería y automatización</p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button className="admin-btn-outline" onClick={() => { loadStatus(); loadLogs(); toast.success('Sincronizado'); }}>
-            <RefreshCcw size={14} className={syncing ? 'animate-spin' : ''} /> Refrescar
-          </button>
-          <button className="admin-btn-primary" onClick={handleSyncAll} disabled={syncing}>
-            <Zap size={14} /> Sincronizar Todo
-          </button>
+        <div className="flex items-center gap-2">
+          <motion.button className={btnSecondary} onClick={refreshAll} whileTap={tap}>
+            <RefreshCcw size={15} /> Refrescar
+          </motion.button>
+          <motion.button className={btnPrimary} onClick={handleSyncAll} disabled={syncing || !configured} whileTap={syncing || !configured ? undefined : tap}>
+            {syncing ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
+            {syncing ? 'Sincronizando…' : 'Sincronizar todo'}
+          </motion.button>
         </div>
-      </header>
-
-      {/* Modern Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-2xl w-fit mb-8 border border-slate-200 dark:border-white/5">
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`
-              flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all
-              ${tab === t.id
-                ? 'bg-white dark:bg-slate-800 text-primary shadow-sm border border-slate-200 dark:border-white/10'
-                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}
-            `}
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
       </div>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={tab}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.2 }}
-        >
-          {/* ═══════ DASHBOARD TAB ═══════ */}
+      {/* ── Aviso de configuración ── */}
+      {!loading && !configured && (
+        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10 px-4 py-3">
+          <AlertCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-700 dark:text-amber-300">
+            ARIZAR IA aún no está configurado. Definí <code className="font-mono text-xs">ARIZAR_LOCATION_ID</code> y el token de API en el servidor para habilitar la sincronización y la mensajería.
+          </p>
+        </div>
+      )}
+
+      {/* ── Tabs ── */}
+      <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-white/[0.03] rounded-xl w-fit mb-6 border border-slate-200 dark:border-white/5 overflow-x-auto max-w-full">
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.id;
+          return (
+            <motion.button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              whileTap={tap}
+              className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                active
+                  ? 'text-indigo-600 dark:text-indigo-400'
+                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              {active && (
+                reduceMotion ? (
+                  <span className="absolute inset-0 rounded-lg bg-white dark:bg-slate-800 shadow-sm" />
+                ) : (
+                  <motion.span
+                    layoutId="arizar-tab-pill"
+                    className="absolute inset-0 rounded-lg bg-white dark:bg-slate-800 shadow-sm"
+                    transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+                  />
+                )
+              )}
+              <Icon size={15} className="relative" /> <span className="relative">{t.label}</span>
+            </motion.button>
+          );
+        })}
+      </div>
+
+      <div>
+          {/* ═══════ DASHBOARD ═══════ */}
           {tab === 'dashboard' && (
-            <div className="space-y-8">
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="admin-card">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className={`p-3 rounded-2xl ${status?.configured ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-                      <Activity size={20} />
-                    </div>
-                    <span className={`admin-badge ${status?.apiStatus === 'connected' ? 'admin-badge-success' : 'admin-badge-danger'}`}>
-                      {status?.apiStatus === 'connected' ? 'Online' : 'Offline'}
-                    </span>
-                  </div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Estado de Conexión</p>
-                  <p className="text-xl font-black italic text-slate-900 dark:text-white uppercase">
-                    {status?.configured ? 'Integrado' : 'Sin Configurar'}
-                  </p>
+            <div className="space-y-6">
+              {loading ? (
+                <SkeletonStats count={4} />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatTile
+                    icon={Activity}
+                    accent={online ? 'emerald' : 'rose'}
+                    label="Conexión API"
+                    value={configured ? (online ? 'Conectado' : 'Sin conexión') : 'Sin configurar'}
+                    badge={online ? 'En línea' : 'Desconectado'}
+                    badgeTone={online ? 'emerald' : 'rose'}
+                  />
+                  <StatTile
+                    icon={Users}
+                    accent="indigo"
+                    label="Contactos sincronizados"
+                    value={<AnimatedNumber value={status?.contacts?.synced} format="int" />}
+                    sub={`de ${status?.contacts?.total ?? 0}`}
+                  />
+                  <StatTile
+                    icon={Percent}
+                    accent="violet"
+                    label="Ratio de sincronización"
+                    value={<AnimatedNumber value={status?.contacts?.percentage} format="percent" />}
+                  />
+                  <StatTile
+                    icon={Calendar}
+                    accent="amber"
+                    label="Turnos registrados"
+                    value={<AnimatedNumber value={status?.appointments} format="int" />}
+                  />
                 </div>
+              )}
 
-                <div className="admin-card">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-500">
-                      <Users size={20} />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Identificadores */}
+                <div className={`${card} p-5 space-y-4`}>
+                  <div className="flex items-center gap-2">
+                    <Settings size={16} className="text-slate-400" />
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">Identificadores ARIZAR</h3>
+                  </div>
+                  {loading ? (
+                    <div className="space-y-3">
+                      <Skeleton className="h-14 w-full rounded-xl" />
+                      <Skeleton className="h-14 w-full rounded-xl" />
+                      <Skeleton className="h-14 w-full rounded-xl" />
                     </div>
-                  </div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Contactos Sincronizados</p>
-                  <div className="flex items-baseline gap-2">
-                    <p className="text-2xl font-black italic text-slate-900 dark:text-white">{status?.contacts?.synced || 0}</p>
-                    <p className="text-xs font-bold text-slate-400">/ {status?.contacts?.total || 0}</p>
-                  </div>
-                </div>
-
-                <div className="admin-card">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="p-3 rounded-2xl bg-purple-500/10 text-purple-500">
-                      <Percent size={20} />
-                    </div>
-                  </div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Ratio de Sync</p>
-                  <p className="text-2xl font-black italic text-purple-500">{status?.contacts?.percentage || 0}%</p>
-                </div>
-
-                <div className="admin-card">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-500">
-                      <Calendar size={20} />
-                    </div>
-                  </div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Turnos Registrados</p>
-                  <p className="text-2xl font-black italic text-slate-900 dark:text-white">{status?.appointments || 0}</p>
-                </div>
-              </div>
-
-              {/* API Detail Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="admin-card space-y-6">
-                  <div className="flex items-center gap-3">
-                    <Settings size={18} className="text-primary" />
-                    <h3 className="text-sm font-black uppercase tracking-widest">Identificadores ARIZAR</h3>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 flex items-center justify-between">
-                      <div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Location ID</p>
-                        <p className="text-xs font-bold text-slate-900 dark:text-white font-mono">{status?.locationId || 'PENDIENTE'}</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <IdRow label="Location ID" value={status?.locationId} onCopy={() => copyValue(status?.locationId)} />
+                      <IdRow label="Calendar ID" value={status?.calendarId} onCopy={() => copyValue(status?.calendarId)} />
+                      <IdRow label="Pipeline ID" value={status?.pipelineId} onCopy={() => copyValue(status?.pipelineId)} />
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/10 px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-indigo-500">Webhook</p>
+                          <p className="text-xs font-mono text-indigo-600 dark:text-indigo-300 truncate">{status?.webhookUrl}</p>
+                        </div>
+                        <ShieldCheck size={18} className="text-indigo-500 shrink-0" />
                       </div>
-                      <button onClick={() => { navigator.clipboard.writeText(status?.locationId); toast.success('Copiado'); }} className="text-slate-400 hover:text-primary"><Copy size={14} /></button>
-                    </div>
-                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-white/5 flex items-center justify-between">
-                      <div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Calendar ID</p>
-                        <p className="text-xs font-bold text-slate-900 dark:text-white font-mono">{status?.calendarId || 'PENDIENTE'}</p>
-                      </div>
-                      <button onClick={() => { navigator.clipboard.writeText(status?.calendarId); toast.success('Copiado'); }} className="text-slate-400 hover:text-primary"><Copy size={14} /></button>
-                    </div>
-                    <div className="p-4 rounded-2xl border border-primary/20 bg-primary/5 flex items-center justify-between">
-                      <div>
-                        <p className="text-[9px] font-black text-primary uppercase tracking-widest">Webhook Status</p>
-                        <p className="text-xs font-bold text-primary font-mono truncate max-w-[200px]">{status?.webhookUrl}</p>
-                      </div>
-                      <ShieldCheck size={20} className="text-primary" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="admin-card space-y-6">
-                  <div className="flex items-center gap-3">
-                    <Zap size={18} className="text-amber-500" />
-                    <h3 className="text-sm font-black uppercase tracking-widest">Acciones Rápidas</h3>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3">
-                    <button onClick={handleTestConnection} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-white/5 hover:border-primary transition-all group">
-                      <div className="flex items-center gap-3">
-                        <Bot size={18} className="text-slate-400 group-hover:text-primary" />
-                        <span className="text-xs font-black uppercase tracking-widest">Probar Conexión API</span>
-                      </div>
-                      <ChevronRight size={14} className="text-slate-400" />
-                    </button>
-                    <button onClick={handleRegisterWebhooks} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-white/5 hover:border-emerald-500 transition-all group">
-                      <div className="flex items-center gap-3">
-                        <Globe size={18} className="text-slate-400 group-hover:text-emerald-500" />
-                        <span className="text-xs font-black uppercase tracking-widest">Refrescar Webhooks</span>
-                      </div>
-                      <ChevronRight size={14} className="text-slate-400" />
-                    </button>
-                    <div className="p-6 rounded-3xl bg-amber-500/5 border border-dashed border-amber-500/20 text-center space-y-2">
-                      <AlertCircle size={24} className="text-amber-500 mx-auto" />
-                      <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Sincronización Crítica</p>
-                      <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest leading-relaxed">Se recomienda sincronizar contactos <br /> cada vez que se realice una carga masiva.</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ═══════ MESSAGES TAB ═══════ */}
-          {tab === 'messages' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="md:col-span-2 admin-card space-y-8">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-black uppercase tracking-widest mb-1">Nueva Comunicación</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Envío individual directo</p>
-                  </div>
-                  <div className="flex gap-2">
-                    {['whatsapp', 'sms', 'email'].map(ch => (
-                      <button
-                        key={ch}
-                        onClick={() => setMsgForm({ ...msgForm, channel: ch })}
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${msgForm.channel === ch ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-110' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}
-                      >
-                        {ch === 'whatsapp' ? <MessageSquare size={16} /> : ch === 'sms' ? <Phone size={16} /> : <Mail size={16} />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <form onSubmit={handleSendMessage} className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="admin-label">Seleccionar Miembro</label>
-                    <div className="relative">
-                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                      <select
-                        className="admin-input pl-12"
-                        value={msgForm.userId}
-                        onChange={e => setMsgForm({ ...msgForm, userId: e.target.value })}
-                        required
-                      >
-                        <option value="">Buscar socio...</option>
-                        {members.map(m => (
-                          <option key={m.id} value={m.id}>{m.firstName} {m.lastName} — {m.email}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {msgForm.channel === 'email' && (
-                    <div className="space-y-2">
-                      <label className="admin-label">Asunto del Email</label>
-                      <input className="admin-input" value={msgForm.subject} onChange={e => setMsgForm({ ...msgForm, subject: e.target.value })} placeholder="Ej: Confirmación de Turno" />
                     </div>
                   )}
-
-                  <div className="space-y-2">
-                    <label className="admin-label">Contenido del Mensaje</label>
-                    <textarea
-                      className="admin-input min-h-[160px] resize-none pt-4"
-                      value={msgForm.message}
-                      onChange={e => setMsgForm({ ...msgForm, message: e.target.value })}
-                      required
-                      placeholder="Hola {{nombre}}, tu turno para hoy a las {{hora}} está confirmado."
-                    />
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Etiquetas disponibles: {'{{nombre}}'}, {'{{monto}}'}, {'{{fecha}}'}</p>
-                  </div>
-
-                  <button type="submit" className="admin-btn-primary w-full py-4" disabled={sending}>
-                    {sending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
-                    {sending ? 'PROCESANDO ENVÍO...' : 'ENVIAR MENSAJE AHORA'}
-                  </button>
-                </form>
-              </div>
-
-              <div className="space-y-6">
-                <div className="admin-card">
-                  <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-6">Guía de Canales</h4>
-                  <div className="space-y-6">
-                    <div className="flex gap-4">
-                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
-                        <MessageSquare size={18} />
-                      </div>
-                      <div>
-                        <p className="text-xs font-black uppercase italic tracking-tighter">WhatsApp</p>
-                        <p className="text-[10px] font-bold text-slate-400 mt-0.5 leading-normal uppercase">Ideal para recordatorios urgentes y promociones directas.</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="w-10 h-10 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
-                        <Mail size={18} />
-                      </div>
-                      <div>
-                        <p className="text-xs font-black uppercase italic tracking-tighter">Email Marketing</p>
-                        <p className="text-[10px] font-bold text-slate-400 mt-0.5 leading-normal uppercase">Novedades semanales y estados de cuenta.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ═══════ BROADCAST TAB ═══════ */}
-          {tab === 'broadcast' && (
-            <div className="max-w-4xl mx-auto space-y-8">
-              <div className="admin-card border-primary/20 bg-primary/5 text-center p-12 space-y-4">
-                <Megaphone size={40} className="text-primary mx-auto" />
-                <h2 className="text-2xl font-black italic tracking-tighter uppercase italic">Transmisión Masiva</h2>
-                <p className="max-w-md mx-auto text-xs font-bold text-slate-500 uppercase tracking-widest leading-relaxed">
-                  Envía notificaciones a toda tu base de datos de manera simultánea a través de ARIZAR CRM.
-                </p>
-              </div>
-
-              <div className="admin-card">
-                <form onSubmit={handleBroadcast} className="space-y-8">
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="admin-label">Red de Envío</label>
-                      <select className="admin-select" value={broadcastForm.channel} onChange={e => setBroadcastForm({ ...broadcastForm, channel: e.target.value })}>
-                        <option value="whatsapp">WhatsApp Business</option>
-                        <option value="sms">SMS Marketing</option>
-                        <option value="email">Email Campaign</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="admin-label">Segmentación</label>
-                      <select className="admin-select" value={broadcastForm.filter} onChange={e => setBroadcastForm({ ...broadcastForm, filter: e.target.value })}>
-                        <option value="active">Solo Miembros Activos</option>
-                        <option value="all">Toda la Base de Datos</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="admin-label">Mensaje de Campaña</label>
-                    <textarea
-                      className="admin-input min-h-[200px]"
-                      value={broadcastForm.message}
-                      onChange={e => setBroadcastForm({ ...broadcastForm, message: e.target.value })}
-                      required
-                      placeholder="Lanzamos nuestra nueva colección de servicios..."
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-6 rounded-3xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 size={24} className="text-emerald-500" />
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-widest">Validación de Lote</p>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tu campaña alcanzará a aproximadamente 120 personas.</p>
-                      </div>
-                    </div>
-                    <button type="submit" className="admin-btn-primary px-10" disabled={sending}>
-                      {sending ? 'EJECUTANDO DIFUSIÓN...' : 'LANZAR CAMPAÑA'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* ═══════ LINKS TAB ═══════ */}
-          {tab === 'links' && (
-            <div className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="admin-card space-y-6">
-                  <h3 className="text-sm font-black uppercase tracking-widest">Enlace de Auto-Registro</h3>
-                  <p className="text-[11px] font-bold text-slate-500 leading-relaxed uppercase tracking-widest">
-                    Comparte este enlace en tus redes sociales o estados para que los clientes se registren y se vinculen automáticamente a tu CRM.
-                  </p>
-
-                  <div className="group relative">
-                    <input
-                      className="admin-input pr-12 font-mono text-xs text-primary bg-primary/5 border-primary/20"
-                      value={registrationLink}
-                      readOnly
-                    />
-                    <button
-                      onClick={copyLink}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-400 hover:text-primary hover:border-primary transition-all shadow-sm"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-
-                  <div className="flex gap-3">
-                    <button onClick={shareWhatsApp} className="flex-1 py-4 bg-[#25D366] text-white rounded-2xl flex items-center justify-center gap-2 font-black uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">
-                      <MessageSquare size={16} /> Compartir por WhatsApp
-                    </button>
-                  </div>
                 </div>
 
-                <div className="admin-card space-y-6">
-                  <h3 className="text-sm font-black uppercase tracking-widest">Embudos de Entrada</h3>
+                {/* Acciones */}
+                <div className={`${card} p-5 space-y-4`}>
+                  <div className="flex items-center gap-2">
+                    <Zap size={16} className="text-slate-400" />
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">Acciones</h3>
+                  </div>
                   <div className="space-y-3">
-                    {[
-                      { icon: <MessageSquare className="text-emerald-500" />, title: 'WhatsApp Automation', status: 'ACTIVO' },
-                      { icon: <Globe className="text-blue-500" />, title: 'Landing de Ventas', status: 'ACTIVO' },
-                      { icon: <ExternalLink className="text-purple-500" />, title: 'Referidos VIP', status: 'ACTIVO' },
-                    ].map((item, i) => (
-                      <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-white/5">
-                        <div className="flex items-center gap-3">
-                          {item.icon}
-                          <span className="text-xs font-black uppercase tracking-widest">{item.title}</span>
-                        </div>
-                        <span className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em]">{item.status}</span>
-                      </div>
-                    ))}
+                    <ActionRow
+                      icon={Bot}
+                      title="Probar conexión API"
+                      desc="Verifica el acceso a ARIZAR IA"
+                      onClick={handleTestConnection}
+                      loading={testing}
+                      disabled={!configured}
+                    />
+                    <ActionRow
+                      icon={Globe}
+                      title="Refrescar webhooks"
+                      desc="Re-registra los eventos del CRM"
+                      onClick={handleRegisterWebhooks}
+                      loading={registering}
+                      disabled={!configured}
+                    />
+                    <ActionRow
+                      icon={RefreshCcw}
+                      title="Sincronizar todos los contactos"
+                      desc="Empuja todos los clientes al CRM"
+                      onClick={handleSyncAll}
+                      loading={syncing}
+                      disabled={!configured}
+                    />
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ═══════ LOGS TAB ═══════ */}
-          {tab === 'logs' && (
-            <div className="space-y-6">
-              <div className="table-container">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Timestamp</th>
-                      <th>Operación</th>
-                      <th>Entidad</th>
-                      <th>Originador</th>
-                      <th>Detalles del Nodo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logs.map((log, i) => (
-                      <motion.tr
-                        key={log.id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: i * 0.01 }}
-                      >
-                        <td className="text-[10px] font-mono font-bold text-slate-400">
-                          {new Date(log.createdAt).toLocaleString()}
-                        </td>
-                        <td>
-                          <span className={`admin-badge ${log.action.includes('error') ? 'admin-badge-danger' : 'admin-badge-success'}`}>
-                            {log.action}
-                          </span>
-                        </td>
-                        <td className="text-xs font-black uppercase tracking-widest">{log.entity}</td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-[8px] font-black">
-                              {log.user?.firstName?.[0]}
-                            </div>
-                            <span className="text-xs font-bold">{log.user?.firstName} {log.user?.lastName}</span>
-                          </div>
-                        </td>
-                        <td className="max-w-[200px] truncate text-[10px] font-mono text-slate-400">
-                          {JSON.stringify(log.details)}
-                        </td>
-                      </motion.tr>
+          {/* ═══════ MENSAJERÍA ═══════ */}
+          {tab === 'messages' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className={`lg:col-span-2 ${card} p-5 space-y-5`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">Mensaje individual</h3>
+                    <p className="text-sm text-slate-500">Enviá a un cliente vinculado al CRM</p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    {CHANNELS.map((ch) => {
+                      const Icon = ch.icon;
+                      const active = msgForm.channel === ch.id;
+                      return (
+                        <motion.button
+                          key={ch.id}
+                          type="button"
+                          title={ch.label}
+                          onClick={() => setMsgForm({ ...msgForm, channel: ch.id })}
+                          whileTap={tapSmall}
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${
+                            active
+                              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20'
+                              : 'bg-slate-100 dark:bg-white/5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                          }`}
+                        >
+                          <Icon size={15} />
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <form onSubmit={handleSendMessage} className="space-y-4">
+                  <FormField
+                    as="select"
+                    label="Destinatario"
+                    name="userId"
+                    required
+                    value={msgForm.userId}
+                    onChange={(e) => setMsgForm({ ...msgForm, userId: e.target.value })}
+                    hint={
+                      linkedMembers.length === 0
+                        ? 'No hay clientes vinculados al CRM todavía. Sincronizá contactos primero.'
+                        : `${linkedMembers.length} cliente(s) vinculado(s) al CRM`
+                    }
+                  >
+                    <option value="">Seleccionar cliente…</option>
+                    {linkedMembers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.firstName} {m.lastName} — {m.email}
+                      </option>
                     ))}
-                  </tbody>
-                </table>
+                  </FormField>
+
+                  {msgForm.channel === 'email' && (
+                    <FormField
+                      label="Asunto"
+                      name="subject"
+                      value={msgForm.subject}
+                      onChange={(e) => setMsgForm({ ...msgForm, subject: e.target.value })}
+                      placeholder="Ej: Confirmación de turno"
+                    />
+                  )}
+
+                  <FormField
+                    as="textarea"
+                    label="Mensaje"
+                    name="message"
+                    required
+                    rows={6}
+                    value={msgForm.message}
+                    onChange={(e) => setMsgForm({ ...msgForm, message: e.target.value })}
+                    placeholder="Hola {{nombre}}, tu turno está confirmado."
+                    hint="Variable disponible: {{nombre}}"
+                  />
+
+                  <motion.button type="submit" className={`${btnPrimary} w-full justify-center py-2.5`} disabled={sending || !configured} whileTap={sending || !configured ? undefined : tap}>
+                    {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    {sending ? 'Enviando…' : 'Enviar mensaje'}
+                  </motion.button>
+                </form>
+              </div>
+
+              <div className={`${card} p-5 space-y-5`}>
+                <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Canales</h4>
+                <ChannelHint icon={MessageSquare} tone="emerald" title="WhatsApp" desc="Recordatorios y promociones directas." />
+                <ChannelHint icon={Phone} tone="sky" title="SMS" desc="Avisos cortos sin conexión a datos." />
+                <ChannelHint icon={Mail} tone="indigo" title="Email" desc="Novedades y estados de cuenta." />
+                <div className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] px-4 py-3">
+                  <p className="text-xs text-slate-500">
+                    Solo los clientes con contacto sincronizado en ARIZAR pueden recibir mensajes. Usá “Sincronizar todo” en la pestaña Estado.
+                  </p>
+                </div>
               </div>
             </div>
           )}
-        </motion.div>
-      </AnimatePresence>
+
+          {/* ═══════ DIFUSIÓN ═══════ */}
+          {tab === 'broadcast' && (
+            <div className="max-w-3xl mx-auto">
+              <div className={`${card} p-5 space-y-5`}>
+                <div className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                    <Megaphone size={18} />
+                  </span>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">Difusión masiva</h3>
+                    <p className="text-sm text-slate-500">Enviá un mensaje a tu base sincronizada en ARIZAR</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleBroadcast} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField
+                      as="select"
+                      label="Canal"
+                      name="channel"
+                      value={broadcastForm.channel}
+                      onChange={(e) => setBroadcastForm({ ...broadcastForm, channel: e.target.value })}
+                    >
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="sms">SMS</option>
+                      <option value="email">Email</option>
+                    </FormField>
+                    <FormField
+                      as="select"
+                      label="Segmento"
+                      name="filter"
+                      value={broadcastForm.filter}
+                      onChange={(e) => setBroadcastForm({ ...broadcastForm, filter: e.target.value })}
+                    >
+                      <option value="active">Solo miembros activos</option>
+                      <option value="all">Todos los clientes</option>
+                    </FormField>
+                  </div>
+
+                  {broadcastForm.channel === 'email' && (
+                    <FormField
+                      label="Asunto"
+                      name="b-subject"
+                      value={broadcastForm.subject}
+                      onChange={(e) => setBroadcastForm({ ...broadcastForm, subject: e.target.value })}
+                      placeholder="Ej: Novedades de Luxury Garage"
+                    />
+                  )}
+
+                  <FormField
+                    as="textarea"
+                    label="Mensaje de campaña"
+                    name="b-message"
+                    required
+                    rows={7}
+                    value={broadcastForm.message}
+                    onChange={(e) => setBroadcastForm({ ...broadcastForm, message: e.target.value })}
+                    placeholder="Lanzamos nuevos servicios premium…"
+                    hint="Variable disponible: {{nombre}}"
+                  />
+
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
+                      <p className="text-sm text-slate-600 dark:text-slate-300">
+                        Alcance estimado:{' '}
+                        <AnimatedNumber className="font-semibold text-slate-900 dark:text-white tabular-nums" value={broadcastRecipients.length} format="int" />{' '}
+                        contacto(s) vinculado(s)
+                      </p>
+                    </div>
+                    <motion.button type="submit" className={btnPrimary} disabled={sending || !configured} whileTap={sending || !configured ? undefined : tap}>
+                      {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                      {sending ? 'Enviando…' : 'Lanzar campaña'}
+                    </motion.button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ CAPTACIÓN ═══════ */}
+          {tab === 'links' && (
+            <div className="max-w-2xl">
+              <div className={`${card} p-5 space-y-5`}>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">Enlace de auto-registro</h3>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Compartí este link para que nuevos clientes se registren y se vinculen automáticamente al CRM.
+                  </p>
+                </div>
+
+                {registrationLink ? (
+                  <>
+                    <div className="relative">
+                      <input
+                        readOnly
+                        value={registrationLink}
+                        className="w-full bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-white/10 rounded-xl pl-3.5 pr-11 py-2.5 text-sm font-mono text-slate-700 dark:text-slate-200 focus:outline-none"
+                      />
+                      <motion.button
+                        type="button"
+                        onClick={copyLink}
+                        whileTap={tapSmall}
+                        title="Copiar"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center justify-center transition-colors"
+                      >
+                        <Copy size={15} />
+                      </motion.button>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <motion.button onClick={copyLink} className={`${btnSecondary} flex-1 justify-center`} whileTap={tap}>
+                        <Copy size={15} /> Copiar link
+                      </motion.button>
+                      <motion.button onClick={shareWhatsApp} className={`${btnPrimary} flex-1 justify-center`} whileTap={tap}>
+                        <MessageSquare size={15} /> Compartir por WhatsApp
+                      </motion.button>
+                    </div>
+                  </>
+                ) : (
+                  <EmptyState
+                    icon="🔗"
+                    title="Link no disponible"
+                    message="No se pudo obtener el enlace de registro. Verificá la configuración del servidor."
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ AUDITORÍA ═══════ */}
+          {tab === 'logs' && (
+            <>
+              {logsLoading ? (
+                <SkeletonTable rows={6} cols={5} />
+              ) : logs.length === 0 ? (
+                <div className={`${card} p-6`}>
+                  <EmptyState
+                    icon="📋"
+                    title="Sin registros"
+                    message="Las acciones de ARIZAR (sincronización, mensajes, difusiones) aparecerán acá."
+                  />
+                </div>
+              ) : (
+                <div className={`${card} overflow-hidden`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50/60 dark:bg-white/[0.02] text-left text-xs font-medium text-slate-400 uppercase tracking-wide">
+                          <th className="px-5 py-3.5 font-medium">Fecha</th>
+                          <th className="px-5 py-3.5 font-medium">Acción</th>
+                          <th className="px-5 py-3.5 font-medium">Entidad</th>
+                          <th className="px-5 py-3.5 font-medium">Usuario</th>
+                          <th className="px-5 py-3.5 font-medium">Detalles</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {logs.map((log) => {
+                          const isError = String(log.action || '').toLowerCase().includes('error');
+                          return (
+                            <tr
+                              key={log.id}
+                              className="border-b border-slate-50 dark:border-white/5 last:border-0 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors"
+                            >
+                              <td className="px-5 py-3.5 text-xs text-slate-400 whitespace-nowrap font-mono">
+                                {new Date(log.createdAt).toLocaleString('es-PY')}
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <span
+                                  className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${
+                                    isError
+                                      ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                                      : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                  }`}
+                                >
+                                  {log.action}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{log.entity}</td>
+                              <td className="px-5 py-3.5">
+                                {log.user ? (
+                                  <span className="text-slate-700 dark:text-slate-200">
+                                    {log.user.firstName} {log.user.lastName}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">Sistema</span>
+                                )}
+                              </td>
+                              <td className="px-5 py-3.5 max-w-[260px]">
+                                <span className="block truncate text-xs font-mono text-slate-400">
+                                  {log.detailsJson ? JSON.stringify(log.detailsJson) : '—'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Subcomponentes ── */
+
+const ACCENTS = {
+  emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400',
+  indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
+  violet: 'bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400',
+  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400',
+};
+
+const TONE_BADGE = {
+  emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400',
+};
+
+function StatTile({ icon: Icon, accent = 'indigo', label, value, sub, badge, badgeTone }) {
+  return (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm p-5">
+      <div className="flex items-center justify-between mb-4">
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${ACCENTS[accent]}`}>
+          <Icon size={18} />
+        </span>
+        {badge && (
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-lg ${TONE_BADGE[badgeTone] || TONE_BADGE.emerald}`}>
+            {badge}
+          </span>
+        )}
+      </div>
+      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">{label}</p>
+      <div className="flex items-baseline gap-1.5 mt-1">
+        <p className="text-xl font-semibold text-slate-900 dark:text-white tabular-nums">{value}</p>
+        {sub && <p className="text-sm text-slate-400">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+function IdRow({ label, value, onCopy }) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-slate-400">{label}</p>
+        <p className="text-xs font-mono text-slate-700 dark:text-slate-200 truncate">{value || 'Pendiente'}</p>
+      </div>
+      {value && (
+        <motion.button onClick={onCopy} whileTap={reduceMotion ? undefined : { scale: 0.9 }} className="shrink-0 text-slate-400 hover:text-indigo-600 transition-colors" title="Copiar">
+          <Copy size={14} />
+        </motion.button>
+      )}
+    </div>
+  );
+}
+
+function ActionRow({ icon: Icon, title, desc, onClick, loading, disabled }) {
+  const reduceMotion = useReducedMotion();
+  const inert = loading || disabled;
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      disabled={inert}
+      whileTap={inert || reduceMotion ? undefined : { scale: 0.98 }}
+      className="w-full flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] px-4 py-3 text-left hover:border-indigo-300 dark:hover:border-indigo-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="w-8 h-8 rounded-lg bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-colors shrink-0">
+          {loading ? <Loader2 size={15} className="animate-spin" /> : <Icon size={15} />}
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{title}</p>
+          <p className="text-xs text-slate-400 truncate">{desc}</p>
+        </div>
+      </div>
+      <ChevronRight size={15} className="text-slate-300 dark:text-slate-600 shrink-0" />
+    </motion.button>
+  );
+}
+
+function ChannelHint({ icon: Icon, tone, title, desc }) {
+  return (
+    <div className="flex gap-3">
+      <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${ACCENTS[tone]}`}>
+        <Icon size={16} />
+      </span>
+      <div>
+        <p className="text-sm font-medium text-slate-900 dark:text-white">{title}</p>
+        <p className="text-xs text-slate-400 mt-0.5">{desc}</p>
+      </div>
     </div>
   );
 }

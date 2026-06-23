@@ -5,3 +5,9 @@ dist/
 *.log
 .DS_Store
 package-lock.json
+
+# Herramientas locales / artefactos (no van al repo)
+.opencode/
+.playwright-mcp/
+.claude/skills/
+dev-dist/

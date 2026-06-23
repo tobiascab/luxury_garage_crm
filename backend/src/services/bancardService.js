@@ -42,7 +42,7 @@ class BancardService {
           shop_process_id: shopProcessId,
           amount: amountStr,
           currency,
-          additional_data: description || '',
+          additional_data: '', // SOLO para códigos de promoción Bancard (ej: "099VS ORO000045"); vacío = pago normal. NO poner la descripción acá.
           description: description || '',
           return_url: returnUrl,
           cancel_url: cancelUrl
@@ -138,8 +138,9 @@ class BancardService {
           token,
           shop_process_id: shopProcessId,
           amount: amountStr,
+          number_of_payments: 1,
           currency,
-          additional_data: description || '',
+          additional_data: '', // SOLO para códigos de promoción Bancard (ej: "099VS ORO000045"); vacío = pago normal. NO poner la descripción acá.
           description: description || '',
           alias_token: aliasToken,
           return_url: returnUrl || '',
@@ -153,7 +154,11 @@ class BancardService {
       }
 
       const confirmation = data.confirmation || {};
-      const approved = confirmation.response === 'S';
+      // Bancard devuelve response='S' (request PROCESADO) incluso cuando DENIEGA el cobro
+      // (ej. response_code='12' "Transacción denegada"). La aprobación REAL exige AMBOS:
+      // response 'S' y response_code '00'. Sin el code, un cobro rechazado se trataría como
+      // aprobado → membresía/saldo gratis. Mismo predicado que el webhook y get_confirmation.
+      const approved = confirmation.response === 'S' && String(confirmation.response_code) === '00';
       const threeDsProcessId = confirmation.process_id || null;
       const threeDsRequired = !!(
         threeDsProcessId &&

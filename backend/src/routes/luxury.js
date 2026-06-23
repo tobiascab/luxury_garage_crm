@@ -1,7 +1,41 @@
 const router = require('express').Router();
+const crypto = require('crypto');
 const { authenticate, authorize } = require('../middleware/auth');
 const arizarService = require('../services/arizarService');
 const ArizarSync = require('../services/arizarSync');
+const inventoryService = require('../services/inventoryService');
+const pushService = require('../services/pushService');
+
+// ── Token del carnet QR — FIRMADO con HMAC ────────────────────────────────────────────────
+// El QR del cliente lo emite SOLO el backend (GET /qr/token), firmado con QR_SECRET. Antes el
+// token era `LUXURY-<userId>-<ts>` en texto plano y un EMPLEADO podía fabricar el de cualquier
+// cliente (redimir su reserva, consumir inventario). Ahora la firma lo impide. Vence a los 15 min.
+const QR_SECRET = process.env.QR_SECRET || process.env.JWT_SECRET || 'luxury-qr-fallback-secret';
+const QR_VALIDITY_MS = 15 * 60 * 1000;
+
+function signQrPayload(userId, ts) {
+  return crypto.createHmac('sha256', QR_SECRET).update(`${userId}.${ts}`).digest('hex').slice(0, 24);
+}
+function buildQrToken(userId) {
+  const ts = Date.now();
+  return `LUXURY-${userId}-${ts}-${signQrPayload(userId, ts)}`;
+}
+function verifyQrToken(token) {
+  if (!token || !token.startsWith('LUXURY-')) return { ok: false, reason: 'format' };
+  const parts = token.split('-');
+  if (parts.length < 4) return { ok: false, reason: 'format' };
+  const sig = parts.pop();
+  const ts = parseInt(parts.pop(), 10);
+  const userId = parts.slice(1).join('-');
+  if (!userId || !Number.isFinite(ts)) return { ok: false, reason: 'format' };
+  const expected = signQrPayload(userId, ts);
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    return { ok: false, reason: 'signature' };
+  }
+  if (ts > Date.now() + 60_000) return { ok: false, reason: 'future' }; // timestamp futuro = inválido
+  if (Date.now() - ts > QR_VALIDITY_MS) return { ok: false, reason: 'expired' };
+  return { ok: true, userId, ts };
+}
 
 /**
  * GET /api/luxury/profile/full
@@ -18,8 +52,10 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
                     firstName: true,
                     lastName: true,
                     email: true,
+                    phone: true,
                     role: true,
                     avatarUrl: true,
+                    createdAt: true,
                     memberships: {
                         where: { status: 'ACTIVE' },
                         include: { plan: { select: { name: true, priceGs: true } } },
@@ -38,7 +74,8 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
                         },
                         orderBy: { startTime: 'desc' },
                         take: 5 // Dashboard only needs a few
-                    }
+                    },
+                    _count: { select: { vehicles: true, appointments: true } }
                 }
             }),
             req.prisma.credit.aggregate({
@@ -62,6 +99,8 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
                 ...user,
                 name: `${user.firstName} ${user.lastName}`,
                 wallet_balance,
+                vehicleCount: user._count?.vehicles ?? user.vehicles.length,
+                appointmentCount: user._count?.appointments ?? user.appointments.length,
                 membership_status: activeMembership ? 'Activa' : 'Inactiva',
                 activeMembership,
                 bookings: user.appointments.map(a => ({
@@ -77,6 +116,15 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
 });
 
 /**
+ * GET /api/luxury/qr/token
+ * Emite el token FIRMADO (HMAC) del carnet del cliente autenticado (válido 15 min).
+ * El frontend lo usa como contenido del QR — ya NO genera el token por su cuenta.
+ */
+router.get('/qr/token', authenticate, (req, res) => {
+    res.json({ success: true, token: buildQrToken(req.user.id), validityMs: QR_VALIDITY_MS });
+});
+
+/**
  * POST /api/luxury/qr/scan
  * Employee scans a client QR
  */
@@ -85,26 +133,16 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
         const { token } = req.body;
         const employeeId = req.user.id;
 
-        if (!token || !token.startsWith('LUXURY-')) {
-            return res.status(400).json({ success: false, message: 'QR inválido' });
+        // Validación con FIRMA HMAC: el token lo emite el backend (GET /qr/token). Un empleado ya
+        // NO puede fabricar el QR de otro cliente. Rechaza adulterados, con timestamp futuro y vencidos.
+        const v = verifyQrToken(token);
+        if (!v.ok) {
+            const msg = v.reason === 'expired' ? 'QR expirado'
+                : v.reason === 'signature' ? 'QR inválido o adulterado'
+                : 'QR inválido';
+            return res.status(400).json({ success: false, message: msg });
         }
-
-        console.log(`[DEBUG_QR] Token recibido: ${token}`);
-        const parts = token.split('-');
-        if (parts.length < 3) return res.status(400).json({ success: false, message: 'QR inválido (formato)' });
-
-        // The timestamp is always the last part, the userId is everything in between the prefix 'LUXURY' and the timestamp
-        const timestamp = parseInt(parts.pop());
-        const userId = parts.slice(1).join('-'); // Join back everything after 'LUXURY'
-
-        const diff = Date.now() - timestamp;
-        console.log(`[DEBUG_QR] Token valid: ${token}, UserID: ${userId}, diff: ${diff}ms`);
-
-        // QR válido por 15 minutos máximo
-        const QR_VALIDITY_MS = 15 * 60 * 1000;  // 15 minutos
-        if (Math.abs(diff) > QR_VALIDITY_MS) {
-            return res.status(400).json({ success: false, message: 'QR expirado' });
-        }
+        const userId = v.userId;
 
         // Fetch user
         const user = await req.prisma.user.findUnique({
@@ -117,104 +155,80 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
 
         if (!user) return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
 
-        let vehicle = user.vehicles[0];
         const activeMembership = user.memberships[0];
 
-        // Check if user has an active membership or credits
-        if (!activeMembership) {
-            // In LUXURY they might allow it anyway or check credits, but for now we follow main logic
-        }
-
-        const defaultService = await req.prisma.service.findFirst({
-            where: { isActive: true },
-            orderBy: { basePriceGs: 'asc' }
+        // ── Fase 2: el QR redime la RESERVA real del cliente (no crea un lavado por defecto). ──
+        // Buscar la reserva redimible: una cita CONFIRMED (reservada, aún no completada) o
+        // IN_PROGRESS (turno que el empleado ya inició desde el panel) → el QR también lo cierra.
+        // Si no hay → bloquear (cubre el caso "usó todo el cupo y no reservó/pagó").
+        const reservation = await req.prisma.appointment.findFirst({
+            where: { userId: user.id, status: { in: ['CONFIRMED', 'IN_PROGRESS'] } },
+            include: { service: true, vehicle: true },
+            orderBy: { startTime: 'asc' },
         });
-
-        if (!defaultService) {
-            return res.status(400).json({ success: false, message: 'Error de configuración: No hay servicios disponibles.' });
-        }
-
-        // Si estamos en entorno de prueba y no tiene vehículo, le creamos uno genérico
-        if (!vehicle) {
-            vehicle = await req.prisma.vehicle.create({
-                data: {
-                    userId: user.id,
-                    brand: 'Genérico',
-                    model: 'Vehículo de Prueba',
-                    year: new Date().getFullYear(),
-                    licensePlate: 'TEST-' + Math.floor(Math.random() * 10000),
-                    color: '-',
-                    isPrimary: true
-                }
+        if (!reservation) {
+            return res.status(400).json({
+                success: false,
+                code: 'NO_RESERVATION',
+                message: 'El cliente no tiene una reserva pendiente. Pedile que reserve su turno primero.',
             });
         }
 
-        // Register the wash (Appointment)
-        const appointment = await req.prisma.appointment.create({
-            data: {
-                userId: user.id,
-                vehicleId: vehicle.id,
-                employeeId: employeeId,
-                serviceId: defaultService.id,
-                date: new Date(),
-                startTime: new Date(),
-                endTime: new Date(),
-                status: 'COMPLETED',
-                notes: 'Lavado registrado vía QR'
-            }
+        // Completar ESA reserva (con su servicio y tamaño reales).
+        const completed = await req.prisma.appointment.update({
+            where: { id: reservation.id },
+            data: { status: 'COMPLETED', employeeId },
+            include: { service: true, vehicle: true },
         });
+        const vehicle = completed.vehicle;
 
-        // Create service record
-        await req.prisma.serviceRecord.create({
-            data: {
-                appointmentId: appointment.id,
-                employeeId: employeeId,
-                completedAt: new Date(),
-                notes: 'Lavado directo por QR'
-            }
-        });
-
-        // Increment usage in membership
-        if (activeMembership) {
-            await req.prisma.membership.update({
-                where: { id: activeMembership.id },
-                data: { servicesUsed: { increment: 1 } }
+        // ServiceRecord de esta cita (crear o actualizar).
+        let serviceRecord = await req.prisma.serviceRecord.findUnique({ where: { appointmentId: completed.id } });
+        if (serviceRecord) {
+            serviceRecord = await req.prisma.serviceRecord.update({
+                where: { id: serviceRecord.id },
+                data: { completedAt: new Date() },
+            });
+        } else {
+            serviceRecord = await req.prisma.serviceRecord.create({
+                data: { appointmentId: completed.id, employeeId, startedAt: new Date(), completedAt: new Date(), notes: 'Registrado vía QR' },
             });
         }
 
-        // Get total washes this month
+        // Descuento automático de inventario según la receta del servicio (no bloquea).
+        await inventoryService.consumeStockForService(req.prisma, {
+            serviceRecordId: serviceRecord.id,
+            serviceId: completed.serviceId,
+            vehicleSize: completed.vehicleSize || null,
+            employeeId,
+        });
+
+        // Lavados completados del mes (para el resumen del operario).
         const washesThisMonth = await req.prisma.appointment.count({
-            where: {
-                userId: user.id,
-                status: 'COMPLETED',
-                date: {
-                    gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-                }
-            }
+            where: { userId: user.id, status: 'COMPLETED', date: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } },
         });
 
-        // ── ARIZAR IA FULL SYNC ─────────────────────────────────────────────
-        // Fetch full appointment with relations for proper sync
+        // ── ARIZAR IA SYNC ──
         try {
             const fullUser = await req.prisma.user.findUnique({ where: { id: user.id } });
-            const fullAppointment = await req.prisma.appointment.findUnique({
-                where: { id: appointment.id },
-                include: { service: true, vehicle: true }
-            });
-            const fullServiceRecord = await req.prisma.serviceRecord.findFirst({
-                where: { appointmentId: appointment.id }
-            });
             if (fullUser?.arizarContactId) {
                 const sync = new ArizarSync(req.prisma);
-                await sync.syncServiceCompleted(fullUser, fullAppointment, fullServiceRecord);
+                await sync.syncServiceCompleted(fullUser, completed, serviceRecord);
                 console.log(`✅ ARIZAR: Servicio QR sincronizado para ${fullUser.email}`);
             }
         } catch (e) { console.error('ARIZAR sync error (qr-scan):', e.message); }
-        // ───────────────────────────────────────────────────────────────────────
+
+        // Push best-effort al cliente: su lavado quedó registrado.
+        pushService.sendToUser(req.prisma, user.id, {
+            title: '¡Tu lavado está listo! ✨',
+            body: `${completed.service?.name || 'Tu servicio'} fue registrado. ¡Gracias por elegirnos!`,
+            type: 'wash_done',
+            url: '/qr',
+        }).catch((e) => console.error('[push] wash-done falló:', e.message));
 
         res.json({
             success: true,
-            message: '¡Lavado registrado correctamente!',
+            message: `¡${completed.service?.name || 'Servicio'} registrado!`,
             data: {
                 client: {
                     id: user.id,
@@ -222,9 +236,11 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
                     role: activeMembership?.plan?.name || user.role,
                     vehicle: vehicle || null,
                     totalWashes: washesThisMonth,
-                    remainingWashes: activeMembership?.plan?.name?.includes('Platinum') ? 'Ilimitados' : Math.max(0, 4 - washesThisMonth)
-                }
-            }
+                },
+                service: completed.service ? { name: completed.service.name } : null,
+                covered: completed.coveredByMembership,
+                billingMode: completed.billingMode,
+            },
         });
     } catch (err) {
         next(err);
@@ -295,66 +311,104 @@ router.get('/employee/history', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SU
 router.get('/notifications', authenticate, async (req, res, next) => {
     try {
         const userId = req.user.id;
-        const [notifications, appointments, user] = await Promise.all([
+        const now = new Date();
+        const daysAgo = (d) => new Date(now.getTime() - d * 24 * 60 * 60 * 1000);
+        const fmtDate = (d) => new Date(d).toLocaleDateString('es-PY', { day: 'numeric', month: 'long' });
+        const fmtGs = (n) => '₲ ' + Math.abs(n).toLocaleString('es-PY');
+
+        const [dbNotifs, upcoming, recentWashes, user, recentCredits, promos] = await Promise.all([
             req.prisma.notification.findMany({
-                where: { userId },
-                orderBy: { createdAt: 'desc' },
-                take: 20
+                where: { userId }, orderBy: { createdAt: 'desc' }, take: 20,
             }),
             req.prisma.appointment.findMany({
-                where: { userId, status: 'CONFIRMED', date: { gte: new Date() } },
-                orderBy: { date: 'asc' },
-                take: 3
+                where: { userId, status: 'CONFIRMED', date: { gte: now } },
+                orderBy: { date: 'asc' }, take: 3, include: { service: { select: { name: true } } },
+            }),
+            req.prisma.appointment.findMany({
+                where: { userId, status: 'COMPLETED', date: { gte: daysAgo(10) } },
+                orderBy: { date: 'desc' }, take: 3, include: { service: { select: { name: true } } },
             }),
             req.prisma.user.findUnique({
                 where: { id: userId },
-                include: { memberships: { where: { status: 'ACTIVE' }, include: { plan: true } } }
-            })
+                include: { memberships: { where: { status: 'ACTIVE' }, include: { plan: true }, orderBy: { endDate: 'desc' }, take: 1 } },
+            }),
+            req.prisma.credit.findMany({
+                where: { userId, amount: { gt: 0 }, createdAt: { gte: daysAgo(21) } },
+                orderBy: { createdAt: 'desc' }, take: 10,
+            }),
+            req.prisma.promotion.findMany({
+                where: { isActive: true, validFrom: { lte: now }, validUntil: { gte: now } },
+                orderBy: { validUntil: 'asc' }, take: 2,
+            }),
         ]);
 
-        // Format for Luxury UI — DB notifications FIRST (admin-created)
-        const luxuryNotifs = [];
+        const items = [];
 
-        // 1. DB Notifications (from admin) — highest priority
-        notifications.forEach(n => {
-            const typeMap = { info: 'info', promo: 'success', alert: 'reminder', reminder: 'reminder', success: 'success' };
-            luxuryNotifs.push({
-                id: n.id,
-                type: typeMap[n.type] || 'info',
-                icon: 'bell',
-                title: n.title,
-                body: n.message,
-                date: n.createdAt.toISOString(),
-                isRead: n.isRead
-            });
-        });
+        // 1. Notificaciones de DB (admin / sistema / push enviadas) — máxima prioridad
+        const dbTypeMap = {
+            info: 'info', promo: 'promo', alert: 'alert', reminder: 'appointment', success: 'success',
+            payment: 'payment', membership: 'membership', wash_done: 'wash_done', referral: 'referral', appointment: 'appointment',
+        };
+        dbNotifs.forEach(n => items.push({
+            id: n.id, type: dbTypeMap[n.type] || 'info', title: n.title, body: n.message,
+            date: n.createdAt.toISOString(), isRead: n.isRead,
+        }));
 
-        // 2. Upcoming appointments
-        appointments.forEach(a => {
-            luxuryNotifs.push({
-                id: 'appointment-' + a.id,
-                type: 'reminder',
-                icon: 'calendar',
-                title: '⏰ Turno Próximo',
-                body: `Tenés un lavado el ${new Date(a.date).toLocaleDateString('es-ES')}.`,
-                date: a.createdAt.toISOString()
-            });
-        });
+        // 2. Próximos turnos confirmados
+        upcoming.forEach(a => items.push({
+            id: 'appt-' + a.id, type: 'appointment',
+            title: 'Turno confirmado',
+            body: `${a.service?.name || 'Tu lavado'} el ${fmtDate(a.date)}.`,
+            date: a.createdAt.toISOString(),
+        }));
 
-        // 3. Membership status (lowest priority)
-        const activeMembership = user?.memberships?.[0];
-        if (activeMembership) {
-            luxuryNotifs.push({
-                id: 'membership-' + activeMembership.id,
-                type: 'info',
-                icon: 'shield',
-                title: 'Membresía Activa',
-                body: `Tu plan ${activeMembership.plan.name} está vigente.`,
-                date: activeMembership.createdAt.toISOString()
-            });
+        // 3. Lavados recientes terminados
+        recentWashes.forEach(a => items.push({
+            id: 'wash-' + a.id, type: 'wash_done',
+            title: '¡Tu lavado está listo!',
+            body: `${a.service?.name || 'Servicio'} completado el ${fmtDate(a.date)}.`,
+            date: a.date.toISOString(),
+        }));
+
+        // 4. Membresía por vencer (≤ 7 días)
+        const m = user?.memberships?.[0];
+        if (m) {
+            const days = Math.ceil((new Date(m.endDate) - now) / (24 * 60 * 60 * 1000));
+            if (days <= 7) {
+                items.push({
+                    id: 'mem-exp-' + m.id, type: 'membership', title: 'Tu membresía vence pronto',
+                    body: `Tu plan ${m.plan.name} vence el ${fmtDate(m.endDate)}. ${m.autoRenew ? 'Se renovará automáticamente.' : '¡Renovala para no perder tus beneficios!'}`,
+                    date: now.toISOString(),
+                });
+            }
         }
 
-        res.json({ success: true, data: luxuryNotifs.slice(0, 15) });
+        // 5. Movimientos recientes a favor (recarga / bono / promo)
+        recentCredits.forEach(c => {
+            if (c.type === 'WALLET_TOPUP') {
+                items.push({ id: 'cr-' + c.id, type: 'payment', title: 'Recarga acreditada', body: `Se acreditaron ${fmtGs(c.amount)} a tu billetera.`, date: c.createdAt.toISOString() });
+            } else if (c.type === 'REFERRAL_REWARD') {
+                items.push({ id: 'cr-' + c.id, type: 'referral', title: '¡Ganaste un bono!', body: `${fmtGs(c.amount)} por tu referido${c.description ? ' · ' + c.description : ''}.`, date: c.createdAt.toISOString() });
+            } else if (c.type === 'PROMOTION' || c.type === 'COMPENSATION') {
+                items.push({ id: 'cr-' + c.id, type: 'promo', title: c.type === 'PROMOTION' ? 'Promoción aplicada' : 'Compensación', body: `${fmtGs(c.amount)}${c.description ? ' · ' + c.description : ' a tu favor'}.`, date: c.createdAt.toISOString() });
+            }
+        });
+
+        // 6. Promociones vigentes (globales)
+        promos.forEach(p => items.push({
+            id: 'promo-' + p.id, type: 'promo', title: 'Promoción vigente',
+            body: `Aprovechá el código ${p.code} antes del ${fmtDate(p.validUntil)}.`,
+            date: p.createdAt.toISOString(),
+        }));
+
+        // Dedup por id + orden por fecha desc + cap
+        const seen = new Set();
+        const data = items
+            .filter(it => (seen.has(it.id) ? false : seen.add(it.id)))
+            .sort((a, b) => new Date(b.date) - new Date(a.date))
+            .slice(0, 20);
+
+        res.json({ success: true, data });
     } catch (err) {
         next(err);
     }

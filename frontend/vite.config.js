@@ -10,7 +10,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'logo.png'],
       manifest: {
         name: 'Luxury Garage',
         short_name: 'Luxury',
@@ -18,53 +18,74 @@ export default defineConfig({
         theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',
+        // La PWA arranca en la raíz; el RootGate (App.jsx) detecta que corre como
+        // app instalada (standalone) y salta directo a /login o a la cuenta,
+        // SIN mostrar nunca la landing de marketing (esa es solo para el navegador).
+        id: '/',
+        scope: '/',
+        start_url: '/',
         icons: [
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+      },
+      workbox: {
+        // Handlers de Web Push (push + notificationclick) inyectados al SW generado.
+        importScripts: ['push-sw.js'],
+        // NO precachear el 3D (three ~1MB) ni la landing: son solo-web y pesados.
+        // Así la instalación de la PWA/app móvil no carga código que nunca usa.
+        // (Se sirven por red cuando hacen falta; el browser igual los cachea por HTTP.)
+        globIgnores: ['**/Scene3D-*.js', '**/Landing-*.js'],
+        // Cachear assets estáticos en runtime para cargas instantáneas en visitas repetidas.
+        // OJO: NO cacheamos /api (respuestas autenticadas/por-usuario) para evitar datos cruzados o viejos.
+        runtimeCaching: [
           {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
+            // Fuentes de Google (CSS + woff2)
+            urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com',
+            handler: 'CacheFirst',
+            options: { cacheName: 'google-fonts', expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 }, cacheableResponse: { statuses: [0, 200] } },
           },
           {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
+            // Imágenes propias sin hash (logo, favicon, iconos de /public): StaleWhileRevalidate
+            // para que un cambio de branding se refleje en la próxima carga (CacheFirst las
+            // dejaría congeladas hasta 30 días, mostrando el logo viejo a usuarios recurrentes).
+            urlPattern: ({ url, request }) => request.destination === 'image' && url.origin === self.location.origin,
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'app-images', expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 }, cacheableResponse: { statuses: [0, 200] } },
           },
           {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
-          }
-        ]
+            // Imágenes remotas (avatares de Unsplash, etc.): CacheFirst, cambian poco.
+            urlPattern: ({ url, request }) => request.destination === 'image' && url.origin !== self.location.origin,
+            handler: 'CacheFirst',
+            options: { cacheName: 'remote-images', expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 }, cacheableResponse: { statuses: [0, 200] } },
+          },
+        ],
       },
       devOptions: {
-        enabled: true
-      }
-    })
+        enabled: true,
+      },
+    }),
   ],
   build: {
-    // Optimizaciones de producción
-    target: 'es2015',
+    // Navegadores modernos / WebView de Capacitor → menos transpilación y bundle más chico.
+    target: 'es2020',
+    cssCodeSplit: true,
     rollupOptions: {
       output: {
-        // Mejora code splitting para cargar solo lo necesario
+        // Solo forzamos chunk para lo que SÍ está en el camino crítico y es compartido
+        // por casi todas las vistas (react, framer-motion/lucide del layout, axios).
+        // recharts, html5-qrcode, @stripe, date-fns NO se fuerzan: rolldown los deja
+        // en el chunk async de la página lazy que los usa → solo se descargan al entrar
+        // a esa vista (el cliente final nunca baja recharts ni el lector QR del admin).
         manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
-              return 'vendor-react';
-            }
-            if (id.includes('framer-motion') || id.includes('lucide-react')) {
-              return 'vendor-ui';
-            }
-            if (id.includes('axios')) {
-              return 'vendor-utils';
-            }
-            return 'vendor';
-          }
+          if (!id.includes('node_modules')) return
+          if (id.includes('react-router') || id.includes('/react-dom/') || id.includes('/react/') || id.includes('/scheduler/')) return 'vendor-react'
+          if (id.includes('framer-motion') || id.includes('lucide-react')) return 'vendor-ui'
+          if (id.includes('axios')) return 'vendor-utils'
         },
       },
     },
-    // Incrementa el límite de warnings de chunk size
     chunkSizeWarningLimit: 1000,
   },
   server: {
@@ -80,8 +101,7 @@ export default defineConfig({
       'localhost',
       '127.0.0.1',
       'luxurygarage.arizar-ia.cloud',
-      '0.0.0.0'
+      '0.0.0.0',
     ],
   },
 })
-

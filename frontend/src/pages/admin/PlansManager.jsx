@@ -1,326 +1,722 @@
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useCallback } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
-  ClipboardList, Plus, Edit, Trash2,
-  Crown, Gem, Star, CheckCircle2,
-  XCircle, Filter, Search, Loader2,
-  Info, ChevronRight, AlertCircle,
-  Zap, CreditCard, Percent, ArrowUpRight,
-  Shield, Award, Sparkles, RefreshCcw,
-  LayoutDashboard, Heart, ZapOff, MoreVertical
+  ClipboardList, Plus, Pencil, Trash2, RotateCcw,
+  Percent, Check, X, PlusCircle, RefreshCcw, CreditCard,
+  Layers, Sparkles, Infinity as InfinityIcon, Package,
+  Minus,
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import { formatGs } from '../../constants/pricing';
+import FormModal from '../../components/FormModal';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import FormField from '../../components/FormField';
+import { SkeletonCard } from '../../components/Skeleton';
+import EmptyState from '../../components/EmptyState';
+import AnimatedNumber from '../../components/AnimatedNumber';
+
+const BILLING = [
+  { value: 'monthly', label: 'Mensual', short: '/ mes' },
+  { value: 'quarterly', label: 'Trimestral', short: '/ trimestre' },
+  { value: 'yearly', label: 'Anual', short: '/ año' },
+];
+const billingShort = (v) => BILLING.find((b) => b.value === v)?.short || '';
+const billingLabel = (v) => BILLING.find((b) => b.value === v)?.label || v;
+
+// Normaliza features (en DB es Json: puede venir array o no).
+const featuresOf = (p) => (Array.isArray(p.features) ? p.features.filter(Boolean) : []);
+// Normaliza servicesIncluded (en DB es Json: puede venir number o array de cobertura).
+const servicesCount = (p) => {
+  if (typeof p.servicesIncluded === 'number') return p.servicesIncluded;
+  if (Array.isArray(p.servicesIncluded)) return p.servicesIncluded.length;
+  return null;
+};
+// Normaliza la cobertura desde plan.servicesIncluded (solo si ya es array de cobertura).
+const coverageOf = (p) =>
+  Array.isArray(p?.servicesIncluded)
+    ? p.servicesIncluded
+        .filter((c) => c && typeof c === 'object' && c.slug)
+        .map((c) => ({
+          slug: c.slug,
+          quota: typeof c.quota === 'number' ? c.quota : 4,
+          includedAddons:
+            c.includedAddons === 'all'
+              ? 'all'
+              : Array.isArray(c.includedAddons)
+              ? c.includedAddons.filter(Boolean)
+              : [],
+        }))
+    : [];
+
+const EMPTY_FORM = {
+  name: '', description: '', priceGs: '', billingPeriod: 'monthly',
+  discountPercent: 0, sortOrder: 0, isActive: true,
+  features: [], coverage: [],
+};
 
 export default function PlansManager() {
+  const reduceMotion = useReducedMotion();
+  const tap = reduceMotion ? undefined : { scale: 0.96 };
+  const tapIcon = reduceMotion ? undefined : { scale: 0.9 };
+
   const [plans, setPlans] = useState([]);
+  const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [error, setError] = useState(false);
+  const [quotaFocus, setQuotaFocus] = useState(null);
+
+  const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({
-    name: '', description: '', priceGs: 0,
-    billingPeriod: 'MONTHLY', discountPercent: 0, isActive: true
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => { loadPlans(); }, []);
+  const [toDelete, setToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const loadPlans = async () => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(false);
     try {
-      const r = await api.get('/plans');
+      const r = await api.get('/plans', { params: { includeInactive: true }, _noCache: true });
       setPlans(r.data.data || []);
     } catch (e) {
-      console.error(e);
+      setError(true);
+      toast.error(e.response?.data?.message || 'No se pudieron cargar los planes');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const loadServices = useCallback(async () => {
     try {
-      if (editing) {
-        await api.put(`/plans/${editing.id}`, form);
-        toast.success('Membresía optimizada con éxito');
-      } else {
-        await api.post('/plans', form);
-        toast.success('Nueva propuesta de valor activada');
-      }
-      setShowModal(false);
-      setEditing(null);
-      loadPlans();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Error en la configuración del plan');
+      const r = await api.get('/services', { _noCache: true });
+      setServices(r.data.data || []);
+    } catch {
+      // Sin servicios no se puede configurar la cobertura; el resto del form sigue usable.
+      setServices([]);
     }
-  };
+  }, []);
 
+  useEffect(() => { load(); loadServices(); }, [load, loadServices]);
+
+  // ── feature editor ────────────────────────────────────────────────────
+  const addFeature = () =>
+    setForm((prev) => ({ ...prev, features: [...(prev.features || []), ''] }));
+  const updateFeature = (idx, value) =>
+    setForm((prev) => {
+      const next = [...(prev.features || [])];
+      next[idx] = value;
+      return { ...prev, features: next };
+    });
+  const removeFeature = (idx) =>
+    setForm((prev) => ({ ...prev, features: (prev.features || []).filter((_, i) => i !== idx) }));
+
+  // ── coverage editor (qué incluye el plan) ─────────────────────────────
+  const coverageFor = (slug) => (form.coverage || []).find((c) => c.slug === slug) || null;
+
+  // Reemplaza inmutablemente la entrada de cobertura de un slug usando un updater.
+  const setCoverageEntry = (slug, updater) =>
+    setForm((prev) => ({
+      ...prev,
+      coverage: (prev.coverage || []).map((c) => (c.slug === slug ? updater(c) : c)),
+    }));
+
+  const toggleService = (slug, on) =>
+    setForm((prev) => {
+      const rest = (prev.coverage || []).filter((c) => c.slug !== slug);
+      return {
+        ...prev,
+        coverage: on ? [...rest, { slug, quota: 4, includedAddons: [] }] : rest,
+      };
+    });
+
+  const setQuota = (slug, value) =>
+    setCoverageEntry(slug, (c) => ({ ...c, quota: Math.max(1, Math.floor(Number(value) || 1)) }));
+
+  const toggleUnlimited = (slug, unlimited) =>
+    setCoverageEntry(slug, (c) => ({ ...c, quota: unlimited ? -1 : 4 }));
+
+  const toggleAllAddons = (slug, all) =>
+    setCoverageEntry(slug, (c) => ({ ...c, includedAddons: all ? 'all' : [] }));
+
+  const toggleAddonKey = (slug, key) =>
+    setCoverageEntry(slug, (c) => {
+      const current = Array.isArray(c.includedAddons) ? c.includedAddons : [];
+      const next = current.includes(key)
+        ? current.filter((k) => k !== key)
+        : [...current, key];
+      return { ...c, includedAddons: next };
+    });
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setErrors({});
+    setModalOpen(true);
+  };
   const openEdit = (p) => {
     setEditing(p);
     setForm({
-      name: p.name, description: p.description || '',
-      priceGs: p.priceGs, billingPeriod: p.billingPeriod || 'MONTHLY',
-      discountPercent: p.discountPercent || 0, isActive: p.isActive
+      name: p.name,
+      description: p.description || '',
+      priceGs: p.priceGs ?? '',
+      billingPeriod: p.billingPeriod || 'monthly',
+      discountPercent: p.discountPercent || 0,
+      sortOrder: p.sortOrder || 0,
+      isActive: !!p.isActive,
+      features: featuresOf(p),
+      coverage: coverageOf(p),
     });
-    setShowModal(true);
+    setErrors({});
+    setModalOpen(true);
   };
 
-  const planConfigs = {
-    'Básico': { icon: <Star size={32} />, color: 'text-blue-500 bg-blue-500/10 border-blue-500/20', gradient: 'from-blue-500 to-indigo-600', badge: 'Entry Level' },
-    'Premium': { icon: <Gem size={32} />, color: 'text-amber-500 bg-amber-500/10 border-amber-500/20', gradient: 'from-amber-400 to-orange-600', badge: 'Most Popular' },
-    'VIP': { icon: <Crown size={32} />, color: 'text-purple-500 bg-purple-500/10 border-purple-500/20', gradient: 'from-purple-500 to-pink-600', badge: 'Flagship' }
+  const validate = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = 'Nombre requerido';
+    const price = Number(form.priceGs);
+    if (!price || price <= 0) e.priceGs = 'Precio debe ser mayor a 0';
+    const disc = Number(form.discountPercent);
+    if (disc < 0 || disc > 100) e.discountPercent = 'Entre 0 y 100';
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
-      <Loader2 size={40} className="text-primary animate-spin" />
-      <div>
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Diseñando Estructura de Membresías...</p>
-        <p className="text-[8px] font-bold text-slate-500 italic mt-1 uppercase tracking-tighter">Sincronizando modelos de suscripción</p>
-      </div>
-    </div>
-  );
+  // Cobertura limpia para el payload: quota entero (-1 = ilimitado), includedAddons 'all' | array.
+  const cleanCoverage = () =>
+    (form.coverage || [])
+      .filter((c) => c && c.slug)
+      .map((c) => ({
+        slug: c.slug,
+        quota: c.quota === -1 ? -1 : Math.max(1, Math.floor(Number(c.quota) || 1)),
+        includedAddons:
+          c.includedAddons === 'all'
+            ? 'all'
+            : Array.isArray(c.includedAddons)
+            ? c.includedAddons.filter(Boolean)
+            : [],
+      }));
 
+  const buildPayload = () => ({
+    name: form.name.trim(),
+    description: form.description?.trim() || undefined,
+    priceGs: Number(form.priceGs),
+    billingPeriod: form.billingPeriod,
+    servicesIncluded: cleanCoverage(),
+    discountPercent: Number(form.discountPercent) || 0,
+    sortOrder: Number(form.sortOrder) || 0,
+    isActive: !!form.isActive,
+    features: (form.features || []).map((f) => (f || '').trim()).filter(Boolean),
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validate()) return;
+    setSubmitting(true);
+    try {
+      const payload = buildPayload();
+      if (editing) {
+        await api.put(`/plans/${editing.id}`, payload);
+        toast.success('Plan actualizado');
+      } else {
+        await api.post('/plans', payload);
+        toast.success('Plan creado');
+      }
+      api.invalidate('/plans');
+      setModalOpen(false);
+      setEditing(null);
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo guardar el plan');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!toDelete) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/plans/${toDelete.id}`);
+      toast.success('Plan desactivado');
+      api.invalidate('/plans');
+      setToDelete(null);
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo desactivar');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const reactivate = async (p) => {
+    try {
+      await api.put(`/plans/${p.id}`, { isActive: true });
+      toast.success('Plan reactivado');
+      api.invalidate('/plans');
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo reactivar');
+    }
+  };
+
+  // ── render ────────────────────────────────────────────────────────────
   return (
-    <div className="page-content pb-20">
+    <div className="page-content pb-16">
       {/* Header */}
-      <header className="admin-page-header">
-        <div>
-          <h1 className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
-              <ClipboardList size={24} />
-            </div>
-            Ingeniería de Membresías
-          </h1>
-          <p>Define la propuesta de exclusividad y valor para tus miembros VIP</p>
-        </div>
+      <div className="admin-page-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setLoading(true); loadPlans(); }}
-            className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-400 hover:text-primary transition-all"
-            title="Refrescar Planes"
+          <span className="admin-itile admin-itile-violet w-10 h-10">
+            <ClipboardList size={20} className="text-white" />
+          </span>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Planes y membresías</h1>
+            <p className="text-sm text-slate-500">Definí los planes de suscripción y sus beneficios</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <motion.button
+            whileTap={tapIcon}
+            onClick={load}
+            title="Recargar"
+            className="w-10 h-10 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition-colors"
           >
             <RefreshCcw size={16} />
-          </button>
-          <button
-            className="admin-btn-primary"
-            onClick={() => {
-              setEditing(null);
-              setForm({ name: '', description: '', priceGs: 0, billingPeriod: 'MONTHLY', discountPercent: 0, isActive: true });
-              setShowModal(true);
-            }}
+          </motion.button>
+          <motion.button
+            whileTap={tap}
+            onClick={openCreate}
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm shadow-indigo-600/20 transition-colors"
           >
-            <Plus size={16} /> Nueva Membresía
-          </button>
+            <Plus size={16} /> Nuevo plan
+          </motion.button>
         </div>
-      </header>
-
-      {/* Grid of Plans */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-        <AnimatePresence>
-          {plans.map((p, i) => {
-            const config = planConfigs[p.name] || { icon: <CreditCard size={32} />, color: 'text-slate-500 bg-slate-500/10 border-slate-500/20', gradient: 'from-slate-500 to-slate-700', badge: 'Custom' };
-            return (
-              <motion.div
-                key={p.id}
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className={`admin-card !p-0 relative overflow-visible flex flex-col group transition-all duration-500 hover:shadow-2xl hover:shadow-primary/5 ${!p.isActive ? 'opacity-40 grayscale' : ''}`}
-              >
-                {/* Visual Header Accent */}
-                <div className={`h-2 bg-gradient-to-r ${config.gradient} rounded-t-[rem] w-full`} />
-
-                {/* Floating Badge */}
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-white/10 px-4 py-1.5 rounded-md shadow-md z-10">
-                  <p className="text-xs font-semibold text-primary">{config.badge}</p>
-                </div>
-
-                <div className="pt-12 pb-10 flex flex-col items-center text-center px-8 relative">
-                  <div className={`w-24 h-24 rounded-lg ${config.color} border shadow-sm flex items-center justify-center mb-8`}>
-                    <div className="drop-shadow-lg">{config.icon}</div>
-                  </div>
-
-                  <h2 className="text-3xl font-bold text-slate-900 dark:text-white leading-none mb-2">
-                    {p.name}
-                  </h2>
-                  <p className="text-sm font-normal text-slate-500 dark:text-slate-400 opacity-80">Plan de membresía</p>
-
-                  <div className="my-10 relative w-full">
-                    <div className="flex items-baseline justify-center">
-                      <span className="text-sm font-semibold text-primary mr-1">₲</span>
-                      <span className="text-6xl font-bold text-slate-900 dark:text-white leading-none">
-                        {(p.priceGs / 1000).toFixed(0)}K
-                      </span>
-                      <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400 leading-none">/ mes</span>
-                    </div>
-                  </div>
-
-                  <div className="w-full space-y-4 mb-10">
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 italic leading-relaxed min-h-[3rem]">
-                      {p.description || 'Sin descripción detallada del alcance de la membresía.'}
-                    </p>
-                  </div>
-
-                  {p.discountPercent > 0 && (
-                    <div className="w-full flex items-center justify-center gap-3 py-4 px-6 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl mb-10 group-hover:bg-emerald-500/10 transition-colors">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                        <Percent size={18} />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">Privilegios</p>
-                        <p className="text-[11px] font-black text-emerald-500 uppercase tracking-tighter italic">
-                          {p.discountPercent}% OFF en Servicios Extra
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="w-full grid grid-cols-2 gap-4 mt-auto">
-                    <button
-                      onClick={() => openEdit(p)}
-                      className="h-14 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 hover:scale-[1.02] shadow-xl active:scale-95"
-                    >
-                      <Edit size={14} /> Optimizar
-                    </button>
-                    <button
-                      className="h-14 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 hover:text-primary transition-all flex items-center justify-center hover:border-primary/20 active:scale-95"
-                    >
-                      <ArrowUpRight size={20} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Status Indicator */}
-                <div className="absolute top-4 right-8 pointer-events-none">
-                  <div className={`w-3 h-3 rounded-full ${p.isActive ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.5)]'}`} />
-                </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
       </div>
 
-      {/* Plan Editor Modal Redesign */}
-      <AnimatePresence>
-        {showModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-950/95 backdrop-blur-md"
-              onClick={() => setShowModal(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-xl bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10"
-            >
-              <div className="p-10">
-                <div className="flex justify-between items-center mb-10 pb-6 border-b border-slate-100 dark:border-white/10">
-                  <div>
-                    <h2 className="text-2xl font-black italic uppercase tracking-tighter text-slate-900 dark:text-white leading-none">
-                      {editing ? 'Configurar Privilegios' : 'Lanzamiento de Membresía'}
-                    </h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Arquitectura de suscripción y fidelidad</p>
+      {/* Estados */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : error ? (
+        <EmptyState icon="⚠️" title="Error al cargar" message="No se pudieron obtener los planes." action="Reintentar" onAction={load} />
+      ) : plans.length === 0 ? (
+        <EmptyState icon="💳" title="No hay planes" message="Creá tu primer plan de membresía." action="Nuevo plan" onAction={openCreate} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {plans.map((p) => {
+            const feats = featuresOf(p);
+            const sCount = servicesCount(p);
+            return (
+              <div
+                key={p.id}
+                className={`relative overflow-hidden flex flex-col bg-white dark:bg-slate-900 border rounded-2xl p-6 shadow-sm transition-colors ${
+                  p.isActive ? 'border-slate-200 dark:border-white/10 admin-tint-violet' : 'border-slate-200 dark:border-white/10 opacity-70'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div className="min-w-0">
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white truncate">{p.name}</h3>
+                    <span className="text-xs text-slate-400">{billingLabel(p.billingPeriod)}</span>
                   </div>
-                  <button onClick={() => setShowModal(false)} className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white flex items-center justify-center transition-all shadow-inner">
-                    <XCircle size={24} />
-                  </button>
+                  <span
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                      p.isActive
+                        ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
+                        : 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${p.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                    {p.isActive ? 'Activo' : 'Inactivo'}
+                  </span>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-8">
-                  <div className="space-y-6">
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Denominación del Nivel</label>
-                      <div className="relative">
-                        <Award className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                          className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-2xl pl-16 pr-6 py-5 text-sm font-black italic uppercase tracking-tighter text-slate-900 dark:text-white focus:outline-none focus:border-primary transition-all shadow-inner"
-                          required
-                          value={form.name}
-                          onChange={e => setForm({ ...form, name: e.target.value })}
-                          placeholder="EX: MEMBRESÍA ULTIMATE..."
-                        />
-                      </div>
-                    </div>
+                <div className="mb-4">
+                  <AnimatedNumber className="text-3xl font-bold text-slate-900 dark:text-white tabular-nums" value={p.priceGs} format="gs" />
+                  <span className="text-sm text-slate-400 ml-1">{billingShort(p.billingPeriod)}</span>
+                </div>
 
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Manifiesto de Beneficios</label>
-                      <textarea
-                        className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-3xl px-6 py-5 text-xs font-bold text-slate-600 dark:text-slate-300 focus:outline-none focus:border-primary transition-all shadow-inner h-28 resize-none"
-                        value={form.description}
-                        onChange={e => setForm({ ...form, description: e.target.value })}
-                        placeholder="Describa la exclusividad y alcances de este nivel de acceso..."
+                {p.description && (
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">{p.description}</p>
+                )}
+
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {p.discountPercent > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+                      <Percent size={12} /> {p.discountPercent}% en extras
+                    </span>
+                  )}
+                  {sCount != null && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-400">
+                      <CreditCard size={12} /> {sCount} servicio(s)/ciclo
+                    </span>
+                  )}
+                </div>
+
+                {feats.length > 0 && (
+                  <ul className="space-y-1.5 mb-5">
+                    {feats.slice(0, 5).map((f, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <Check size={15} className="text-violet-600 dark:text-violet-400 mt-0.5 shrink-0" />
+                        <span className="leading-snug">{f}</span>
+                      </li>
+                    ))}
+                    {feats.length > 5 && (
+                      <li className="text-xs text-slate-400 pl-7">+{feats.length - 5} más</li>
+                    )}
+                  </ul>
+                )}
+
+                <div className="mt-auto pt-4 border-t border-slate-100 dark:border-white/5 flex items-center gap-2">
+                  <motion.button
+                    whileTap={tap}
+                    onClick={() => openEdit(p)}
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
+                  >
+                    <Pencil size={14} /> Editar
+                  </motion.button>
+                  {p.isActive ? (
+                    <motion.button
+                      whileTap={tapIcon}
+                      onClick={() => setToDelete(p)}
+                      title="Desactivar"
+                      className="w-10 h-10 shrink-0 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center justify-center transition-colors"
+                    >
+                      <Trash2 size={15} />
+                    </motion.button>
+                  ) : (
+                    <motion.button
+                      whileTap={tapIcon}
+                      onClick={() => reactivate(p)}
+                      title="Reactivar"
+                      className="w-10 h-10 shrink-0 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 flex items-center justify-center transition-colors"
+                    >
+                      <RotateCcw size={15} />
+                    </motion.button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal crear/editar */}
+      <FormModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editing ? 'Editar plan' : 'Nuevo plan'}
+        subtitle="Configuración de la membresía"
+        icon={<ClipboardList size={18} />}
+        formId="plan-form"
+        submitting={submitting}
+        submitLabel={editing ? 'Guardar cambios' : 'Crear plan'}
+        size="lg"
+      >
+        <form id="plan-form" onSubmit={handleSubmit} className="space-y-4">
+          <FormField
+            label="Nombre del plan"
+            name="name"
+            required
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            error={errors.name}
+            placeholder="Ej: Plan Premium"
+          />
+
+          <FormField
+            as="textarea"
+            label="Descripción"
+            name="description"
+            rows={2}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            placeholder="Resumen del alcance del plan…"
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FormField
+              label="Precio (₲)"
+              name="priceGs"
+              type="number"
+              min={0}
+              required
+              prefix="₲"
+              value={form.priceGs}
+              onChange={(e) => setForm({ ...form, priceGs: e.target.value })}
+              error={errors.priceGs}
+            />
+            <FormField
+              as="select"
+              label="Período de facturación"
+              name="billingPeriod"
+              value={form.billingPeriod}
+              onChange={(e) => setForm({ ...form, billingPeriod: e.target.value })}
+            >
+              {BILLING.map((b) => (
+                <option key={b.value} value={b.value}>{b.label}</option>
+              ))}
+            </FormField>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FormField
+              label="Descuento (%)"
+              name="discountPercent"
+              type="number"
+              min={0}
+              max={100}
+              value={form.discountPercent}
+              onChange={(e) => setForm({ ...form, discountPercent: e.target.value })}
+              error={errors.discountPercent}
+              hint="En servicios extra."
+            />
+            <FormField
+              label="Orden"
+              name="sortOrder"
+              type="number"
+              value={form.sortOrder}
+              onChange={(e) => setForm({ ...form, sortOrder: e.target.value })}
+              hint="Menor = primero."
+            />
+          </div>
+
+          <label className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 cursor-pointer w-fit">
+            <input
+              type="checkbox"
+              checked={form.isActive}
+              onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+              className="w-4 h-4 rounded accent-emerald-600"
+            />
+            <span className="text-sm text-slate-600 dark:text-slate-300">Plan activo (visible para clientes)</span>
+          </label>
+
+          {/* ¿Qué incluye este plan? — cobertura granular por servicio */}
+          <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Layers size={15} className="text-indigo-600" />
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">¿Qué incluye este plan?</span>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">
+              Elegí qué servicios cubre el plan, su cupo mensual y qué adicionales quedan incluidos.
+            </p>
+
+            {services.length === 0 ? (
+              <p className="text-xs text-slate-400">No hay servicios disponibles para configurar.</p>
+            ) : (
+              <div className="space-y-2.5">
+                {services.map((svc) => {
+                  const cov = coverageFor(svc.slug);
+                  const included = !!cov;
+                  const unlimited = included && cov.quota === -1;
+                  const allAddons = included && cov.includedAddons === 'all';
+                  const addons = Array.isArray(svc.addons) ? svc.addons : [];
+                  const chosenAddons = included && Array.isArray(cov.includedAddons) ? cov.includedAddons : [];
+                  return (
+                    <div
+                      key={svc.id ?? svc.slug}
+                      className={`rounded-xl border p-3.5 transition-colors ${
+                        included
+                          ? 'border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5'
+                          : 'border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-slate-800/40'
+                      }`}
+                    >
+                      {/* Toggle incluir servicio */}
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={included}
+                          onChange={(e) => toggleService(svc.slug, e.target.checked)}
+                          className="w-4 h-4 rounded accent-indigo-600"
+                        />
+                        <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                          <Package size={14} className="text-slate-400" />
+                          {svc.name}
+                        </span>
+                      </label>
+
+                      {included && (
+                        <div className="mt-3 pl-7 space-y-3">
+                          {/* Cupo mensual */}
+                          <div>
+                            <span className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">
+                              Cupo mensual
+                            </span>
+                            <div className="flex items-center gap-3 flex-wrap">
+                              {unlimited ? (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+                                  <InfinityIcon size={15} /> Ilimitado
+                                </span>
+                              ) : (
+                                <div className="relative w-28">
+                                  <motion.button
+                                    type="button"
+                                    tabIndex={-1}
+                                    aria-label="Disminuir"
+                                    whileTap={tapIcon}
+                                    disabled={Number(cov.quota) <= 1}
+                                    onClick={() => setQuota(svc.slug, Number(cov.quota) - 1)}
+                                    className="absolute left-1 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-300 hover:text-primary hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                  >
+                                    <Minus size={14} />
+                                  </motion.button>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={cov.quota}
+                                    onChange={(e) => setQuota(svc.slug, e.target.value)}
+                                    onFocus={() => setQuotaFocus(svc.slug)}
+                                    onBlur={() => setQuotaFocus(null)}
+                                    className={`w-full bg-slate-50 dark:bg-slate-800/60 border rounded-xl text-center px-8 py-2 text-sm text-slate-900 dark:text-white focus:outline-none transition-all duration-200 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
+                                      quotaFocus === svc.slug
+                                        ? 'border-primary ring-2 ring-primary/15'
+                                        : 'border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20'
+                                    }`}
+                                  />
+                                  <motion.button
+                                    type="button"
+                                    tabIndex={-1}
+                                    aria-label="Aumentar"
+                                    whileTap={tapIcon}
+                                    onClick={() => setQuota(svc.slug, Number(cov.quota) + 1)}
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-300 hover:text-primary hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors"
+                                  >
+                                    <Plus size={14} />
+                                  </motion.button>
+                                </div>
+                              )}
+                              {!unlimited && (
+                                <span className="text-xs text-slate-400">servicios / mes</span>
+                              )}
+                              <label className="flex items-center gap-2 cursor-pointer ml-auto">
+                                <input
+                                  type="checkbox"
+                                  checked={unlimited}
+                                  onChange={(e) => toggleUnlimited(svc.slug, e.target.checked)}
+                                  className="w-4 h-4 rounded accent-indigo-600"
+                                />
+                                <span className="text-xs text-slate-600 dark:text-slate-300">Ilimitado</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          {/* Adicionales incluidos */}
+                          {addons.length > 0 && (
+                            <div>
+                              <div className="flex items-center justify-between gap-3 mb-1.5">
+                                <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                  <Sparkles size={13} className="text-amber-500" /> Adicionales incluidos
+                                </span>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={allAddons}
+                                    onChange={(e) => toggleAllAddons(svc.slug, e.target.checked)}
+                                    className="w-4 h-4 rounded accent-indigo-600"
+                                  />
+                                  <span className="text-xs text-slate-600 dark:text-slate-300">Todos incluidos</span>
+                                </label>
+                              </div>
+
+                              {allAddons ? (
+                                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                  Todos los adicionales de este servicio quedan incluidos sin costo.
+                                </p>
+                              ) : (
+                                <div className="flex flex-wrap gap-2">
+                                  {addons.map((ad) => {
+                                    const on = chosenAddons.includes(ad.key);
+                                    return (
+                                      <motion.label
+                                        key={ad.key}
+                                        whileTap={tap}
+                                        className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+                                          on
+                                            ? 'border-indigo-300 dark:border-indigo-500/40 bg-indigo-100 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'
+                                            : 'border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:border-indigo-200'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={on}
+                                          onChange={() => toggleAddonKey(svc.slug, ad.key)}
+                                          className="w-3.5 h-3.5 rounded accent-indigo-600"
+                                        />
+                                        <span className="font-medium">{ad.name}</span>
+                                        <span className="text-slate-400">+{formatGs(ad.priceGs)}</span>
+                                      </motion.label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Beneficios */}
+          <div className="rounded-xl border border-slate-200 dark:border-white/10 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Beneficios</span>
+              <motion.button
+                whileTap={tap}
+                type="button"
+                onClick={addFeature}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
+              >
+                <PlusCircle size={14} /> Agregar
+              </motion.button>
+            </div>
+            {(!form.features || form.features.length === 0) ? (
+              <p className="text-xs text-slate-400">Sin beneficios. Agregá uno con el botón.</p>
+            ) : (
+              <div className="space-y-2.5">
+                {form.features.map((f, idx) => (
+                  <div key={idx} className="flex items-center gap-2.5">
+                    <div className="flex-1">
+                      <FormField
+                        name={`feature-${idx}`}
+                        value={f}
+                        onChange={(e) => updateFeature(idx, e.target.value)}
+                        placeholder="Ej: Lavados exteriores ilimitados"
                       />
                     </div>
-
-                    <div className="grid grid-cols-2 gap-6">
-                      <div>
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Arancel Mensual (₲)</label>
-                        <div className="relative">
-                          <CreditCard className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                          <input
-                            type="number"
-                            className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-2xl pl-14 pr-6 py-5 text-sm font-black italic text-slate-900 dark:text-white focus:outline-none focus:border-primary transition-all shadow-inner"
-                            required min={0}
-                            value={form.priceGs}
-                            onChange={e => setForm({ ...form, priceGs: parseInt(e.target.value) })}
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block ml-2">Privilegios (%)</label>
-                        <div className="relative">
-                          <Percent className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                          <input
-                            type="number"
-                            className="w-full bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-white/5 rounded-2xl pl-14 pr-6 py-5 text-sm font-black italic text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all shadow-inner"
-                            min={0} max={100}
-                            value={form.discountPercent}
-                            onChange={e => setForm({ ...form, discountPercent: parseInt(e.target.value) })}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-6 bg-slate-50/50 dark:bg-white/5 rounded-3xl border border-slate-100 dark:border-white/10">
-                    <label className="flex items-center gap-4 cursor-pointer group">
-                      <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${form.isActive ? 'bg-emerald-500 border-emerald-500 text-white shadow-lg' : 'border-slate-300 dark:border-slate-600'}`}>
-                        {form.isActive && <CheckCircle2 size={14} />}
-                      </div>
-                      <input type="checkbox" className="hidden" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} />
-                      <div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-800 dark:text-slate-200 block leading-none mb-1">Estatus Operativo</span>
-                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Disponible para contratación inmediata</span>
-                      </div>
-                    </label>
-
-                    <div className="flex flex-col items-end">
-                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Recurrencia</span>
-                      <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest italic">Facturación Mensual</span>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-4 pt-4">
-                    <button
+                    <motion.button
+                      whileTap={tapIcon}
                       type="button"
-                      onClick={() => setShowModal(false)}
-                      className="flex-1 px-8 py-5 rounded-[2rem] bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-400 transition-all hover:bg-slate-200"
+                      onClick={() => removeFeature(idx)}
+                      title="Eliminar beneficio"
+                      className="w-10 h-10 shrink-0 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center justify-center transition-colors"
                     >
-                      Anular Operación
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex-1 px-8 py-5 rounded-[2rem] bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest transition-all hover:-translate-y-1 shadow-2xl shadow-indigo-600/20 active:scale-95"
-                    >
-                      {editing ? 'Confirmar Optimización' : 'Lanzar Membresía'}
-                    </button>
+                      <X size={16} />
+                    </motion.button>
                   </div>
-                </form>
+                ))}
               </div>
-            </motion.div>
+            )}
           </div>
-        )}
-      </AnimatePresence>
+        </form>
+      </FormModal>
+
+      {/* Confirmar desactivación */}
+      <ConfirmDialog
+        isOpen={!!toDelete}
+        onClose={() => setToDelete(null)}
+        onConfirm={confirmDelete}
+        loading={deleting}
+        variant="danger"
+        title="Desactivar plan"
+        confirmLabel="Desactivar"
+        message={`¿Desactivar "${toDelete?.name}"? Dejará de ofrecerse a nuevos clientes. Podés reactivarlo después.`}
+      />
     </div>
   );
 }

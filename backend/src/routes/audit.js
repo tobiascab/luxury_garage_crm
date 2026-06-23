@@ -33,4 +33,30 @@ router.get('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res
   } catch (err) { next(err); }
 });
 
+// GET /api/audit/stats — KPIs reales de la bitácora (admin)
+router.get('/stats', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+  try {
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [total, today, thisMonth, actors] = await Promise.all([
+      req.prisma.auditLog.count(),
+      req.prisma.auditLog.count({ where: { createdAt: { gte: dayStart } } }),
+      req.prisma.auditLog.count({ where: { createdAt: { gte: monthStart } } }),
+      req.prisma.auditLog.findMany({ where: { userId: { not: null } }, select: { userId: true }, distinct: ['userId'] }),
+    ]);
+
+    res.json({ success: true, data: { total, today, thisMonth, actors: actors.length } });
+  } catch (err) { next(err); }
+});
+
+// GET /api/audit/actions — lista de acciones distintas para poblar el filtro (admin)
+router.get('/actions', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+  try {
+    const rows = await req.prisma.auditLog.findMany({ select: { action: true }, distinct: ['action'], orderBy: { action: 'asc' } });
+    res.json({ success: true, data: rows.map((r) => r.action) });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

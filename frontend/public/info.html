@@ -447,7 +447,11 @@
       font-weight: 800;
       color: var(--text);
       text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
     }
+    .nav-logo img { width: 32px; height: 32px; object-fit: contain; }
     .nav-links { display: flex; gap: 24px; list-style: none; }
     .nav-links a {
       color: var(--text-muted);
@@ -471,7 +475,7 @@
 
 <nav class="nav">
   <div class="nav-inner">
-    <a href="#" class="nav-logo">🚗 LUXURY GARAGE</a>
+    <a href="#" class="nav-logo"><img src="/logo.png" alt="Luxury Garage" /> LUXURY GARAGE</a>
     <ul class="nav-links">
       <li><a href="#planes">Planes</a></li>
       <li><a href="#servicios">Servicios</a></li>

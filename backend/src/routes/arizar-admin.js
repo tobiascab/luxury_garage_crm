@@ -277,6 +277,74 @@ router.post('/social/post', async (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════
+// LEADS / REFERIDOS — Embudo de captación (datos reales)
+// ═══════════════════════════════════════════════════════
+
+// Estados reales en BD (minúscula): invited | registered | purchased
+const LEAD_STATUSES = ['invited', 'registered', 'purchased'];
+
+// GET /api/arizar/leads — Lista de leads/referidos enriquecida
+router.get('/leads', async (req, res, next) => {
+  try {
+    const { status, search } = req.query;
+
+    const where = {};
+    if (status && LEAD_STATUSES.includes(status)) {
+      where.status = status;
+    }
+    if (search) {
+      where.OR = [
+        { referredEmail: { contains: search, mode: 'insensitive' } },
+        { referredPhone: { contains: search } },
+        { code: { contains: search, mode: 'insensitive' } },
+        { referrer: { firstName: { contains: search, mode: 'insensitive' } } },
+        { referrer: { lastName: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const leads = await req.prisma.referral.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        referrer: { select: { id: true, firstName: true, lastName: true, email: true } },
+        referred: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, arizarContactId: true } },
+      },
+    });
+
+    res.json({ success: true, data: leads });
+  } catch (err) { next(err); }
+});
+
+// GET /api/arizar/leads/stats — Métricas reales del embudo
+router.get('/leads/stats', async (req, res, next) => {
+  try {
+    const [total, invited, registered, purchased, withReward] = await Promise.all([
+      req.prisma.referral.count(),
+      req.prisma.referral.count({ where: { status: 'invited' } }),
+      req.prisma.referral.count({ where: { status: 'registered' } }),
+      req.prisma.referral.count({ where: { status: 'purchased' } }),
+      req.prisma.referral.count({ where: { rewardAmount: { not: null } } }),
+    ]);
+
+    const conversion = total > 0 ? Math.round((purchased / total) * 100) : 0;
+
+    res.json({
+      success: true,
+      data: { total, invited, registered, purchased, withReward, conversion },
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /api/arizar/registration-link — Link de auto-registro real
+router.get('/registration-link', async (req, res, next) => {
+  try {
+    const base = process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://luxurygarage.arizar-ia.cloud';
+    const link = `${base.replace(/\/$/, '')}/register`;
+    res.json({ success: true, data: { link } });
+  } catch (err) { next(err); }
+});
+
+// ═══════════════════════════════════════════════════════
 // CONVERSACIONES — Ver mensajes de clientes desde el admin
 // ═══════════════════════════════════════════════════════
 

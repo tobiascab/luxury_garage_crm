@@ -9,11 +9,16 @@ export default function MyMembership() {
   const { user } = useAuth();
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(null);
   const membership = user?.memberships?.[0];
   const currentPlan = membership?.plan;
 
   useEffect(() => {
     api.get('/plans').then(res => setPlans(res.data.data || [])).catch(console.error).finally(() => setLoading(false));
+    // Pago de membresía pendiente (read-only): si lo hay, mostramos un banner para completarlo.
+    api.get('/memberships/pending-payment')
+      .then(res => { if (res.data?.data?.hasPending) setPending(res.data.data); })
+      .catch(() => {});
   }, []);
 
   if (loading) return <div className="page-loading"><div className="loading-spinner" /></div>;
@@ -21,6 +26,33 @@ export default function MyMembership() {
   return (
     <div className="page-content">
       <PageHeader title="👑 Mi Membresía" subtitle="Gestioná tu plan y beneficios" />
+
+      {pending && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card card-glass"
+          style={{ marginBottom: '24px', borderColor: 'var(--amber, #f59e0b)', background: 'rgba(245,158,11,0.06)' }}
+        >
+          <div className="card-body" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '1.8rem' }}>⏳</span>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <p style={{ fontWeight: 700, marginBottom: '4px' }}>
+                Tenés un pago pendiente{pending.planName ? ` de ${pending.planName}` : ''}
+                {pending.amountGs ? ` (₲${pending.amountGs.toLocaleString()})` : ''}.
+              </p>
+              <p className="text-sm text-muted">
+                {pending.stale
+                  ? 'Quedó pendiente hace más de 24 h. Completalo para activar tu membresía.'
+                  : 'Completá el pago para activar tu membresía.'}
+              </p>
+            </div>
+            <a href="/billetera" className="btn btn-primary" style={{ whiteSpace: 'nowrap' }}>
+              Completar pago
+            </a>
+          </div>
+        </motion.div>
+      )}
 
       {membership ? (
         <motion.div className="card card-glass" style={{ marginBottom: '24px' }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>

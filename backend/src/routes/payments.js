@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { authenticate, authorize } = require('../middleware/auth');
 const bancardService = require('../services/bancardService');
+const { postPaymentCompleted } = require('../services/journalService');
 
 /**
  * Bancard Payment Routes
@@ -13,7 +14,9 @@ const bancardService = require('../services/bancardService');
  *  - DELETE /api/payments/card/:cardId             → Eliminar tarjeta
  *  - POST   /api/payments/card/set-primary         → Establecer tarjeta principal
  *  - POST   /api/payments/charge-membership        → Cobrar membresía
- *  - POST   /api/payments/charge-3ds-complete      → Completar pago 3DS
+ *  - POST   /api/payments/charge-3ds-complete      → Completar pago 3DS de membresía
+ *  - POST   /api/payments/charge-topup             → Recargar billetera (cobro Bancard)
+ *  - POST   /api/payments/charge-topup-3ds-complete → Completar recarga de billetera con 3DS
  *  - GET    /api/payments/history                  → Historial de pagos
  *  - GET    /api/payments/admin/stats              → Stats admin
  */
@@ -365,8 +368,10 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     });
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
-    // 3. Test mode — simulate successful charge without hitting Bancard
-    if (user.isTestMode) {
+    // 3. Test mode — simulate successful charge without hitting Bancard.
+    //    SEGURIDAD: inerte en producción. En prod NUNCA se activa una membresía sin cobro Bancard,
+    //    aunque el usuario tenga isTestMode=true. Sigue sirviendo para desarrollo.
+    if (user.isTestMode && process.env.NODE_ENV !== 'production') {
       const start = new Date();
       const end = new Date();
       end.setMonth(end.getMonth() + 1);
@@ -471,35 +476,47 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
       });
     }
 
-    // 5. Generate shop_process_id and pre-create records
+    // 5+6. Lock ATÓMICO anti doble-cobro. El chequeo "¿hay otro charge PENDING?" + la creación de
+    //      los registros PENDING se hacen DENTRO de una transacción con SELECT ... FOR UPDATE sobre
+    //      la fila del usuario, serializando reintentos concurrentes del MISMO usuario (doble click
+    //      / retry de red). Antes era check-then-act: dos requests pasaban el findFirst a la vez y
+    //      se generaban DOS cobros.
     const shopProcessId = bancardService.generateShopProcessId();
     const appBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://luxurygarage.com.py';
     const returnUrl = `${appBaseUrl}/billetera?paymentResult=1`;
     const description = `Membresía ${plan.name} - Luxury Garage`;
 
-    // Create BancardOperation (PENDING)
-    await req.prisma.bancardOperation.create({
-      data: {
-        shopProcessId,
-        userId: user.id,
-        type: 'charge',
-        status: 'PENDING',
-        amountGs: plan.priceGs,
-        metadataJson: { planId: plan.id, planName: plan.name, cardId: selectedCard.id },
-      },
-    });
-
-    // Create Payment record (PENDING) — so we can track even if something crashes
-    let pendingPayment = await req.prisma.payment.create({
-      data: {
-        userId: user.id,
-        amountGs: plan.priceGs,
-        paymentMethod: 'bancard_card',
-        bancardShopProcessId: shopProcessId,
-        status: 'PENDING',
-        description,
-      },
-    });
+    try {
+      await req.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`;
+        const inFlight = await tx.bancardOperation.findFirst({
+          where: { userId: user.id, type: 'charge', status: 'PENDING' },
+        });
+        if (inFlight) throw Object.assign(new Error('CHARGE_IN_FLIGHT'), { code: 'CHARGE_IN_FLIGHT' });
+        await tx.bancardOperation.create({
+          data: {
+            shopProcessId, userId: user.id, type: 'charge', status: 'PENDING',
+            amountGs: plan.priceGs,
+            metadataJson: { planId: plan.id, planName: plan.name, cardId: selectedCard.id },
+          },
+        });
+        await tx.payment.create({
+          data: {
+            userId: user.id, amountGs: plan.priceGs, paymentMethod: 'bancard_card',
+            bancardShopProcessId: shopProcessId, status: 'PENDING', description,
+          },
+        });
+      });
+    } catch (e) {
+      if (e.code === 'CHARGE_IN_FLIGHT') {
+        return res.status(409).json({
+          success: false,
+          message: 'Ya tenés un cobro en proceso. Esperá unos segundos antes de reintentar.',
+        });
+      }
+      throw e;
+    }
+    const pendingPayment = await req.prisma.payment.findUnique({ where: { bancardShopProcessId: shopProcessId } });
 
     // 6. Execute charge via Bancard
     let chargeResult;
@@ -572,8 +589,15 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     const end = new Date();
     end.setMonth(end.getMonth() + 1);
 
-    let membership, payment;
+    let membership, payment, alreadyMaterialized = false;
     await req.prisma.$transaction(async (tx) => {
+      // Lock + re-check anti doble-materialización: el camino DIRECTO (sin 3DS) también debe
+      // sostener el mismo lock que toma el webhook/job (materializeApprovedPayment). Sin esto el
+      // webhook /confirm concurrente ve la op PENDING y crea una SEGUNDA membresía por el mismo cobro.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`;
+      const freshOp = await tx.bancardOperation.findUnique({ where: { shopProcessId } });
+      if (freshOp?.status === 'COMPLETED') { alreadyMaterialized = true; return; }
+
       // Replace any existing active membership
       await tx.membership.updateMany({
         where: { userId: user.id, status: 'ACTIVE' },
@@ -630,6 +654,14 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
       });
     });
 
+    if (alreadyMaterialized) {
+      const activeM = await req.prisma.membership.findFirst({ where: { userId: user.id, status: 'ACTIVE' }, include: { plan: true } });
+      return res.json({ success: true, message: 'El pago ya fue procesado.', data: { membership: activeM, alreadyCompleted: true } });
+    }
+
+    // Asiento contable (best-effort, POST-COMMIT, no bloqueante).
+    if (payment?.id) postPaymentCompleted(req.prisma, payment.id).catch(() => {});
+
     // Non-blocking ARIZAR IA sync
     try {
       const ArizarSync = require('../services/arizarSync');
@@ -685,22 +717,23 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
       return res.json({ success: true, message: 'El pago ya fue procesado', data: { alreadyCompleted: true } });
     }
 
-    // Get the plan (either from body or from existing payment description)
-    let plan = null;
-    if (planId) {
-      plan = await req.prisma.plan.findUnique({ where: { id: planId } });
+    // SEGURIDAD: el plan se deriva del registro PERSISTIDO (BancardOperation creado al iniciar
+    // el cobro vía shop_process_id), NO del body. Confiar en planId del body permitía activar
+    // un plan caro pagando uno barato. El planId del body solo se acepta si coincide con el
+    // persistido (verificación cruzada).
+    const op = await req.prisma.bancardOperation.findFirst({
+      where: { shopProcessId: Number(shopProcessId), userId: req.user.id },
+    });
+    const persistedPlanId = op?.metadataJson?.planId || null;
+    if (!persistedPlanId) {
+      return res.status(400).json({ success: false, message: 'No se pudo determinar el plan de este pago.' });
     }
-    if (!plan) {
-      // Try to look up via the BancardOperation
-      const op = await req.prisma.bancardOperation.findFirst({
-        where: { shopProcessId: Number(shopProcessId) },
-      });
-      if (op?.metadataJson?.planId) {
-        plan = await req.prisma.plan.findUnique({ where: { id: op.metadataJson.planId } });
-      }
+    if (planId && planId !== persistedPlanId) {
+      return res.status(400).json({ success: false, message: 'El plan no coincide con el pago iniciado.' });
     }
+    const plan = await req.prisma.plan.findUnique({ where: { id: persistedPlanId } });
     if (!plan) {
-      return res.status(400).json({ success: false, message: 'No se pudo determinar el plan. Proporcioná planId.' });
+      return res.status(400).json({ success: false, message: 'Plan no encontrado para este pago.' });
     }
 
     // Verify with Bancard
@@ -716,7 +749,27 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
       });
     }
 
-    const approved = confirmation.response === 'S';
+    const approved = confirmation.response === 'S' && String(confirmation.response_code) === '00';
+
+    // SEGURIDAD: validar que el monto realmente cobrado por Bancard coincida con el precio del plan.
+    // Bancard devuelve `amount` como string con 2 decimales (ej "150000.00").
+    if (approved) {
+      const confirmedAmount = Math.round(parseFloat(confirmation.amount));
+      if (!Number.isFinite(confirmedAmount) || confirmedAmount !== plan.priceGs) {
+        await req.prisma.payment.update({
+          where: { id: pendingPayment.id },
+          data: { status: 'FAILED', description: `${pendingPayment.description || ''} — Monto no coincide (cobrado ${confirmation.amount}, esperado ${plan.priceGs})` },
+        });
+        await req.prisma.bancardOperation.update({
+          where: { shopProcessId: Number(shopProcessId) },
+          data: { status: 'FAILED' },
+        });
+        return res.status(402).json({
+          success: false,
+          message: 'El monto cobrado no coincide con el precio del plan. El pago no se aplicó.',
+        });
+      }
+    }
 
     if (!approved) {
       await req.prisma.payment.update({
@@ -741,8 +794,14 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
     const end = new Date();
     end.setMonth(end.getMonth() + 1);
 
-    let membership, payment;
+    let membership, payment, alreadyMaterialized = false;
     await req.prisma.$transaction(async (tx) => {
+      // Lock + re-check anti doble-materialización con el webhook/job de reconciliación: si el pago
+      // ya fue acreditado (op COMPLETED), NO creamos otra membresía.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${req.user.id} FOR UPDATE`;
+      const freshOp = await tx.bancardOperation.findUnique({ where: { shopProcessId: Number(shopProcessId) } });
+      if (freshOp?.status === 'COMPLETED') { alreadyMaterialized = true; return; }
+
       await tx.membership.updateMany({
         where: { userId: req.user.id, status: 'ACTIVE' },
         data: { status: 'REPLACED' },
@@ -792,6 +851,14 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
       });
     });
 
+    if (alreadyMaterialized) {
+      const activeM = await req.prisma.membership.findFirst({ where: { userId: req.user.id, status: 'ACTIVE' }, include: { plan: true } });
+      return res.json({ success: true, message: 'El pago ya fue procesado.', data: { membership: activeM, alreadyCompleted: true } });
+    }
+
+    // Asiento contable (best-effort, POST-COMMIT, no bloqueante).
+    if (payment?.id) postPaymentCompleted(req.prisma, payment.id).catch(() => {});
+
     // Non-blocking ARIZAR IA sync
     try {
       const user = await req.prisma.user.findUnique({ where: { id: req.user.id } });
@@ -827,29 +894,530 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
 });
 
 // ─────────────────────────────────────────────────────
+//  WALLET TOP-UP (RECARGA DE BILLETERA)
+// ─────────────────────────────────────────────────────
+
+/**
+ * POST /api/payments/charge-topup
+ * Recargar el saldo de la billetera cobrando a una tarjeta Bancard registrada.
+ * Body: { amountGs, cardId? }
+ *
+ * Flujo (replica charge-membership):
+ *  1. Validar amountGs (entero > 0)
+ *  2. Si isTestMode (y no prod) → simular acreditación sin llamar a Bancard
+ *  3. Seleccionar tarjeta (cardId o primaria) + refrescar alias_token
+ *  4. Crear PENDING BancardOperation(type:'charge', kind:'topup') + Payment(PENDING)
+ *  5. Llamar bancardService.charge()
+ *  6a. 3DS → { success:true, requires3ds:true, data:{ processId, jsLibUrl, shopProcessId } }
+ *  6b. Aprobado → acreditar Credit (WALLET_TOPUP) + Payment COMPLETED en una transacción
+ *  6c. Rechazado → 402 { success:false, message }
+ */
+router.post('/charge-topup', authenticate, async (req, res, next) => {
+  try {
+    const { amountGs, cardId } = req.body;
+    const amount = Number(amountGs);
+    const MAX_TOPUP_GS = 5_000_000; // Tope por recarga (control de negocio anti-error/abuso). Ajustable.
+    if (!Number.isInteger(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'El monto a recargar debe ser un entero mayor a 0.' });
+    }
+    if (amount > MAX_TOPUP_GS) {
+      return res.status(400).json({ success: false, message: `El monto máximo por recarga es ₲${MAX_TOPUP_GS.toLocaleString('es-PY')}.` });
+    }
+
+    const user = await req.prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { paymentCards: true },
+    });
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+    const description = 'Recarga de billetera';
+
+    // Modo prueba — simular acreditación sin tocar Bancard (inerte en producción).
+    if (user.isTestMode && process.env.NODE_ENV !== 'production') {
+      const fakeShopProcessId = Date.now();
+      let payment;
+      await req.prisma.$transaction(async (tx) => {
+        await tx.credit.create({
+          data: { userId: user.id, amount, type: 'WALLET_TOPUP', description: `[TEST] ${description}` },
+        });
+        payment = await tx.payment.create({
+          data: {
+            userId: user.id,
+            amountGs: amount,
+            paymentMethod: 'bancard_test',
+            bancardShopProcessId: fakeShopProcessId,
+            bancardTicketNumber: `TEST_${Date.now()}`,
+            bancardAuthNumber: 'TEST',
+            status: 'COMPLETED',
+            description: `[TEST] ${description}`,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            entity: 'payment', action: 'wallet_topup_test', entityId: payment.id, userId: user.id,
+            detailsJson: { amountGs: amount, testMode: true },
+          },
+        });
+      });
+      console.log(`[TEST MODE] Recarga de billetera ₲${amount} acreditada para ${user.email}`);
+      return res.json({
+        success: true,
+        data: { payment: { id: payment.id, status: 'COMPLETED' }, amountGs: amount },
+        message: `¡Recarga de ₲${amount.toLocaleString('es-PY')} acreditada! (modo prueba)`,
+      });
+    }
+
+    // Flujo real Bancard — necesita bancardUserId
+    if (!user.bancardUserId) {
+      return res.status(400).json({ success: false, message: 'Primero necesitás registrar una tarjeta de pago.' });
+    }
+
+    // Seleccionar tarjeta
+    let selectedCard;
+    if (cardId) {
+      selectedCard = user.paymentCards.find((c) => c.id === cardId);
+      if (!selectedCard) return res.status(400).json({ success: false, message: 'Tarjeta no encontrada' });
+    } else {
+      selectedCard = user.paymentCards.find((c) => c.isPrimary) || user.paymentCards[0];
+    }
+    if (!selectedCard) {
+      return res.status(400).json({ success: false, message: 'No tenés tarjetas registradas. Agregá una tarjeta primero.' });
+    }
+
+    // Refrescar alias_token (TTL corto)
+    let aliasToken = selectedCard.bancardAliasToken;
+    try {
+      const bancardCards = await bancardService.getUserCards(user.bancardUserId);
+      const fresh = bancardCards.find((c) => parseInt(c.card_id) === selectedCard.bancardCardId);
+      if (fresh && fresh.alias_token) {
+        aliasToken = fresh.alias_token;
+        await req.prisma.paymentCard.update({
+          where: { id: selectedCard.id },
+          data: { bancardAliasToken: aliasToken },
+        });
+      }
+    } catch (e) {
+      console.warn('[Bancard] No se pudo refrescar alias_token de la recarga, usando el cacheado:', e.message);
+    }
+    if (!aliasToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se pudo obtener el token de la tarjeta. Por favor sincronizá tus tarjetas e intentá de nuevo.',
+      });
+    }
+
+    // Lock ATÓMICO anti doble-cobro (mismo patrón que charge-membership): SELECT ... FOR UPDATE
+    // sobre el usuario serializa reintentos concurrentes; el segundo ve el PENDING y aborta.
+    const shopProcessId = bancardService.generateShopProcessId();
+    const appBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://luxurygarage.com.py';
+    const returnUrl = `${appBaseUrl}/billetera?topupResult=1`;
+
+    try {
+      await req.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`;
+        const inFlight = await tx.bancardOperation.findFirst({
+          where: { userId: user.id, type: 'charge', status: 'PENDING' },
+        });
+        if (inFlight) throw Object.assign(new Error('CHARGE_IN_FLIGHT'), { code: 'CHARGE_IN_FLIGHT' });
+        await tx.bancardOperation.create({
+          data: {
+            shopProcessId, userId: user.id, type: 'charge', status: 'PENDING',
+            amountGs: amount,
+            metadataJson: { kind: 'topup', amountGs: amount, cardId: selectedCard.id },
+          },
+        });
+        await tx.payment.create({
+          data: {
+            userId: user.id, amountGs: amount, paymentMethod: 'bancard_card',
+            bancardShopProcessId: shopProcessId, status: 'PENDING', description,
+          },
+        });
+      });
+    } catch (e) {
+      if (e.code === 'CHARGE_IN_FLIGHT') {
+        return res.status(409).json({
+          success: false,
+          message: 'Ya tenés un cobro en proceso. Esperá unos segundos antes de reintentar.',
+        });
+      }
+      throw e;
+    }
+    const pendingPayment = await req.prisma.payment.findUnique({ where: { bancardShopProcessId: shopProcessId } });
+
+    // Ejecutar el cobro
+    let chargeResult;
+    try {
+      chargeResult = await bancardService.charge({
+        shopProcessId,
+        amount,
+        aliasToken,
+        description,
+        returnUrl,
+      });
+    } catch (bancardErr) {
+      await req.prisma.payment.update({
+        where: { id: pendingPayment.id },
+        data: { status: 'FAILED', description: `${description} — Error: ${bancardErr.message}` },
+      });
+      await req.prisma.bancardOperation.update({ where: { shopProcessId }, data: { status: 'FAILED' } });
+      const userMsg = bancardErr.message.startsWith('Bancard:')
+        ? bancardErr.message.replace('Bancard: ', '')
+        : 'No se pudo procesar el cobro. Intentá con otra tarjeta.';
+      return res.status(402).json({ success: false, message: userMsg });
+    }
+
+    // 3DS requerido
+    if (chargeResult.threeDsRequired) {
+      await req.prisma.bancardOperation.update({
+        where: { shopProcessId },
+        data: { status: 'PENDING', processId: chargeResult.processId ? String(chargeResult.processId) : null },
+      });
+      return res.json({
+        success: true,
+        requires3ds: true,
+        data: { processId: chargeResult.processId, jsLibUrl: bancardService.jsLibUrl, shopProcessId },
+        message: 'Autenticación 3DS requerida. Completá el proceso en el iframe.',
+      });
+    }
+
+    // Rechazado
+    if (!chargeResult.approved) {
+      await req.prisma.payment.update({
+        where: { id: pendingPayment.id },
+        data: { status: 'FAILED', description: `${description} — Rechazado (${chargeResult.responseCode || 'N/A'})` },
+      });
+      await req.prisma.bancardOperation.update({ where: { shopProcessId }, data: { status: 'FAILED' } });
+      return res.status(402).json({
+        success: false,
+        message: 'El cobro fue rechazado. Verificá tu tarjeta o intentá con otra.',
+        data: { responseCode: chargeResult.responseCode },
+      });
+    }
+
+    // Aprobado → acreditar Credit + completar Payment en una transacción
+    const bancardTicketNumber = chargeResult.ticketNumber;
+    const bancardAuthNumber = chargeResult.authorizationNumber;
+    let payment, alreadyMaterialized = false;
+    await req.prisma.$transaction(async (tx) => {
+      // Lock + re-check anti doble-acreditación: el camino DIRECTO también debe sostener el lock del
+      // webhook/job. Sin esto el webhook /confirm concurrente duplica el Credit (doble saldo gastable).
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`;
+      const freshOp = await tx.bancardOperation.findUnique({ where: { shopProcessId } });
+      if (freshOp?.status === 'COMPLETED') { alreadyMaterialized = true; return; }
+
+      await tx.credit.create({
+        data: {
+          userId: user.id,
+          amount,
+          type: 'WALLET_TOPUP',
+          description: `${description} ${selectedCard.maskedNumber ? '****' + selectedCard.maskedNumber.slice(-4) : ''}`.trim(),
+        },
+      });
+      payment = await tx.payment.update({
+        where: { bancardShopProcessId: shopProcessId },
+        data: {
+          status: 'COMPLETED',
+          bancardTicketNumber: bancardTicketNumber || null,
+          bancardAuthNumber: bancardAuthNumber || null,
+        },
+      });
+      await tx.bancardOperation.update({ where: { shopProcessId }, data: { status: 'COMPLETED' } });
+      await tx.auditLog.create({
+        data: {
+          entity: 'payment', action: 'wallet_topup_bancard', entityId: payment.id, userId: user.id,
+          detailsJson: {
+            amountGs: amount, shopProcessId,
+            ticketNumber: bancardTicketNumber, authNumber: bancardAuthNumber,
+            cardBrand: selectedCard.brand, cardMask: selectedCard.maskedNumber,
+          },
+        },
+      });
+    });
+
+    if (alreadyMaterialized) {
+      return res.json({ success: true, message: 'La recarga ya fue procesada.', data: { alreadyCompleted: true, amountGs: amount } });
+    }
+
+    // Asiento contable (best-effort, POST-COMMIT, no bloqueante).
+    if (payment?.id) postPaymentCompleted(req.prisma, payment.id).catch(() => {});
+
+    console.log(`[Bancard] Recarga de billetera ₲${amount} acreditada para ${user.email} — shopProcessId=${shopProcessId}`);
+
+    res.json({
+      success: true,
+      data: { payment: { id: payment.id, shopProcessId, status: 'COMPLETED' }, amountGs: amount },
+      message: `¡Recarga de ₲${amount.toLocaleString('es-PY')} acreditada exitosamente!`,
+    });
+  } catch (err) {
+    console.error('[Bancard] charge-topup error:', err.message);
+    next(err);
+  }
+});
+
+/**
+ * POST /api/payments/charge-topup-3ds-complete
+ * Finaliza una recarga de billetera tras el challenge 3DS. Acredita el Credit de forma idempotente.
+ * Body: { shopProcessId }
+ */
+router.post('/charge-topup-3ds-complete', authenticate, async (req, res, next) => {
+  try {
+    const { shopProcessId } = req.body;
+    if (!shopProcessId) return res.status(400).json({ success: false, message: 'shopProcessId requerido' });
+
+    const pendingPayment = await req.prisma.payment.findFirst({
+      where: { bancardShopProcessId: Number(shopProcessId), userId: req.user.id },
+    });
+    if (!pendingPayment) return res.status(404).json({ success: false, message: 'Pago no encontrado' });
+    if (pendingPayment.status === 'COMPLETED') {
+      return res.json({ success: true, message: 'La recarga ya fue procesada', data: { alreadyCompleted: true } });
+    }
+
+    // El monto se deriva del registro PERSISTIDO (no del body).
+    const op = await req.prisma.bancardOperation.findFirst({
+      where: { shopProcessId: Number(shopProcessId), userId: req.user.id },
+    });
+    const persistedAmount = op?.metadataJson?.amountGs ?? op?.amountGs ?? null;
+    if (op?.metadataJson?.kind !== 'topup' || !persistedAmount) {
+      return res.status(400).json({ success: false, message: 'No se pudo determinar el monto de esta recarga.' });
+    }
+    const amount = Number(persistedAmount);
+
+    // Verificar con Bancard
+    let confirmation;
+    try {
+      confirmation = await bancardService.getConfirmation(Number(shopProcessId));
+    } catch (bancardErr) {
+      return res.status(402).json({
+        success: false,
+        message: bancardErr.message.startsWith('Bancard:')
+          ? bancardErr.message.replace('Bancard: ', '')
+          : 'No se pudo verificar el resultado del pago.',
+      });
+    }
+
+    const approved = confirmation.response === 'S' && String(confirmation.response_code) === '00';
+
+    // SEGURIDAD: validar que el monto cobrado coincida con el persistido.
+    if (approved) {
+      const confirmedAmount = Math.round(parseFloat(confirmation.amount));
+      if (!Number.isFinite(confirmedAmount) || confirmedAmount !== amount) {
+        await req.prisma.payment.update({
+          where: { id: pendingPayment.id },
+          data: { status: 'FAILED', description: `${pendingPayment.description || ''} — Monto no coincide (cobrado ${confirmation.amount}, esperado ${amount})` },
+        });
+        await req.prisma.bancardOperation.update({
+          where: { shopProcessId: Number(shopProcessId) },
+          data: { status: 'FAILED' },
+        });
+        return res.status(402).json({
+          success: false,
+          message: 'El monto cobrado no coincide con el de la recarga. No se acreditó el saldo.',
+        });
+      }
+    }
+
+    if (!approved) {
+      await req.prisma.payment.update({ where: { id: pendingPayment.id }, data: { status: 'FAILED' } });
+      await req.prisma.bancardOperation.update({
+        where: { shopProcessId: Number(shopProcessId) },
+        data: { status: 'FAILED' },
+      });
+      return res.status(402).json({
+        success: false,
+        message: 'El pago 3DS fue rechazado. Intentá con otra tarjeta.',
+        data: { responseCode: confirmation.response_code },
+      });
+    }
+
+    const bancardTicketNumber = confirmation.ticket_number || null;
+    const bancardAuthNumber = confirmation.authorization_number || null;
+
+    let payment, alreadyMaterialized = false;
+    await req.prisma.$transaction(async (tx) => {
+      // Lock + re-check anti doble-acreditación con el webhook/job de reconciliación.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${req.user.id} FOR UPDATE`;
+      const freshOp = await tx.bancardOperation.findUnique({ where: { shopProcessId: Number(shopProcessId) } });
+      if (freshOp?.status === 'COMPLETED') { alreadyMaterialized = true; return; }
+
+      await tx.credit.create({
+        data: { userId: req.user.id, amount, type: 'WALLET_TOPUP', description: 'Recarga de billetera' },
+      });
+      payment = await tx.payment.update({
+        where: { bancardShopProcessId: Number(shopProcessId) },
+        data: { status: 'COMPLETED', bancardTicketNumber, bancardAuthNumber },
+      });
+      await tx.bancardOperation.update({
+        where: { shopProcessId: Number(shopProcessId) },
+        data: { status: 'COMPLETED' },
+      });
+      await tx.auditLog.create({
+        data: {
+          entity: 'payment', action: 'wallet_topup_bancard_3ds', entityId: payment.id, userId: req.user.id,
+          detailsJson: { amountGs: amount, shopProcessId, ticketNumber: bancardTicketNumber, authNumber: bancardAuthNumber },
+        },
+      });
+    });
+
+    if (alreadyMaterialized) {
+      return res.json({ success: true, message: 'La recarga ya fue procesada.', data: { alreadyCompleted: true, amountGs: amount } });
+    }
+
+    // Asiento contable (best-effort, POST-COMMIT, no bloqueante).
+    if (payment?.id) postPaymentCompleted(req.prisma, payment.id).catch(() => {});
+
+    console.log(`[Bancard] 3DS recarga ₲${amount} acreditada para user ${req.user.id} — shopProcessId=${shopProcessId}`);
+
+    res.json({
+      success: true,
+      data: { payment: { id: payment.id, shopProcessId, status: 'COMPLETED' }, amountGs: amount },
+      message: `¡Recarga de ₲${amount.toLocaleString('es-PY')} acreditada exitosamente!`,
+    });
+  } catch (err) {
+    console.error('[Bancard] charge-topup-3ds-complete error:', err.message);
+    next(err);
+  }
+});
+
+// ─────────────────────────────────────────────────────
 //  PAYMENT HISTORY
 // ─────────────────────────────────────────────────────
 
 /**
  * GET /api/payments/history
- * Payment history for the current user (admins see all)
+ * Payment history for the current user (admins see all).
+ * Admins can paginate and filter: ?page&limit&status&search
+ *   - status: a PaymentStatus value (COMPLETED|PENDING|FAILED|...)
+ *   - search: matches client first/last name, email or description
  */
 router.get('/history', authenticate, async (req, res, next) => {
   try {
     const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
+
     const where = isAdmin ? {} : { userId: req.user.id };
 
-    const payments = await req.prisma.payment.findMany({
-      where,
-      include: {
-        user: { select: { firstName: true, lastName: true, email: true } },
-        membership: { include: { plan: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+    // Admin-only filters
+    if (isAdmin) {
+      const VALID_STATUS = ['PENDING', 'PROCESSING', 'REQUIRES_ACTION', 'COMPLETED', 'FAILED', 'REFUNDED'];
+      if (req.query.status && VALID_STATUS.includes(req.query.status)) {
+        where.status = req.query.status;
+      }
+      const search = (req.query.search || '').trim();
+      if (search) {
+        where.OR = [
+          { description: { contains: search, mode: 'insensitive' } },
+          { user: { is: { firstName: { contains: search, mode: 'insensitive' } } } },
+          { user: { is: { lastName: { contains: search, mode: 'insensitive' } } } },
+          { user: { is: { email: { contains: search, mode: 'insensitive' } } } },
+        ];
+      }
+    }
 
-    res.json({ success: true, data: payments });
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    const [payments, total] = await Promise.all([
+      req.prisma.payment.findMany({
+        where,
+        include: {
+          user: { select: { firstName: true, lastName: true, email: true } },
+          membership: { include: { plan: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      req.prisma.payment.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: payments,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─────────────────────────────────────────────────────
+//  ADMIN FINANCE SUMMARY
+// ─────────────────────────────────────────────────────
+
+/**
+ * GET /api/payments/admin/finance
+ * Aggregated financial figures for the admin Finance dashboard — all from real
+ * Payment rows. Returns totals (completed / pending / failed), average ticket,
+ * a breakdown by payment method, and a 6-month revenue time series.
+ */
+router.get('/admin/finance', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [
+      completedAll,
+      completedMonth,
+      pendingAgg,
+      failedMonth,
+      refundedAgg,
+      totalCount,
+      byMethodRaw,
+    ] = await Promise.all([
+      req.prisma.payment.aggregate({ where: { status: 'COMPLETED' }, _sum: { amountGs: true }, _count: { _all: true } }),
+      req.prisma.payment.aggregate({ where: { status: 'COMPLETED', createdAt: { gte: startOfMonth } }, _sum: { amountGs: true }, _count: { _all: true } }),
+      req.prisma.payment.aggregate({ where: { status: { in: ['PENDING', 'PROCESSING', 'REQUIRES_ACTION'] } }, _sum: { amountGs: true }, _count: { _all: true } }),
+      req.prisma.payment.count({ where: { status: 'FAILED', createdAt: { gte: startOfMonth } } }),
+      req.prisma.payment.aggregate({ where: { status: 'REFUNDED' }, _sum: { amountGs: true }, _count: { _all: true } }),
+      req.prisma.payment.count(),
+      req.prisma.payment.groupBy({ by: ['paymentMethod'], where: { status: 'COMPLETED' }, _sum: { amountGs: true }, _count: { _all: true } }),
+    ]);
+
+    const totalCompleted = completedAll._sum.amountGs || 0;
+    const completedCount = completedAll._count._all || 0;
+    const averageTicket = completedCount > 0 ? Math.round(totalCompleted / completedCount) : 0;
+
+    const byMethod = byMethodRaw.map((row) => ({
+      method: row.paymentMethod || 'otro',
+      total: row._sum.amountGs || 0,
+      count: row._count._all,
+    }));
+
+    // 6-month revenue series (COMPLETED only)
+    const seriesStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const seriesPayments = await req.prisma.payment.findMany({
+      where: { status: 'COMPLETED', createdAt: { gte: seriesStart } },
+      select: { amountGs: true, createdAt: true },
+    });
+    const monthlyRevenue = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const next = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      const bucket = seriesPayments.filter((p) => p.createdAt >= d && p.createdAt < next);
+      monthlyRevenue.push({
+        name: d.toLocaleDateString('es-PY', { month: 'short' }),
+        revenue: bucket.reduce((s, p) => s + (p.amountGs || 0), 0),
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        totalCompleted,
+        completedCount,
+        monthRevenue: completedMonth._sum.amountGs || 0,
+        monthTransactions: completedMonth._count._all || 0,
+        pendingTotal: pendingAgg._sum.amountGs || 0,
+        pendingCount: pendingAgg._count._all || 0,
+        failedMonth,
+        refundedTotal: refundedAgg._sum.amountGs || 0,
+        refundedCount: refundedAgg._count._all || 0,
+        totalTransactions: totalCount,
+        averageTicket,
+        byMethod,
+        monthlyRevenue,
+      },
+    });
   } catch (err) {
     next(err);
   }

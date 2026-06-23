@@ -1,22 +1,28 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
-  ScrollText, Search, User, Zap,
-  Settings, CreditCard, LogIn, Plus,
-  Edit, Trash2, Shield, Loader2,
-  Calendar, FileText, ChevronLeft, ChevronRight,
-  Database, Activity, MoreHorizontal, Terminal
+  ScrollText, Search, User, Settings, CreditCard, LogIn,
+  Plus, Edit, Trash2, Loader2, Calendar, FileText,
+  ChevronLeft, ChevronRight, Database, Activity, Terminal,
 } from 'lucide-react';
 import api from '../../services/api';
+import toast from 'react-hot-toast';
+import EmptyState from '../../components/EmptyState';
+import AnimatedNumber from '../../components/AnimatedNumber';
 
 export default function AuditLogs() {
+  const reduceMotion = useReducedMotion();
+  const tap = reduceMotion ? undefined : { scale: 0.96 };
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({});
   const [filterAction, setFilterAction] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [stats, setStats] = useState(null);
 
   useEffect(() => { loadLogs(); }, [page, filterAction]);
+  useEffect(() => { loadStats(); }, []);
 
   const loadLogs = async () => {
     try {
@@ -25,23 +31,34 @@ export default function AuditLogs() {
       const res = await api.get(`/audit?${params}`);
       setLogs(res.data.data || []);
       setPagination(res.data.pagination || {});
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'No se pudieron cargar los registros');
+    }
     setLoading(false);
   };
 
+  const loadStats = async () => {
+    try {
+      const res = await api.get('/audit/stats');
+      setStats(res.data.data || null);
+    } catch {
+      // las tarjetas muestran 0 si no hay datos
+    }
+  };
+
   const actionConfig = {
-    UPDATE_SETTINGS: { icon: <Settings size={14} />, color: 'bg-indigo-500', label: 'Ajustes' },
-    SHOP_CHARGE: { icon: <CreditCard size={14} />, color: 'bg-emerald-500', label: 'Cobro' },
-    LOGIN: { icon: <LogIn size={14} />, color: 'bg-blue-500', label: 'Acceso' },
-    CREATE: { icon: <Plus size={14} />, color: 'bg-primary', label: 'Creación' },
-    UPDATE: { icon: <Edit size={14} />, color: 'bg-amber-500', label: 'Edición' },
-    DELETE: { icon: <Trash2 size={14} />, color: 'bg-rose-500', label: 'Borrado' },
+    UPDATE_SETTINGS: { icon: <Settings size={14} />, color: 'bg-indigo-500/10 text-indigo-500 dark:text-indigo-400', label: 'Ajustes' },
+    SHOP_CHARGE: { icon: <CreditCard size={14} />, color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', label: 'Cobro' },
+    LOGIN: { icon: <LogIn size={14} />, color: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', label: 'Acceso' },
+    CREATE: { icon: <Plus size={14} />, color: 'bg-[#0040e0]/10 text-[#0040e0]', label: 'Creación' },
+    UPDATE: { icon: <Edit size={14} />, color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', label: 'Edición' },
+    DELETE: { icon: <Trash2 size={14} />, color: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', label: 'Borrado' },
   };
 
   if (loading && page === 1) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-      <Loader2 size={40} className="text-primary animate-spin" />
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Escaneando Registros Maestro...</p>
+      <Loader2 size={36} className="text-[#0040e0] animate-spin" />
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Cargando registros…</p>
     </div>
   );
 
@@ -51,35 +68,44 @@ export default function AuditLogs() {
       <header className="admin-page-header">
         <div>
           <h1 className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-slate-900 flex items-center justify-center text-white shadow-lg shadow-slate-900/20">
-              <ScrollText size={24} />
-            </div>
+            <span className="w-10 h-10 rounded-lg bg-[#0040e0]/10 text-[#0040e0] flex items-center justify-center">
+              <ScrollText size={20} />
+            </span>
             Bitácora de Auditoría
           </h1>
-          <p>Trazabilidad forense de operaciones administrativas</p>
+          <p>Trazabilidad de operaciones administrativas</p>
         </div>
         <div className="flex items-center gap-4 w-full md:w-auto">
           <div className="admin-search-wrapper w-full md:w-72">
-            <Search className="admin-search-icon" size={16} />
+            <Search className={`admin-search-icon transition-colors duration-200 ${searchFocused ? '!text-[#0040e0]' : ''}`} size={16} />
             <input
               className="admin-search-input"
-              placeholder="Buscar acción específica..."
+              placeholder="Buscar por acción…"
               value={filterAction}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
               onChange={e => { setFilterAction(e.target.value); setPage(1); }}
             />
           </div>
         </div>
       </header>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-        <LogStat icon={<Activity size={18} />} label="Total Eventos" value={pagination.totalItems || '0'} color="primary" />
-        <LogStat icon={<Shield size={18} />} label="Nivel Seguridad" value="Óptimo" color="emerald" />
-        <LogStat icon={<Database size={18} />} label="Retención" value="90 Días" color="indigo" />
+      {/* Stats Summary — datos reales de /audit/stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
+        <LogStat icon={<Activity size={20} />} label="Total Eventos" value={<AnimatedNumber value={stats?.total ?? pagination.total} format="int" />} color="primary" />
+        <LogStat icon={<Calendar size={20} />} label="Hoy" value={<AnimatedNumber value={stats?.today} format="int" />} color="emerald" />
+        <LogStat icon={<Database size={20} />} label="Este Mes" value={<AnimatedNumber value={stats?.thisMonth} format="int" />} color="indigo" />
+        <LogStat icon={<User size={20} />} label="Responsables" value={<AnimatedNumber value={stats?.actors} format="int" />} color="primary" />
       </div>
 
       {/* Table Section */}
-      <div className="admin-card !p-0 overflow-hidden border-b-4 border-b-slate-900/5 dark:border-b-white/5">
+      {logs.length === 0 ? (
+        <EmptyState
+          icon="📋"
+          title={filterAction ? 'Sin resultados' : 'No hay registros'}
+          message={filterAction ? 'Probá con otra acción.' : 'Aún no se registraron operaciones en la bitácora.'}
+        />
+      ) : (
         <div className="table-container">
           <table className="admin-table">
             <thead>
@@ -92,116 +118,108 @@ export default function AuditLogs() {
               </tr>
             </thead>
             <tbody>
-              <AnimatePresence mode='popLayout'>
-                {logs.map((log, i) => {
-                  const config = actionConfig[log.action] || { icon: <FileText size={14} />, color: 'bg-slate-400', label: log.action };
+                {logs.map((log) => {
+                  const config = actionConfig[log.action] || { icon: <FileText size={14} />, color: 'bg-slate-500/10 text-slate-500', label: log.action };
                   return (
-                    <motion.tr
+                    <tr
                       key={log.id}
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.01 }}
                       className="group"
                     >
                       <td>
                         <div className="flex flex-col">
-                          <span className="text-[10px] font-black italic text-slate-900 dark:text-white uppercase tracking-tight">
+                          <span className="text-sm font-medium text-slate-900 dark:text-white">
                             {new Date(log.createdAt).toLocaleDateString('es-PY', { day: '2-digit', month: 'short' })}
                           </span>
-                          <span className="text-[9px] font-bold text-slate-400 font-mono mt-0.5">
+                          <span className="text-xs text-slate-400 font-mono mt-0.5">
                             {new Date(log.createdAt).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                           </span>
                         </div>
                       </td>
                       <td>
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all transform group-hover:rotate-6">
+                          <span className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0">
                             <User size={14} />
-                          </div>
-                          <div>
-                            <p className="text-xs font-black uppercase tracking-tight text-slate-900 dark:text-white leading-none mb-1 group-hover:translate-x-1 transition-transform">
-                              {log.user ? `${log.user.firstName} ${log.user.lastName}` : 'System Kernel'}
-                            </p>
-                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.2em]">
-                              {log.user?.role || 'INFRASTRUCTURE'}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <div className={`w-6 h-6 rounded-lg ${config.color} text-white flex items-center justify-center shrink-0 shadow-sm shadow-${config.color.split('-')[1]}-500/20`}>
-                            {config.icon}
-                          </div>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">
-                            {config.label.replace(/_/g, ' ')}
                           </span>
+                          <div>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white leading-tight">
+                              {log.user ? `${log.user.firstName} ${log.user.lastName}` : 'Sistema'}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {log.user?.role || 'Sistema'}
+                            </p>
+                          </div>
                         </div>
                       </td>
                       <td>
-                        <span className="inline-flex px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500">
-                          {log.entity || 'CORE'}
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${config.color}`}>
+                          {config.icon}
+                          {config.label.replace(/_/g, ' ')}
                         </span>
                       </td>
                       <td>
-                        <div className="max-w-[320px] truncate font-mono text-[9px] uppercase tracking-widest bg-slate-50/50 dark:bg-slate-900/40 p-2.5 rounded-xl border border-slate-100 dark:border-white/5 text-slate-400 group-hover:text-primary transition-colors cursor-default flex items-center gap-2">
-                          <Terminal size={10} className="shrink-0 opacity-40" />
-                          {log.details ? JSON.stringify(log.details).substring(0, 80) : 'NO_PAYLOAD'}
+                        <span className="inline-flex px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400">
+                          {log.entity || '—'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="max-w-[320px] truncate font-mono text-xs bg-slate-50 dark:bg-slate-900/40 px-2.5 py-1.5 rounded-md border border-slate-100 dark:border-white/5 text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                          <Terminal size={12} className="shrink-0 opacity-50" />
+                          {log.detailsJson ? JSON.stringify(log.detailsJson).substring(0, 80) : '—'}
                         </div>
                       </td>
-                    </motion.tr>
+                    </tr>
                   );
                 })}
-              </AnimatePresence>
             </tbody>
           </table>
+
+          {/* Pagination Footer */}
+          <footer className="p-4 bg-slate-50 dark:bg-white/5 border-t border-slate-200 dark:border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Página {page} de {pagination.totalPages || 1}
+            </p>
+
+            <div className="flex items-center gap-2">
+              <motion.button
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+                whileTap={page <= 1 ? undefined : tap}
+                className="admin-btn-outline admin-btn-sm"
+              >
+                <ChevronLeft size={16} /> Anterior
+              </motion.button>
+              <motion.button
+                disabled={page >= (pagination.totalPages || 1)}
+                onClick={() => setPage(page + 1)}
+                whileTap={page >= (pagination.totalPages || 1) ? undefined : tap}
+                className="admin-btn-outline admin-btn-sm"
+              >
+                Siguiente <ChevronRight size={16} />
+              </motion.button>
+            </div>
+          </footer>
         </div>
-
-        {/* Improved Pagination Footer */}
-        <footer className="p-6 bg-slate-50/50 dark:bg-white/5 border-t border-slate-100 dark:border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-            Servidor Maestro <span className="text-primary italic">ASUNCION_CORE</span> // Página {page} de {pagination.totalPages || 1}
-          </p>
-
-          <div className="flex items-center gap-2">
-            <button
-              disabled={page <= 1}
-              onClick={() => setPage(page - 1)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-[9px] font-black uppercase text-slate-400 hover:text-primary disabled:opacity-30 transition-all hover:border-primary/50"
-            >
-              <ChevronLeft size={16} /> ANTERIOR
-            </button>
-            <button
-              disabled={page >= (pagination.totalPages || 1)}
-              onClick={() => setPage(page + 1)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-[9px] font-black uppercase text-slate-400 hover:text-primary disabled:opacity-30 transition-all hover:border-primary/50"
-            >
-              SIGUIENTE <ChevronRight size={16} />
-            </button>
-          </div>
-        </footer>
-      </div>
+      )}
     </div>
   );
 }
 
 function LogStat({ icon, label, value, color }) {
   const colors = {
-    primary: 'text-primary bg-primary/10 border-primary/20',
-    emerald: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
-    indigo: 'text-indigo-600 bg-indigo-600/10 border-indigo-600/20'
+    primary: 'text-[#0040e0] bg-[#0040e0]/10',
+    emerald: 'text-emerald-500 bg-emerald-500/10',
+    indigo: 'text-indigo-500 bg-indigo-500/10',
   };
 
   return (
-    <div className="admin-card !p-5 flex items-center gap-5 border-b-2 group transition-all">
-      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 ${colors[color]}`}>
+    <div className="kpi-card flex items-center gap-4">
+      <div className={`kpi-icon !mb-0 ${colors[color]}`}>
         {icon}
       </div>
-      <div className="flex-1">
-        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-0.5">{label}</h4>
-        <p className="text-xl font-black italic text-slate-900 dark:text-white uppercase leading-tight tracking-tight">{value}</p>
+      <div className="flex-1 min-w-0">
+        <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">{label}</h4>
+        <p className="text-2xl font-semibold text-slate-900 dark:text-white leading-none">{value}</p>
       </div>
-      <MoreHorizontal className="text-slate-200" size={18} />
     </div>
   );
 }

@@ -29,23 +29,51 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
       case 'OrderCreate': {
         const contact = data || {};
         const email = contact.email || `${contactId}@luxury-garage.auto`;
-        const existing = await req.prisma.user.findUnique({ where: { email } });
+
+        // ── IDEMPOTENCIA ──────────────────────────────────────────────────
+        // Un webhook reintentado por GHL/ARIZAR no debe crear un SEGUNDO usuario
+        // ni una SEGUNDA membresía. Dedup por arizarContactId (campo @unique) además
+        // del email: el contacto es la identidad estable del lado del CRM.
+        let existing = null;
+        if (contactId) {
+          existing = await req.prisma.user.findFirst({ where: { arizarContactId: contactId } });
+        }
+        if (!existing) {
+          existing = await req.prisma.user.findUnique({ where: { email } });
+        }
 
         if (!existing) {
           const password = Math.random().toString(36).slice(-8) + 'Lx1!';
           const passwordHash = await bcrypt.hash(password, 12);
-          const user = await req.prisma.user.create({
-            data: {
-              email,
-              passwordHash,
-              firstName: contact.firstName || contact.first_name || 'Cliente',
-              lastName: contact.lastName || contact.last_name || 'Nuevo',
-              phone: contact.phone || null,
-              role: 'CLIENT',
-              arizarContactId: contactId
+          let user;
+          try {
+            user = await req.prisma.user.create({
+              data: {
+                email,
+                passwordHash,
+                firstName: contact.firstName || contact.first_name || 'Cliente',
+                lastName: contact.lastName || contact.last_name || 'Nuevo',
+                phone: contact.phone || null,
+                role: 'CLIENT',
+                arizarContactId: contactId
+              }
+            });
+          } catch (e) {
+            // P2002 = unique violation (email o arizarContactId): una entrega
+            // concurrente del MISMO webhook ya creó el usuario. Idempotente:
+            // recuperamos el existente y NO reenviamos credenciales.
+            if (e.code === 'P2002') {
+              existing = contactId
+                ? await req.prisma.user.findFirst({ where: { arizarContactId: contactId } })
+                : null;
+              if (!existing) existing = await req.prisma.user.findUnique({ where: { email } });
+              console.log('ℹ️ Webhook duplicado: usuario ya existía, se omite re-creación');
+            } else {
+              throw e;
             }
-          });
+          }
 
+          if (user) {
           // Send credentials
           try {
             await arizarService.sendEmail(contactId,
@@ -79,6 +107,7 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
 
           const emailRedacted = email ? email.substring(0, 3) + '***@***' : 'unknown';
           console.log(`✅ Usuario auto-creado desde webhook: ${emailRedacted}`);
+          } // fin if (user) — solo enviamos credenciales para usuarios recién creados
         } else {
           // Update existing user's contact ID if missing
           if (!existing.arizarContactId && contactId) {
@@ -91,15 +120,31 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
           const planSlug = data.planSlug || data.product?.slug;
           if (planSlug) {
             const plan = await req.prisma.plan.findUnique({ where: { slug: planSlug } });
-            const user = await req.prisma.user.findUnique({ where: { email } });
+            // Resolver el usuario de forma fiable: el ya deduplicado, si no por
+            // arizarContactId, y como último recurso por email. Evita perder la
+            // asignación cuando el contacto se dedupó por contactId con otro email.
+            let user = existing;
+            if (!user && contactId) user = await req.prisma.user.findFirst({ where: { arizarContactId: contactId } });
+            if (!user) user = await req.prisma.user.findUnique({ where: { email } });
             if (plan && user) {
-              const start = new Date();
-              const end = new Date(); end.setMonth(end.getMonth() + 1);
-              await req.prisma.membership.create({
-                data: { userId: user.id, planId: plan.id, status: 'ACTIVE', startDate: start, endDate: end }
+              // ── IDEMPOTENCIA ─────────────────────────────────────────────
+              // No crear una SEGUNDA membresía ACTIVE si ya hay una para este plan.
+              // Un webhook reintentado entraría aquí de nuevo; sin este guard se
+              // acumularían membresías duplicadas en cada reintento.
+              const alreadyActive = await req.prisma.membership.findFirst({
+                where: { userId: user.id, planId: plan.id, status: 'ACTIVE' },
               });
-              const emailRedactedPlan = email ? email.substring(0, 3) + '***@***' : 'unknown';
-              console.log(`✅ Membresía ${plan.name} asignada automáticamente a ${emailRedactedPlan}`);
+              if (!alreadyActive) {
+                const start = new Date();
+                const end = new Date(); end.setMonth(end.getMonth() + 1);
+                await req.prisma.membership.create({
+                  data: { userId: user.id, planId: plan.id, status: 'ACTIVE', startDate: start, endDate: end }
+                });
+                const emailRedactedPlan = email ? email.substring(0, 3) + '***@***' : 'unknown';
+                console.log(`✅ Membresía ${plan.name} asignada automáticamente a ${emailRedactedPlan}`);
+              } else {
+                console.log(`ℹ️ Webhook duplicado: membresía ACTIVE de ${plan.name} ya existe, se omite`);
+              }
             }
           }
         }

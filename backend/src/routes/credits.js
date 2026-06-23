@@ -40,32 +40,33 @@ router.get('/', authenticate, async (req, res, next) => {
 });
 
 // POST /api/credits/topup — cargar saldo a la billetera
+// SEGURIDAD: este endpoint NO acredita saldo gastable. Acreditar la billetera sin un
+// pago real era una puerta trasera (cualquier cliente podía darse saldo). El camino
+// legítimo para cargar saldo con tarjeta es POST /api/credits/topup-card (Bancard APPROVED).
+// Para una carga por transferencia/efectivo, el cliente envía una SOLICITUD que un admin
+// debe aprobar explícitamente (POST /api/credits/admin/approve-topup); recién ahí se acredita.
 router.post('/topup', authenticate, async (req, res, next) => {
   try {
     const { amount, paymentMethod } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Monto inválido' });
     if (amount < 10000) return res.status(400).json({ success: false, message: 'Monto mínimo: ₲10.000' });
 
-    const credit = await req.prisma.credit.create({
+    // Registrar como solicitud PENDIENTE (no es saldo gastable hasta la aprobación del admin).
+    const request = await req.prisma.bancardOperation.create({
       data: {
+        shopProcessId: Date.now(),
         userId: req.user.id,
-        amount: amount,
-        type: 'WALLET_TOPUP',
-        description: `Carga de saldo${paymentMethod ? ` (${paymentMethod})` : ''}`,
+        type: 'wallet_topup_request',
+        status: 'PENDING',
+        amountGs: amount,
+        metadataJson: { paymentMethod: paymentMethod || 'transferencia', requestedBy: req.user.id },
       },
     });
 
-    // Calculate new total
-    const allCredits = await req.prisma.credit.findMany({
-      where: { userId: req.user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
-    });
-    const totalBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
-
-    res.status(201).json({
+    res.status(202).json({
       success: true,
-      data: credit,
-      balance: totalBalance,
-      message: `₲${amount.toLocaleString()} cargados exitosamente. Saldo: ₲${totalBalance.toLocaleString()}`,
+      data: { id: request.id, amount, status: 'PENDING' },
+      message: 'Solicitud de recarga registrada. Un administrador la aprobará y se acreditará tu saldo. Para recarga inmediata, usá tu tarjeta.',
     });
   } catch (err) { next(err); }
 });
@@ -146,87 +147,16 @@ router.post('/redeem', authenticate, async (req, res, next) => {
   }
 });
 
-// POST /api/credits/topup-card — Cargar saldo via tarjeta Bancard
-router.post('/topup-card', authenticate, async (req, res, next) => {
-  try {
-    const bancardService = require('../services/bancardService');
-
-    const { amount, cardId } = req.body;
-    if (!amount || amount < 10000) {
-      return res.status(400).json({ success: false, message: 'Monto mínimo: ₲10.000' });
-    }
-
-    const user = await req.prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: { paymentCards: true },
-    });
-    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
-    if (!user.bancardUserId) {
-      return res.status(400).json({ success: false, message: 'Primero registrá una tarjeta Bancard' });
-    }
-
-    // Seleccionar tarjeta
-    let selectedCard;
-    if (cardId) {
-      selectedCard = user.paymentCards.find(c => c.id === cardId);
-    } else {
-      selectedCard = user.paymentCards.find(c => c.isPrimary) || user.paymentCards[0];
-    }
-    if (!selectedCard || !selectedCard.bancardCardId) {
-      return res.status(400).json({ success: false, message: 'No tenés tarjetas Bancard registradas' });
-    }
-
-    // Obtener alias_token fresco
-    const bancardCards = await bancardService.getUserCards(user.bancardUserId);
-    const matchingCard = bancardCards.find(c => parseInt(c.card_id) === selectedCard.bancardCardId);
-    if (!matchingCard) {
-      return res.status(400).json({ success: false, message: 'Tarjeta no disponible en Bancard. Sincronizá tus tarjetas.' });
-    }
-
-    // Generar shop_process_id y cobrar
-    const shopProcessId = bancardService.generateShopProcessId();
-
-    await req.prisma.bancardOperation.create({
-      data: { shopProcessId, userId: user.id, type: 'charge', status: 'PENDING', amountGs: amount },
-    });
-
-    const chargeResult = await bancardService.charge({
-      shopProcessId,
-      amount,
-      aliasToken: matchingCard.alias_token,
-      description: 'Recarga billetera LG',
-      returnUrl: `${process.env.APP_URL || 'https://luxurygarage.com.py'}/billetera`,
-    });
-
-    if (!chargeResult.approved) {
-      await req.prisma.bancardOperation.update({ where: { shopProcessId }, data: { status: 'FAILED' } });
-      return res.status(402).json({ success: false, message: 'El cobro fue rechazado. Verificá tu tarjeta.' });
-    }
-
-    // Cobro exitoso → acreditar créditos en $transaction
-    let newCredit;
-    await req.prisma.$transaction(async (tx) => {
-      newCredit = await tx.credit.create({
-        data: { userId: user.id, amount, type: 'WALLET_TOPUP', description: `Recarga Bancard ****${selectedCard.maskedNumber?.slice(-4) || '****'}` },
-      });
-      await tx.payment.create({
-        data: { userId: user.id, amountGs: amount, paymentMethod: 'bancard_card', bancardShopProcessId: shopProcessId, bancardTicketNumber: chargeResult.ticketNumber?.toString(), bancardAuthNumber: chargeResult.authorizationNumber?.toString(), status: 'COMPLETED', description: `Recarga billetera ₲${amount.toLocaleString()}` },
-      });
-      await tx.bancardOperation.update({ where: { shopProcessId }, data: { status: 'COMPLETED' } });
-    });
-
-    const allCredits = await req.prisma.credit.findMany({
-      where: { userId: user.id, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
-    });
-    const newBalance = allCredits.reduce((sum, c) => sum + c.amount, 0);
-
-    res.json({ success: true, data: newCredit, balance: newBalance, message: `¡Recarga de ₲${amount.toLocaleString()} acreditada!` });
-  } catch (err) {
-    if (err.message?.startsWith('Bancard:')) {
-      return res.status(400).json({ success: false, message: err.message });
-    }
-    next(err);
-  }
+// POST /api/credits/topup-card — DEPRECADO (410).
+// Era un duplicado más viejo e INSEGURO de POST /api/payments/charge-topup: no tenía lock
+// anti-doble-cobro, no verificaba el monto cobrado contra confirmation.amount, ni manejaba el
+// challenge 3DS (un cobro que requería 3DS quedaba mal resuelto). El frontend usa el endpoint
+// seguro (/payments/charge-topup). Se deja como 410 para cortar cualquier llamada legacy.
+router.post('/topup-card', authenticate, (req, res) => {
+  return res.status(410).json({
+    success: false,
+    message: 'Endpoint discontinuado. Usá /api/payments/charge-topup para recargar con tarjeta.',
+  });
 });
 
 // ═══════ ADMIN: registrar compra de un cliente en el shop ═══════
@@ -268,6 +198,67 @@ router.post('/admin/charge', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'EM
     res.json({ success: true, data: credit, message: `Cobro de ₲${amount.toLocaleString()} registrado` });
   } catch (err) {
     if (err.statusCode === 400) return res.status(400).json({ success: false, message: err.message });
+    next(err);
+  }
+});
+
+// GET /api/credits/admin/topup-requests — solicitudes de recarga manual pendientes
+router.get('/admin/topup-requests', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+  try {
+    const requests = await req.prisma.bancardOperation.findMany({
+      where: { type: 'wallet_topup_request', status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: requests });
+  } catch (err) { next(err); }
+});
+
+// POST /api/credits/admin/approve-topup — el admin aprueba una solicitud y RECIÉN AHÍ se acredita el saldo
+router.post('/admin/approve-topup', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+  try {
+    const { requestId, approve = true } = req.body;
+    if (!requestId) return res.status(400).json({ success: false, message: 'requestId requerido' });
+
+    let credit = null;
+    let request;
+    await req.prisma.$transaction(async (tx) => {
+      request = await tx.bancardOperation.findFirst({
+        where: { id: requestId, type: 'wallet_topup_request' },
+      });
+      if (!request) {
+        throw Object.assign(new Error('Solicitud no encontrada'), { statusCode: 404 });
+      }
+      if (request.status !== 'PENDING') {
+        throw Object.assign(new Error('La solicitud ya fue procesada'), { statusCode: 400 });
+      }
+
+      if (!approve) {
+        await tx.bancardOperation.update({ where: { id: request.id }, data: { status: 'FAILED' } });
+        return;
+      }
+
+      // Aprobada → acreditar saldo gastable recién ahora.
+      credit = await tx.credit.create({
+        data: {
+          userId: request.userId,
+          amount: request.amountGs,
+          type: 'WALLET_TOPUP',
+          description: `Recarga aprobada por admin (${request.metadataJson?.paymentMethod || 'transferencia'})`,
+        },
+      });
+      await tx.bancardOperation.update({ where: { id: request.id }, data: { status: 'COMPLETED' } });
+      await tx.auditLog.create({
+        data: { userId: req.user.id, action: 'APPROVE_WALLET_TOPUP', entity: 'Credit', entityId: credit.id, detailsJson: { requestId, clientUserId: request.userId, amount: request.amountGs } },
+      });
+    });
+
+    res.json({
+      success: true,
+      data: credit,
+      message: approve ? `Recarga de ₲${request.amountGs.toLocaleString()} acreditada al cliente` : 'Solicitud de recarga rechazada',
+    });
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ success: false, message: err.message });
     next(err);
   }
 });

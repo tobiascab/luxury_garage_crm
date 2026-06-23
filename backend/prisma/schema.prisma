@@ -20,6 +20,15 @@ model User {
   arizarContactId   String?         @unique @map("arizar_contact_id")
   masfazzilCustomerUuid String?     @unique @map("masfazzil_customer_uuid") // deprecated: reemplazado por bancardUserId
   bancardUserId     Int?            @unique @map("bancard_user_id")
+  // ── Stripe (plataforma = Avanzantec LLC; Connect V2) ──
+  stripeCustomerId        String?   @unique @map("stripe_customer_id")          // customer (cliente que paga)
+  stripeConnectAccountId  String?   @unique @map("stripe_connect_account_id")   // acct_... si el user se onboardea como connected account
+  stripeAccountStatus     String?   @map("stripe_account_status")               // none|pending|active|restricted
+  defaultPaymentMethodId  String?   @map("default_payment_method_id")           // pm_... default off-session
+  // ── Suscripción de plataforma (Avanzantec cobra una cuota SaaS al negocio desde su stripe_balance) ──
+  platformSubscriptionId          String? @unique @map("platform_subscription_id")           // sub_... cuota SaaS que el negocio le paga a la plataforma
+  platformSubscriptionStatus      String? @map("platform_subscription_status")               // active|past_due|canceled|...
+  platformBalancePaymentMethodId  String? @map("platform_balance_payment_method_id")         // pm_... del SetupIntent stripe_balance del negocio
   isActive          Boolean         @default(true) @map("is_active")
   isTestMode        Boolean         @default(false) @map("is_test_mode")
   lastLoginAt       DateTime?       @map("last_login_at")
@@ -30,6 +39,7 @@ model User {
   credits           Credit[]
   memberships       Membership[]
   notifications     Notification[]
+  pushSubscriptions PushSubscription[]
   payments          Payment[]
   paymentCards      PaymentCard[]
   referralsReceived Referral[]      @relation("referred")
@@ -38,7 +48,14 @@ model User {
   serviceRecords    ServiceRecord[] @relation("employee_records")
   vehicles          Vehicle[]
   bancardOperations BancardOperation[]
+  stripeLedgerEntries StripeLedgerEntry[]
+  stockMovements    StockMovement[]
+  expenses          Expense[]           @relation("expense_creator")
+  creditNotes       CreditNote[]        @relation("credit_note_user")
+  creditNotesCreated CreditNote[]       @relation("credit_note_creator")
+  journalEntries    JournalEntry[]      @relation("journal_creator")
 
+  @@index([role])
   @@map("users")
 }
 
@@ -55,6 +72,9 @@ model Plan {
   features         Json?
   isActive         Boolean      @default(true) @map("is_active")
   sortOrder        Int          @default(0) @map("sort_order")
+  // ── Stripe (Product/Price creados en el connected account) ──
+  stripeProductId  String?      @unique @map("stripe_product_id")
+  stripePriceId    String?      @unique @map("stripe_price_id")
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
   memberships      Membership[]
@@ -70,7 +90,9 @@ model Membership {
   startDate            DateTime         @map("start_date")
   endDate              DateTime         @map("end_date")
   autoRenew            Boolean          @default(true) @map("auto_renew")
+  downgradeAllowed     Boolean          @default(false) @map("downgrade_allowed") // un admin habilitó bajar de plan (1 uso)
   arizarSubscriptionId String?          @map("arizar_subscription_id")
+  stripeSubscriptionId String?          @unique @map("stripe_subscription_id")
   servicesUsed         Int              @default(0) @map("services_used")
   createdAt            DateTime         @default(now()) @map("created_at")
   updatedAt            DateTime         @updatedAt @map("updated_at")
@@ -82,6 +104,7 @@ model Membership {
   @@index([status])
   @@index([userId, status])
   @@index([endDate])
+  @@index([status, planId])
   @@map("memberships")
 }
 
@@ -92,6 +115,7 @@ model Vehicle {
   model        String
   year         Int?
   color        String?
+  size         String?       // small|suv|truck|pickup — categoría de tamaño para el precio del servicio
   licensePlate String        @map("license_plate")
   photoUrl     String?       @map("photo_url")
   isPrimary    Boolean       @default(false) @map("is_primary")
@@ -112,7 +136,9 @@ model Service {
   description     String?
   category        String        @default("standard")
   durationMinutes Int           @map("duration_minutes")
-  basePriceGs     Int           @map("base_price_gs")
+  basePriceGs     Int           @map("base_price_gs")            // fallback / precio del tamaño más chico
+  pricingBySize   Json?         @map("pricing_by_size")          // { small, suv, truck, pickup } en Gs; null = usar basePriceGs
+  addons          Json?                                          // [{ key, name, priceGs }] adicionales opcionales del servicio
   isAddon         Boolean       @default(false) @map("is_addon")
   includedInPlans Json?         @map("included_in_plans")
   isActive        Boolean       @default(true) @map("is_active")
@@ -121,8 +147,23 @@ model Service {
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
   appointments    Appointment[]
+  consumptions    ServiceConsumption[]
 
   @@map("services")
+}
+
+// Taxonomía de tamaños de vehículo (configurable desde la BD, no hardcodeada).
+// `key` es estable y se usa como clave en Service.pricingBySize y Appointment.vehicleSize.
+model VehicleSize {
+  id        String   @id @default(uuid())
+  key       String   @unique          // small|suv|truck|pickup
+  label     String                    // "Auto pequeño", "Camioneta", ...
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("vehicle_sizes")
 }
 
 model Appointment {
@@ -136,6 +177,11 @@ model Appointment {
   endTime             DateTime          @map("end_time")
   status              AppointmentStatus @default(PENDING)
   notes               String?
+  vehicleSize         String?           @map("vehicle_size")      // tamaño elegido al reservar (small|suv|truck|pickup)
+  selectedAddons      Json?             @map("selected_addons")   // [keys] de adicionales elegidos
+  totalPriceGs        Int?              @map("total_price_gs")     // precio calculado al reservar (snapshot)
+  coveredByMembership Boolean           @default(false) @map("covered_by_membership") // true = descontado del cupo del plan
+  billingMode         String?           @map("billing_mode")      // covered | paid | overage_next_cycle
   arizarAppointmentId String?           @unique @map("arizar_appointment_id")
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
@@ -147,6 +193,7 @@ model Appointment {
   @@index([userId])
   @@index([userId, startTime])
   @@index([status])
+  @@index([date, status])
   @@map("appointments")
 }
 
@@ -161,6 +208,7 @@ model ServiceRecord {
   photosBefore        Json?       @map("photos_before")
   photosAfter         Json?       @map("photos_after")
   vehicleObservations String?     @map("vehicle_observations")
+  inventoryConsumedAt DateTime?   @map("inventory_consumed_at") // idempotencia del consumo de stock (Fase A): si != null, el inventario ya se descontó
   createdAt           DateTime    @default(now()) @map("created_at")
   review              Review?
   appointment         Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
@@ -201,6 +249,29 @@ model Referral {
   @@map("referrals")
 }
 
+// Solicitud de membresía desde la landing/login (lead público, sin cuenta todavía).
+// Aparece en el panel admin y se sincroniza con ARIZAR (contacto + oportunidad en el pipeline).
+model MembershipRequest {
+  id                  String   @id @default(uuid())
+  firstName           String   @map("first_name")
+  lastName            String?  @map("last_name")
+  email               String?
+  phone               String
+  vehicleInfo         String?  @map("vehicle_info")   // marca / modelo
+  vehicleSize         String?  @map("vehicle_size")   // chico / mediano / grande / suv
+  planInterest        String?  @map("plan_interest")  // slug del plan de interés
+  message             String?
+  source              String   @default("landing")    // landing | login
+  status              String   @default("NEW")        // NEW | CONTACTED | CONVERTED | DISCARDED
+  arizarContactId     String?  @map("arizar_contact_id")
+  arizarOpportunityId String?  @map("arizar_opportunity_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("membership_requests")
+}
+
 model Credit {
   id          String    @id @default(uuid())
   userId      String    @map("user_id")
@@ -209,11 +280,16 @@ model Credit {
   description String?
   referenceId String?   @map("reference_id")
   expiresAt   DateTime? @map("expires_at")
+  // ── Cuentas por cobrar (opcionales, nullable para no romper créditos existentes) ──
+  dueDate     DateTime? @map("due_date")     // vencimiento del saldo a cobrar
+  settledGs   Int?      @map("settled_gs")   // monto ya cobrado/aplicado del crédito (saldo = amount - settledGs)
+  status      String?   @default("open")     // open | settled | written_off (null = legacy)
   createdAt   DateTime  @default(now()) @map("created_at")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, createdAt])
+  @@index([dueDate])
   @@map("credits")
 }
 
@@ -228,14 +304,26 @@ model Payment {
   bancardShopProcessId Int?         @unique @map("bancard_shop_process_id")
   bancardTicketNumber String?       @map("bancard_ticket_number")
   bancardAuthNumber   String?       @map("bancard_auth_number")
+  // ── Stripe ──
+  stripePaymentIntentId  String?    @unique @map("stripe_payment_intent_id")
+  stripeChargeId         String?    @unique @map("stripe_charge_id")
+  stripeSessionId        String?    @unique @map("stripe_session_id")
+  stripeConnectAccountId String?    @map("stripe_connect_account_id")  // destino del cobro (no unique: muchos pagos por account)
+  applicationFeeGs       Int?       @map("application_fee_gs")          // comisión de la plataforma
+  currency               String     @default("PYG")                    // PYG es zero-decimal en Stripe
   status              PaymentStatus @default(PENDING)
   description         String?
   createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @default(now()) @updatedAt @map("updated_at")
   membership          Membership?   @relation(fields: [membershipId], references: [id])
   user                User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  ledgerEntries       StripeLedgerEntry[]
+  creditNotes         CreditNote[]
 
   @@index([userId])
   @@index([membershipId])
+  @@index([status, createdAt])
+  @@index([status, membershipId])
   @@map("payments")
 }
 
@@ -245,6 +333,8 @@ model PaymentCard {
   masfazzilCardId     String?  @map("masfazzil_card_id")
   bancardCardId       Int?     @unique @map("bancard_card_id")
   bancardAliasToken   String?  @map("bancard_alias_token")
+  stripePaymentMethodId String? @unique @map("stripe_payment_method_id")  // pm_... (reemplaza alias_token)
+  fingerprint         String?  // detectar tarjetas duplicadas
   expirationDate      String?  @map("expiration_date")
   alias               String?
   maskedNumber        String   @map("masked_number")
@@ -278,16 +368,83 @@ model Promotion {
 model InventoryItem {
   id            String   @id @default(uuid())
   name          String
+  sku           String?  @unique                          // código interno
+  brand         String?
   category      String?
-  unit          String   @default("unidad")
-  currentStock  Int      @default(0) @map("current_stock")
+  unit          String   @default("unidad")               // unidad | ml | l | g | kg
+  currentStock  Int      @default(0) @map("current_stock") // en la unidad base del item
   minStockAlert Int      @default(5) @map("min_stock_alert")
-  costPerUnit   Int?     @map("cost_per_unit")
-  supplier      String?
+  maxStock      Int?     @map("max_stock")                 // stock óptimo (para sugerir reposición)
+  location      String?                                    // depósito/estante
+  costPerUnit   Int?     @map("cost_per_unit")             // costo Gs por unidad base
+  supplier      String?                                    // legacy texto libre (fallback)
+  supplierId    String?  @map("supplier_id")
+  expiresAt     DateTime? @map("expires_at")
+  isActive      Boolean  @default(true) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
+  supplierRel   Supplier?            @relation(fields: [supplierId], references: [id])
+  movements     StockMovement[]
+  consumptions  ServiceConsumption[]
 
   @@map("inventory_items")
+}
+
+// Proveedor de insumos.
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  contact   String?
+  phone     String?
+  email     String?
+  notes     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  items     InventoryItem[]
+
+  @@map("suppliers")
+}
+
+// Ledger INMUTABLE de movimientos de stock (entradas, consumo, ajustes, mermas).
+// Nunca se edita ni borra; los errores se corrigen con un movimiento de compensación.
+model StockMovement {
+  id              String   @id @default(uuid())
+  itemId          String   @map("item_id")
+  type            String   // IN | CONSUMPTION | ADJUSTMENT | WASTE | RETURN
+  quantity        Int      // siempre positivo; el signo efectivo lo da el type
+  quantityBefore  Int      @map("quantity_before")
+  quantityAfter   Int      @map("quantity_after")
+  reason          String?
+  unitCostGs      Int?     @map("unit_cost_gs")
+  userId          String?  @map("user_id")
+  serviceRecordId String?  @map("service_record_id")   // si vino del consumo de un servicio
+  supplierId      String?  @map("supplier_id")          // si fue una compra/entrada
+  createdAt       DateTime @default(now()) @map("created_at")
+  item            InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([itemId, createdAt])
+  @@index([type])
+  @@index([serviceRecordId])
+  @@map("stock_movements")
+}
+
+// Receta / BOM: cuánto de cada insumo consume un servicio (opcionalmente por tamaño).
+// vehicleSize null = aplica a cualquier tamaño.
+model ServiceConsumption {
+  id          String   @id @default(uuid())
+  serviceId   String   @map("service_id")
+  itemId      String   @map("item_id")
+  vehicleSize String?  @map("vehicle_size")
+  quantity    Int
+  createdAt   DateTime @default(now()) @map("created_at")
+  service     Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, itemId, vehicleSize])
+  @@index([serviceId])
+  @@map("service_consumptions")
 }
 
 model Notification {
@@ -307,6 +464,20 @@ model Notification {
   @@index([userId, isRead])
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 model AuditLog {
@@ -353,6 +524,151 @@ model BancardOperation {
   @@map("bancard_operations")
 }
 
+// Ledger por connected account: registra charges, application fees, transfers,
+// payouts y refunds para reconciliar y liquidar a cada cliente (Payoneer).
+model StripeLedgerEntry {
+  id                     String   @id @default(uuid())
+  userId                 String   @map("user_id")
+  paymentId              String?  @map("payment_id")
+  stripeConnectAccountId String?  @map("stripe_connect_account_id")
+  stripeEventId          String?  @unique @map("stripe_event_id")   // idempotencia
+  stripeObjectId         String?  @map("stripe_object_id")          // pi_/ch_/tr_/po_...
+  type                   String   // charge | application_fee | transfer | payout | refund
+  direction              String   // credit | debit
+  amountGs               Int      @map("amount_gs")
+  currency               String   @default("PYG")
+  status                 String   @default("PENDING")
+  metadataJson           Json?    @map("metadata_json")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at")
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payment                Payment? @relation(fields: [paymentId], references: [id])
+
+  @@index([userId])
+  @@index([stripeConnectAccountId])
+  @@index([status])
+  @@map("stripe_ledger_entries")
+}
+
+// Idempotencia de webhooks: Stripe reintenta entregas; registramos cada evento
+// procesado para no aplicarlo dos veces.
+model StripeWebhookEvent {
+  id            String    @id @default(uuid())
+  stripeEventId String    @unique @map("stripe_event_id")
+  type          String
+  processedAt   DateTime? @map("processed_at")
+  payloadJson   Json?     @map("payload_json")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("stripe_webhook_events")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MÓDULO CONTABLE
+// Montos en Guaraníes (PYG) ENTEROS, sin decimales. IVA Paraguay general 10%.
+// La facturación de ingresos vive en Payment + StripeLedgerEntry (Stripe).
+// Estos modelos cubren egresos, notas de crédito y contabilidad de partida doble.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Categoría de gasto (combustible, insumos, sueldos, alquiler, etc.).
+model ExpenseCategory {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  color     String?                                  // color hex para UI/charts
+  createdAt DateTime  @default(now()) @map("created_at")
+  expenses  Expense[]
+
+  @@map("expense_categories")
+}
+
+// Egreso / gasto operativo.
+model Expense {
+  id            String          @id @default(uuid())
+  date          DateTime                                       // fecha del gasto
+  amountGs      Int             @map("amount_gs")              // monto total en PYG (entero)
+  description   String
+  categoryId    String          @map("category_id")
+  supplier      String?                                        // proveedor (texto libre)
+  paymentMethod String?         @map("payment_method")         // efectivo | transferencia | tarjeta | ...
+  ivaGs         Int?            @map("iva_gs")                  // IVA incluido en amountGs (PYG)
+  notes         String?
+  createdById   String          @map("created_by_id")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
+  createdBy     User            @relation("expense_creator", fields: [createdById], references: [id])
+
+  @@index([date])
+  @@index([categoryId])
+  @@index([date, categoryId])
+  @@map("expenses")
+}
+
+// Nota de crédito / reembolso / ajuste sobre un pago o cuenta del cliente.
+model CreditNote {
+  id             String   @id @default(uuid())
+  paymentId      String?  @map("payment_id")                  // pago original (opcional)
+  userId         String   @map("user_id")                     // cliente afectado
+  amountGs       Int      @map("amount_gs")                   // monto de la nota en PYG (entero)
+  reason         String
+  type           String                                       // refund | cancellation | adjustment
+  stripeRefundId String?  @map("stripe_refund_id")            // re_... si el reembolso se hizo por Stripe
+  createdById    String   @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  payment        Payment? @relation(fields: [paymentId], references: [id])
+  user           User     @relation("credit_note_user", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy      User     @relation("credit_note_creator", fields: [createdById], references: [id])
+
+  @@index([userId])
+  @@index([paymentId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("credit_notes")
+}
+
+// Plan de cuentas contable.
+model Account {
+  id        String        @id @default(uuid())
+  code      String        @unique                             // código contable (ej. "1.1.01")
+  name      String
+  type      String                                            // asset | liability | income | expense | equity
+  createdAt DateTime      @default(now()) @map("created_at")
+  lines     JournalLine[]
+
+  @@index([type])
+  @@map("accounts")
+}
+
+// Asiento contable (cabecera). Las líneas deben balancear (sum debit = sum credit).
+model JournalEntry {
+  id          String        @id @default(uuid())
+  date        DateTime
+  description String
+  reference   String?                                         // referencia externa (factura, pago, etc.)
+  createdById String        @map("created_by_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  createdBy   User          @relation("journal_creator", fields: [createdById], references: [id])
+  lines       JournalLine[]
+
+  @@index([date])
+  @@map("journal_entries")
+}
+
+// Línea de asiento (debe/haber) contra una cuenta del plan.
+model JournalLine {
+  id        String       @id @default(uuid())
+  entryId   String       @map("entry_id")
+  accountId String       @map("account_id")
+  debitGs   Int          @default(0) @map("debit_gs")          // PYG entero
+  creditGs  Int          @default(0) @map("credit_gs")         // PYG entero
+  entry     JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account   Account      @relation(fields: [accountId], references: [id])
+
+  @@index([entryId])
+  @@index([accountId])
+  @@map("journal_lines")
+}
+
 enum Role {
   SUPER_ADMIN
   ADMIN
@@ -380,6 +696,8 @@ enum AppointmentStatus {
 
 enum PaymentStatus {
   PENDING
+  PROCESSING
+  REQUIRES_ACTION
   COMPLETED
   FAILED
   REFUNDED
