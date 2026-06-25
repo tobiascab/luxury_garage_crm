@@ -12,6 +12,7 @@ import api from '../../services/api';
 import { isPushSupported, getPermission, isSubscribed, subscribeToPush } from '../lib/push';
 import { useLuxuryUser } from '../context/LuxuryUserContext';
 import { useAuth } from '../../context/AuthContext';
+import AIChatWidget from '../components/AIChatWidget';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type NotifType = 'wash_done' | 'appointment' | 'payment' | 'membership' | 'referral' | 'promo' | 'success' | 'alert' | 'info';
@@ -425,6 +426,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
                     />
                 ))}
             </nav>
+
+            {/* ── Asistente IA (FAB flotante en toda la web app del cliente) ── */}
+            <AIChatWidget />
         </div>
     );
 }

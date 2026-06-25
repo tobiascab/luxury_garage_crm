@@ -8,7 +8,7 @@ import {
   ClipboardList, HardHat, CircleDollarSign, BarChart3,
   Tag, Box, Car, Star, Bell, Settings, ScrollText,
   LogOut, Menu, ScanLine, CreditCard,
-  Moon, Sun, Wallet, Calculator,
+  Moon, Sun, Wallet, Calculator, MessageSquare,
   ChevronDown, PanelLeftClose, PanelLeftOpen, Search, X
 } from 'lucide-react';
 
@@ -54,6 +54,7 @@ const adminMenu = [
       { to: '/admin/settings', icon: <Settings size={17} />, label: 'Configuración' },
       { to: '/admin/logs', icon: <ScrollText size={17} />, label: 'Logs Sistema' },
       { to: '/admin/crm', icon: <Bell size={17} />, label: 'Avisos Clientes' },
+      { to: '/admin/chat-inbox', icon: <MessageSquare size={17} />, label: 'Chat Clientes' },
     ]
   },
 ];

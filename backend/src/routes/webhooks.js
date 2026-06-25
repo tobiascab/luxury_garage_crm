@@ -2,19 +2,139 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const arizarService = require('../services/arizarService');
 const { verifyWebhookSignature } = require('../middleware/webhookVerify');
+const { handleArizarEvent } = require('../services/arizarWebhookHandlers');
 
-// POST /api/webhooks/arizar — Receive ALL webhooks from ARIZAR IA
-router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
+const WEBHOOK_SOURCE = 'arizar';
+
+/**
+ * Deriva un id estable para deduplicar el webhook. GHL no siempre manda el mismo
+ * campo, así que probamos (en orden): header dedicado, webhookId del payload, y
+ * como último recurso un id compuesto por type+entity+timestamp del payload.
+ * Devuelve null solo si no hay absolutamente nada (entonces no deduplicamos).
+ */
+function deriveWebhookId(req, body) {
+  const headerId =
+    req.headers['x-wh-webhook-id'] ||
+    req.headers['x-webhook-id'] ||
+    req.headers['x-ghl-webhook-id'];
+  if (headerId) return String(headerId);
+
+  const payloadId = body.webhookId || body.webhook_id || body.eventId || body.event_id;
+  if (payloadId) return String(payloadId);
+
+  // Fallback determinista: mismo evento reentregado ⇒ mismo id compuesto.
+  const type = body.type || 'unknown';
+  const entity = body.id || body.appointmentId || body.messageId || body.contactId || 'na';
+  const ts = body.timestamp || body.dateAdded || body.createdAt;
+  return ts ? `${type}:${entity}:${ts}` : null;
+}
+
+/**
+ * Procesa el evento entrante (sync inverso CRM → DB local) DESPUÉS de haber
+ * respondido 200 al CRM. Combina:
+ *   1. Los handlers de sync inverso (arizarWebhookHandlers.js) — reflejan el
+ *      cambio del CRM en nuestras tablas (Conversation, Message, User, …).
+ *   2. Los side-effects históricos (auto-creación de usuarios, auto-respuestas
+ *      de WhatsApp, notificaciones a admins) — se conservan tal cual estaban.
+ * Marca el WebhookEvent como processed/failed según el resultado.
+ */
+async function processArizarWebhook(req, body, webhookEventId) {
   try {
-    const body = req.body || {};
+    const result = await runArizarSideEffects(req, body);
+    if (webhookEventId) {
+      await req.prisma.webhookEvent.update({
+        where: { id: webhookEventId },
+        data: { status: 'processed', processedAt: new Date() },
+      }).catch(() => {});
+    }
+    return result;
+  } catch (err) {
+    console.error(`❌ Webhook processing error (${body.type}):`, err.message);
+    if (webhookEventId) {
+      await req.prisma.webhookEvent.update({
+        where: { id: webhookEventId },
+        data: { status: 'failed', error: String(err.message).substring(0, 1000), processedAt: new Date() },
+      }).catch(() => {});
+    }
+  }
+}
+
+// POST /api/webhooks/arizar — Receive ALL webhooks from ARIZAR IA.
+// Aliases por si la config de GHL apunta a /api/webhooks o /api/webhooks/arizar/webhook:
+//   '/'             → /api/webhooks
+//   '/arizar'       → /api/webhooks/arizar  (URL registrada oficialmente)
+//   '/arizar/webhook' → tolerancia a la variante mencionada en la doc interna
+const ARIZAR_WEBHOOK_PATHS = ['/arizar', '/', '/arizar/webhook'];
+async function arizarWebhookHandler(req, res, next) {
+  const body = req.body || {};
+  const type = body.type;
+  const contactId = body.contactId || body.contact_id || body.data?.contactId || body.data?.contact_id;
+  const locationId = body.locationId || body.location_id || body.data?.locationId || null;
+  const id = body.id || body.appointmentId || body.appointment_id || body.data?.id;
+
+  const timestamp = new Date().toISOString();
+  console.log(`📨 [${timestamp}] Webhook: ${type}`, { contactId, id });
+
+  // ── IDEMPOTENCIA (anti reentrega de GHL) ────────────────────────────────────
+  // Registramos el evento en WebhookEvent ([source, webhookId] @unique). Si ya
+  // existe ⇒ es una reentrega; respondemos 200 y NO reprocesamos.
+  const webhookId = deriveWebhookId(req, body);
+  let webhookEventId = null;
+  // Guard: si el modelo aún no está en el cliente generado (antes del `db push`)
+  // o la BD falla, seguimos procesando best-effort sin romper la entrega.
+  const hasWebhookEvent = !!req.prisma.webhookEvent;
+  if (hasWebhookEvent && webhookId) {
+    const dup = await req.prisma.webhookEvent.findUnique({
+      where: { source_webhookId: { source: WEBHOOK_SOURCE, webhookId } },
+      select: { id: true },
+    }).catch(() => null);
+    if (dup) {
+      console.log(`ℹ️ Webhook duplicado (${type}, ${webhookId}): se omite reprocesamiento`);
+      return res.json({ status: 'success', duplicate: true });
+    }
+  }
+  if (hasWebhookEvent) {
+    try {
+      const evt = await req.prisma.webhookEvent.create({
+        data: {
+          source: WEBHOOK_SOURCE,
+          webhookId: webhookId || undefined,
+          eventType: type || 'unknown',
+          locationId: locationId || undefined,
+          status: 'received',
+          payloadJson: body,
+        },
+        select: { id: true },
+      });
+      webhookEventId = evt.id;
+    } catch (e) {
+      // P2002 = carrera: otra entrega del MISMO webhook lo registró primero.
+      if (e.code === 'P2002') {
+        console.log(`ℹ️ Webhook duplicado por carrera (${type}, ${webhookId}): se omite`);
+        return res.json({ status: 'success', duplicate: true });
+      }
+      // Si WebhookEvent falla por otra razón, seguimos procesando (best-effort).
+      console.error('⚠️ No se pudo registrar WebhookEvent:', e.message);
+    }
+  }
+
+  // ── Responder SIEMPRE 200 rápido y procesar luego (no bloquear al CRM) ──────
+  res.json({ status: 'success' });
+  processArizarWebhook(req, body, webhookEventId);
+}
+router.post(ARIZAR_WEBHOOK_PATHS, verifyWebhookSignature, arizarWebhookHandler);
+
+/**
+ * Side-effects históricos + sync inverso. Separado del handler HTTP para poder
+ * ejecutarlo tras enviar el 200. Lanza si algo falla (lo captura processArizarWebhook).
+ */
+async function runArizarSideEffects(req, body) {
+  {
     const type = body.type;
     const data = body.data || body; // Fallback to root if data is missing
     const contactId = body.contactId || body.contact_id || data.contactId || data.contact_id;
     const locationId = body.locationId || body.location_id || data.locationId;
     const id = body.id || body.appointmentId || body.appointment_id || data.id;
-
-    const timestamp = new Date().toISOString();
-    console.log(`📨 [${timestamp}] Webhook: ${type}`, { contactId, id });
 
     // Log every webhook
     try {
@@ -22,6 +142,20 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
         data: { entity: 'webhook', action: type, entityId: id || contactId || 'unknown', detailsJson: body }
       });
     } catch (e) { /* silent */ }
+
+    // ── SYNC INVERSO (CRM → DB local) ─────────────────────────────────────────
+    // Refleja en nuestras tablas los cambios del CRM (Conversation/Message,
+    // User, Appointment, Membership/MembershipRequest, Payment) ANTES de los
+    // side-effects históricos. Best-effort: un fallo acá no debe impedir las
+    // auto-respuestas/notificaciones de abajo.
+    try {
+      const syncResult = await handleArizarEvent(req.prisma, { type, body, data });
+      if (syncResult && !syncResult.skipped) {
+        console.log(`🔁 Sync inverso (${type}):`, syncResult);
+      }
+    } catch (e) {
+      console.error(`❌ Error en sync inverso (${type}):`, e.message);
+    }
 
     switch (type) {
       // ═══════════ PAYMENTS & ORDERS ═══════════
@@ -391,7 +525,9 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
 
       // ═══════════ INVOICES ═══════════
       case 'InvoiceCreate':
-      case 'InvoiceSent': {
+      case 'InvoiceSent':
+      case 'InvoicePaid': {
+        // El marcado del Payment local (InvoicePaid) ya lo hace el sync inverso arriba.
         console.log(`🧾 Factura ${type}:`, { id, contactId });
         break;
       }
@@ -426,13 +562,8 @@ router.post('/arizar', verifyWebhookSignature, async (req, res, next) => {
       default:
         console.log(`ℹ️ Webhook no manejado: ${type}`, { id, contactId });
     }
-
-    res.json({ success: true, received: true, type });
-  } catch (err) {
-    console.error(`❌ Webhook error:`, err.message);
-    next(err);
   }
-});
+}
 
 // GET /api/webhooks/status — Health check for webhooks
 router.get('/status', (req, res) => {

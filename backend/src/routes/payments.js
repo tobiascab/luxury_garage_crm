@@ -1141,6 +1141,18 @@ router.post('/charge-topup', authenticate, async (req, res, next) => {
     // Asiento contable (best-effort, POST-COMMIT, no bloqueante).
     if (payment?.id) postPaymentCompleted(req.prisma, payment.id).catch(() => {});
 
+    // Non-blocking ARIZAR IA sync (recarga de billetera). syncWalletTopUp NO se usa
+    // en este flujo, así que syncPayment no duplica nada.
+    try {
+      const ArizarSync = require('../services/arizarSync');
+      if (user.arizarContactId && payment) {
+        const sync = new ArizarSync(req.prisma);
+        await sync.syncPayment(user, payment);
+      }
+    } catch (e) {
+      console.warn('[Bancard] ARIZAR sync after topup failed:', e.message);
+    }
+
     console.log(`[Bancard] Recarga de billetera ₲${amount} acreditada para ${user.email} — shopProcessId=${shopProcessId}`);
 
     res.json({
@@ -1264,6 +1276,19 @@ router.post('/charge-topup-3ds-complete', authenticate, async (req, res, next) =
 
     // Asiento contable (best-effort, POST-COMMIT, no bloqueante).
     if (payment?.id) postPaymentCompleted(req.prisma, payment.id).catch(() => {});
+
+    // Non-blocking ARIZAR IA sync (recarga de billetera vía 3DS). No duplica:
+    // syncWalletTopUp no se invoca en este flujo.
+    try {
+      const ArizarSync = require('../services/arizarSync');
+      const user = await req.prisma.user.findUnique({ where: { id: req.user.id } });
+      if (user?.arizarContactId && payment) {
+        const sync = new ArizarSync(req.prisma);
+        await sync.syncPayment(user, payment);
+      }
+    } catch (e) {
+      console.warn('[Bancard] ARIZAR sync after 3ds topup failed:', e.message);
+    }
 
     console.log(`[Bancard] 3DS recarga ₲${amount} acreditada para user ${req.user.id} — shopProcessId=${shopProcessId}`);
 

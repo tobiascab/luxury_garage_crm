@@ -97,6 +97,7 @@ const SettingsPage = lazyWithReload(() => import('./pages/admin/SettingsPage'));
 const CobrosStripe = lazyWithReload(() => import('./pages/admin/CobrosStripe'));
 const AuditLogs = lazyWithReload(() => import('./pages/admin/AuditLogs'));
 const ArizarPanel = lazyWithReload(() => import('./pages/admin/ArizarPanel'));
+const ChatInbox = lazyWithReload(() => import('./pages/admin/ChatInbox'));
 const Notifications = lazyWithReload(() => import('./pages/shared/Notifications'));
 
 // Luxury Client & Employee Pages - Lazy
@@ -319,6 +320,7 @@ function AppRoutes() {
         <Route path="notifications" element={<Notifications />} />
         <Route path="logs" element={<AuditLogs />} />
         <Route path="crm" element={<ArizarPanel />} />
+        <Route path="chat-inbox" element={<ChatInbox />} />
       </Route>
 
       {/* ── Catch-all ── */}

@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateBody } = require('../middleware/validate');
+const ArizarSync = require('../services/arizarSync');
 
 const isAdmin = (role) => role === 'SUPER_ADMIN' || role === 'ADMIN';
 
@@ -65,6 +66,16 @@ router.post('/', authenticate, validateBody(createSchema), async (req, res, next
       data: { userId: req.user.id, serviceRecordId, rating, comment: comment || null },
     });
     res.status(201).json({ success: true, data: review });
+
+    // ═══ ARIZAR IA SYNC ═══ best-effort, POST-RESPUESTA, no bloquea al cliente.
+    try {
+      const user = await req.prisma.user.findUnique({ where: { id: req.user.id } });
+      if (user?.arizarContactId) {
+        await new ArizarSync(req.prisma).syncReview(user, review);
+      }
+    } catch (e) {
+      console.error('[Reviews] ARIZAR sync after review failed:', e.message);
+    }
   } catch (err) { next(err); }
 });
 

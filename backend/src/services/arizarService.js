@@ -1,14 +1,23 @@
 const axios = require('axios');
+const ArizarTokenManager = require('./arizarTokenManager');
+
+// Versión de API para Custom Objects / Associations (distinta a la default de contactos)
+const OBJECTS_API_VERSION = '2021-07-28';
 
 /**
  * ARIZAR IA Integration Service
  * Full GoHighLevel CRM integration for Luxury Garage
- * 
+ *
  * Supports: Contacts, Calendar, Conversations (SMS/Email/WhatsApp),
- * Opportunities, Notes, Tags, Workflows, Tasks
+ * Opportunities, Notes, Tags, Workflows, Tasks, Custom Objects (Vehículos)
+ *
+ * Auth: OAuth 2.0 con fallback a token estático (ARIZAR_API_TOKEN).
+ *   - Si se le inyecta `prisma` Y hay un token OAuth activo → usa ArizarTokenManager (auto-refresh).
+ *   - Si no → cae al header estático Bearer ARIZAR_API_TOKEN (comportamiento legado).
+ *   El orquestador debe llamar `arizarService.setPrisma(prisma)` al arrancar para habilitar OAuth.
  */
 class ArizarService {
-  constructor() {
+  constructor(prisma = null) {
     this.baseURL = process.env.ARIZAR_BASE_URL || 'https://services.leadconnectorhq.com';
     this.token = process.env.ARIZAR_API_TOKEN;
     this.locationId = process.env.ARIZAR_LOCATION_ID;
@@ -26,31 +35,135 @@ class ArizarService {
       noConvirtio: process.env.ARIZAR_STAGE_PERDIDO,
     };
 
+    // Key del custom object "Vehículo" (GHL le antepone "custom_objects.")
+    this.vehicleObjectKey = process.env.ARIZAR_VEHICLE_OBJECT_KEY || 'custom_objects.vehiculo';
+    // Cache del association id contacto↔vehículo (se resuelve perezosamente)
+    this._vehicleAssociationId = process.env.ARIZAR_VEHICLE_ASSOCIATION_ID || null;
+
+    // Token manager OAuth — sólo opera si hay prisma + credenciales OAuth
+    this.prisma = prisma;
+    this.tokenManager = new ArizarTokenManager(prisma);
+
     this.client = axios.create({
       baseURL: this.baseURL,
       timeout: 15000,
       headers: {
+        // Fallback estático; el interceptor request lo sobreescribe si hay OAuth.
         'Authorization': `Bearer ${this.token}`,
         'Version': process.env.ARIZAR_API_VERSION || '2021-07-28',
         'Content-Type': 'application/json',
       },
     });
 
-    // Request/response logging in dev
-    if (process.env.NODE_ENV !== 'production') {
-      this.client.interceptors.response.use(
-        res => res,
-        err => {
-          console.error(`❌ ARIZAR API Error: ${err.config?.method?.toUpperCase()} ${err.config?.url}`, err.response?.data || err.message);
-          throw err;
+    this._setupInterceptors();
+  }
+
+  /**
+   * Inyecta el cliente Prisma luego de instanciado (el módulo se exporta como singleton).
+   * Habilita OAuth si además existen credenciales (ARIZAR_CLIENT_ID/SECRET).
+   */
+  setPrisma(prisma) {
+    this.prisma = prisma;
+    this.tokenManager = new ArizarTokenManager(prisma);
+    return this;
+  }
+
+  /** Configura interceptors request (auth OAuth) y response (401 refresh, 429 backoff, log dev). */
+  _setupInterceptors() {
+    // ── REQUEST: inyecta Bearer OAuth si está disponible, si no deja el estático ──
+    this.client.interceptors.request.use(async (config) => {
+      const oauthToken = await this._getOAuthTokenOrNull();
+      if (oauthToken) {
+        config.headers = config.headers || {};
+        config.headers['Authorization'] = `Bearer ${oauthToken}`;
+      }
+      return config;
+    });
+
+    // ── RESPONSE: manejo de 401 (refresh + 1 reintento) y 429 (backoff exponencial) ──
+    this.client.interceptors.response.use(
+      res => res,
+      async (err) => {
+        const config = err.config || {};
+        const status = err.response?.status;
+
+        // 401 → intentar refrescar token OAuth y reintentar UNA vez
+        if (status === 401 && !config._retried401 && this._oauthEnabled()) {
+          config._retried401 = true;
+          try {
+            const fresh = await this.tokenManager.refreshToken();
+            config.headers = config.headers || {};
+            config.headers['Authorization'] = `Bearer ${fresh}`;
+            return this.client(config);
+          } catch (refreshErr) {
+            // Si el refresh falla, propagar el error original
+          }
         }
-      );
+
+        // 429 → backoff exponencial respetando X-RateLimit-* / Retry-After (hasta 3 intentos)
+        if (status === 429) {
+          config._rateLimitRetries = (config._rateLimitRetries || 0) + 1;
+          if (config._rateLimitRetries <= 3) {
+            const waitMs = this._rateLimitWaitMs(err.response.headers, config._rateLimitRetries);
+            await new Promise(r => setTimeout(r, waitMs));
+            return this.client(config);
+          }
+        }
+
+        // Logging en dev (conservado)
+        if (process.env.NODE_ENV !== 'production') {
+          console.error(`❌ ARIZAR API Error: ${config.method?.toUpperCase()} ${config.url}`, err.response?.data || err.message);
+        }
+        throw err;
+      }
+    );
+  }
+
+  /** ¿OAuth está habilitado? (prisma inyectado + credenciales presentes) */
+  _oauthEnabled() {
+    return Boolean(this.prisma && this.tokenManager?.hasOAuthCredentials());
+  }
+
+  /**
+   * Devuelve un access token OAuth vigente, o null para caer al token estático.
+   * No tira si OAuth no está configurado o aún no hay token guardado.
+   */
+  async _getOAuthTokenOrNull() {
+    if (!this._oauthEnabled()) return null;
+    try {
+      return await this.tokenManager.getValidToken();
+    } catch (e) {
+      // No hay token OAuth activo todavía / requiere reauth → fallback al estático
+      return null;
     }
+  }
+
+  /**
+   * Calcula la espera para un 429: usa Retry-After o X-RateLimit-Reset si están,
+   * si no aplica backoff exponencial (0.5s, 1s, 2s...) con jitter.
+   */
+  _rateLimitWaitMs(headers = {}, attempt = 1) {
+    const retryAfter = headers['retry-after'];
+    if (retryAfter) {
+      const secs = Number(retryAfter);
+      if (!Number.isNaN(secs)) return secs * 1000;
+    }
+    // X-RateLimit-Reset puede venir como epoch (segundos) o como segundos restantes
+    const reset = Number(headers['x-ratelimit-reset']);
+    if (!Number.isNaN(reset) && reset > 0) {
+      const nowSecs = Date.now() / 1000;
+      const deltaMs = reset > nowSecs ? (reset - nowSecs) * 1000 : reset * 1000;
+      if (deltaMs > 0 && deltaMs < 60000) return deltaMs;
+    }
+    const base = 500 * Math.pow(2, attempt - 1); // 500ms, 1s, 2s
+    return base + Math.floor(Math.random() * 250); // jitter
   }
 
   /** Check if the service is properly configured */
   isConfigured() {
-    return this.token && this.locationId && this.locationId !== 'pending_configuration';
+    // Con OAuth alcanza con tener prisma+credenciales; si no, requiere el token estático.
+    const hasAuth = this._oauthEnabled() || Boolean(this.token);
+    return hasAuth && this.locationId && this.locationId !== 'pending_configuration';
   }
 
   /** Safe wrapper — won't crash if ARIZAR not configured */
@@ -96,11 +209,20 @@ class ArizarService {
     });
   }
 
-  /** Buscar contacto por email */
+  /**
+   * Buscar contacto por email.
+   * El endpoint GET /contacts/ (búsqueda por query) fue removido por GHL;
+   * se reemplaza por POST /contacts/search con filtros avanzados.
+   * Firma pública sin cambios: recibe el email, devuelve el primer contacto o null.
+   */
   async findContactByEmail(email) {
     return this._safe(async () => {
-      const response = await this.client.get('/contacts/', {
-        params: { locationId: this.locationId, query: email, limit: 1 }
+      const response = await this.client.post('/contacts/search', {
+        locationId: this.locationId,
+        pageLimit: 1,
+        filters: [
+          { field: 'email', operator: 'eq', value: email },
+        ],
       });
       return response.data?.contacts?.[0] || null;
     });
@@ -593,6 +715,7 @@ class ArizarService {
         vehicle1: 'luxury_vehicle_1', vehicle2: 'luxury_vehicle_2',
         servicesUsed: 'luxury_services_used', lastVisit: 'luxury_last_visit',
         walletBalance: 'luxury_wallet_balance', referralCode: 'luxury_referral_code', userId: 'luxury_user_id',
+        ratingPromedio: 'luxury_rating_promedio', totalReviews: 'luxury_total_reviews',
       };
       for (const [key, fieldName] of Object.entries(mapping)) {
         if (data[key] !== undefined && fieldMap[fieldName]) {
@@ -732,6 +855,135 @@ class ArizarService {
         params: { limit },
       });
       return response.data?.messages || response.data?.data || [];
+    }, []);
+  }
+
+  // ═══════════════════════════════════════════════
+  //  CUSTOM OBJECTS / ASSOCIATIONS — Vehículos
+  //  (Header Version 2021-07-28; modelan el vehículo como custom object
+  //   y lo enlazan al contacto vía una asociación contacto↔vehículo)
+  // ═══════════════════════════════════════════════
+
+  /** Header con Version específico para Custom Objects/Associations */
+  _objectsHeaders() {
+    return { Version: OBJECTS_API_VERSION };
+  }
+
+  /**
+   * Crear el schema del custom object "Vehículo" (idempotente: si ya existe, GHL devuelve error
+   * que capturamos en _safe). Sólo se corre una vez para aprovisionar el objeto en el location.
+   */
+  async createObjectSchema(opts = {}) {
+    return this._safe(async () => {
+      const payload = {
+        labels: {
+          singular: opts.singular || 'Vehículo',
+          plural: opts.plural || 'Vehículos',
+        },
+        key: opts.key || this.vehicleObjectKey,
+        description: opts.description || 'Vehículos de clientes de Luxury Garage',
+        locationId: this.locationId,
+        primaryDisplayPropertyDetails: opts.primaryDisplayPropertyDetails || {
+          key: `${opts.key || this.vehicleObjectKey}.placa`,
+          name: 'Placa',
+          dataType: 'TEXT',
+        },
+      };
+      const response = await this.client.post('/objects/', payload, { headers: this._objectsHeaders() });
+      return response.data?.object || response.data;
+    });
+  }
+
+  /**
+   * Crear/actualizar un registro de vehículo como custom object record.
+   * Devuelve el record creado (con su id). El enlace al contacto se hace con linkVehicleToContact.
+   */
+  async upsertVehicleRecord(contactId, vehicle = {}) {
+    return this._safe(async () => {
+      const payload = {
+        record: {
+          properties: {
+            placa: vehicle.licensePlate || vehicle.placa || '',
+            marca: vehicle.brand || vehicle.marca || '',
+            modelo: vehicle.model || vehicle.modelo || '',
+            anio: vehicle.year || vehicle.anio || '',
+            color: vehicle.color || '',
+            tamanio: vehicle.size || vehicle.tamanio || '',
+            ...(vehicle.properties || {}),
+          },
+        },
+      };
+      const key = vehicle.objectKey || this.vehicleObjectKey;
+      const response = await this.client.post(
+        `/objects/${encodeURIComponent(key)}/records`,
+        payload,
+        { headers: this._objectsHeaders() }
+      );
+      return response.data?.record || response.data;
+    });
+  }
+
+  /**
+   * Crear la asociación (definición) contacto↔vehículo. Idempotente vía _safe.
+   * Devuelve el id de la asociación, que es lo que necesita createAssociation/linkVehicleToContact.
+   */
+  async createAssociation(opts = {}) {
+    return this._safe(async () => {
+      const payload = {
+        locationId: this.locationId,
+        key: opts.key || 'contacto_vehiculo',
+        firstObjectLabel: opts.firstObjectLabel || 'Contacto',
+        firstObjectKey: opts.firstObjectKey || 'contact',
+        secondObjectLabel: opts.secondObjectLabel || 'Vehículo',
+        secondObjectKey: opts.secondObjectKey || this.vehicleObjectKey,
+      };
+      const response = await this.client.post('/associations/', payload, { headers: this._objectsHeaders() });
+      const assoc = response.data;
+      if (assoc?.id) this._vehicleAssociationId = assoc.id; // cachear
+      return assoc;
+    });
+  }
+
+  /**
+   * Enlazar un vehículo (record) a un contacto creando la relación.
+   * Usa el associationId cacheado/env; si no hay, intenta crear la asociación primero.
+   * @param {string} contactId  id del contacto (firstRecordId)
+   * @param {string} vehicleRecordId  id del record de vehículo (secondRecordId)
+   */
+  async linkVehicleToContact(contactId, vehicleRecordId, associationId = null) {
+    return this._safe(async () => {
+      let assocId = associationId || this._vehicleAssociationId;
+      if (!assocId) {
+        const assoc = await this.createAssociation();
+        assocId = assoc?.id || null;
+      }
+      if (!assocId) {
+        console.warn('⚠️ ARIZAR: no hay associationId contacto↔vehículo; no se pudo enlazar');
+        return null;
+      }
+      const response = await this.client.post('/associations/relations', {
+        locationId: this.locationId,
+        associationId: assocId,
+        firstRecordId: contactId,
+        secondRecordId: vehicleRecordId,
+      }, { headers: this._objectsHeaders() });
+      return response.data;
+    });
+  }
+
+  /**
+   * Obtener los vehículos (relaciones) de un contacto vía sus relaciones de asociación.
+   * Devuelve el listado crudo de relaciones; el orquestador puede mapear a records de vehículo.
+   */
+  async getContactVehicles(contactId, { skip = 0, limit = 100 } = {}) {
+    return this._safe(async () => {
+      const params = { locationId: this.locationId, skip, limit };
+      if (this._vehicleAssociationId) params.associationIds = this._vehicleAssociationId;
+      const response = await this.client.get(`/associations/relations/${contactId}`, {
+        params,
+        headers: this._objectsHeaders(),
+      });
+      return response.data?.relations || response.data?.data || response.data || [];
     }, []);
   }
 }

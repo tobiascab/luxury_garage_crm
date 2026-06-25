@@ -22,6 +22,10 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 const app = express();
 
+// Inyecta el prisma singleton al servicio ARIZAR/GHL para habilitar OAuth (token persistido en BD).
+// Sin esto, arizarService cae al ARIZAR_API_TOKEN estático (comportamiento legado, no rompe nada).
+require('./services/arizarService').setPrisma(prisma);
+
 // Confiar en el proxy (Nginx) para que el rate-limiter identifique bien las IPs
 app.set('trust proxy', 1);
 
@@ -81,7 +85,12 @@ app.use((req, res, next) => {
 });
 
 // ── 5. Body parsing (strict limits) ──────────────────────────────────────
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  // Captura el cuerpo CRUDO (bytes originales) para verificar firmas de webhooks
+  // (GHL/ARIZAR firma el raw body, no el JSON re-serializado). Ver middleware/webhookVerify.js.
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ── 6. Logging ────────────────────────────────────────────────────────────
@@ -109,6 +118,7 @@ app.use('/api/payments', require('./routes/payments')); // Bancard VPOS: tarjeta
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/webhooks', require('./routes/webhooks'));
+app.use('/api/chat', require('./routes/chat')); // Chat bidireccional (buzón admin) + asistente IA del cliente
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/promotions', require('./routes/promotions'));
 app.use('/api/uploads', require('./routes/uploads'));

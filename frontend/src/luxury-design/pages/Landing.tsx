@@ -37,6 +37,9 @@ import FooterSection from '../landing/sections/FooterSection';
 // Cuestionario de solicitud de membresía (lo crea otro agente en components/).
 import MembershipRequestForm from '../components/MembershipRequestForm';
 
+// Widget de chat (GHL) — se autoposiciona en la landing.
+import GhlChatWidget from '../landing/sections/GhlChatWidget';
+
 export default function Landing() {
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
@@ -146,6 +149,9 @@ export default function Landing() {
           source="landing"
           defaultPlan={formPlan}
         />
+
+        {/* Widget de chat (se autoposiciona) */}
+        <GhlChatWidget />
       </div>
     </SmoothScroll>
   );

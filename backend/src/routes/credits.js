@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { authenticate, authorize } = require('../middleware/auth');
+const ArizarSync = require('../services/arizarSync');
 
 // GET /api/credits — mi billetera (balance + historial)
 router.get('/', authenticate, async (req, res, next) => {
@@ -257,6 +258,24 @@ router.post('/admin/approve-topup', authenticate, authorize('SUPER_ADMIN', 'ADMI
       data: credit,
       message: approve ? `Recarga de ₲${request.amountGs.toLocaleString()} acreditada al cliente` : 'Solicitud de recarga rechazada',
     });
+
+    // ═══ ARIZAR IA SYNC ═══ best-effort, POST-RESPUESTA, solo si se acreditó saldo.
+    // syncWalletTopUp no se usa en este flujo manual, así que syncPayment no duplica.
+    if (approve && credit) {
+      try {
+        const user = await req.prisma.user.findUnique({ where: { id: request.userId } });
+        if (user?.arizarContactId) {
+          await new ArizarSync(req.prisma).syncPayment(user, {
+            id: credit.id,
+            amountGs: request.amountGs,
+            paymentMethod: request.metadataJson?.paymentMethod || 'transferencia',
+            description: credit.description || 'Recarga de billetera (admin)',
+          });
+        }
+      } catch (e) {
+        console.error('[Credits] ARIZAR sync after approve-topup failed:', e.message);
+      }
+    }
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ success: false, message: err.message });
     next(err);

@@ -73,11 +73,15 @@ class ArizarSync {
 
   /**
    * Sync profile update to CRM
+   * Actualiza datos básicos del contacto (firstName/lastName/phone/email) +
+   * custom fields del vehículo y del plan activo. Idempotente: upsertContact
+   * resuelve el contacto por email, no duplica.
    */
   async syncProfileUpdate(user) {
     if (!user.arizarContactId) return;
 
     try {
+      // 1. Datos básicos del contacto
       await arizarService.upsertContact({
         firstName: user.firstName,
         lastName: user.lastName,
@@ -85,15 +89,27 @@ class ArizarSync {
         phone: user.phone,
       });
 
-      // Sync vehicles
+      // 2. Vehículos (hasta 2, primario primero)
       const vehicles = await this.prisma.vehicle.findMany({ where: { userId: user.id }, take: 2, orderBy: { isPrimary: 'desc' } });
-      if (vehicles.length > 0) {
-        await arizarService.syncContactCustomFields(user.arizarContactId, {
-          vehicle1: vehicles[0] ? `${vehicles[0].brand} ${vehicles[0].model} ${vehicles[0].year} - ${vehicles[0].licensePlate}` : '',
-          vehicle2: vehicles[1] ? `${vehicles[1].brand} ${vehicles[1].model} ${vehicles[1].year} - ${vehicles[1].licensePlate}` : '',
-        });
-      }
 
+      // 3. Plan activo (para reflejar plan/estado/vencimiento en el CRM)
+      const membership = await this.prisma.membership.findFirst({
+        where: { userId: user.id, status: 'ACTIVE' },
+        include: { plan: true },
+        orderBy: { endDate: 'desc' },
+      });
+
+      // 4. Volcar todo a custom fields (solo se envían los keys definidos; el resto se omite)
+      await arizarService.syncContactCustomFields(user.arizarContactId, {
+        vehicle1: vehicles[0] ? `${vehicles[0].brand} ${vehicles[0].model} ${vehicles[0].year} - ${vehicles[0].licensePlate}` : '',
+        vehicle2: vehicles[1] ? `${vehicles[1].brand} ${vehicles[1].model} ${vehicles[1].year} - ${vehicles[1].licensePlate}` : '',
+        plan: membership?.plan?.slug || '',
+        planStatus: membership ? 'active' : 'inactive',
+        planExpiry: membership?.endDate?.toISOString?.() || '',
+        userId: user.id,
+      });
+
+      await this._logSync('profile_update', user.id, user.arizarContactId, {});
       console.log(`✅ SYNC: Perfil actualizado en CRM para ${user.email}`);
     } catch (err) {
       console.error(`❌ SYNC ERROR (profile_update):`, err.message);
@@ -272,6 +288,120 @@ class ArizarSync {
   }
 
   /**
+   * Sync reseña dejada por el cliente.
+   * - Recalcula rating promedio y total de reseñas → custom fields
+   * - Tag según el rating de ESTA reseña (`resena-5-estrellas`, etc.; `detractor` si <=2)
+   * - Nota en el contacto con la calificación y el comentario
+   * - Si rating <= 2: además marca para seguimiento (workflow de recuperación,
+   *   tag y tarea) para que el equipo intervenga.
+   *
+   * Se debería llamar desde routes/reviews.js en el POST / (creación de reseña).
+   */
+  async syncReview(user, review) {
+    if (!user.arizarContactId) return;
+
+    try {
+      const rating = review?.rating || 0;
+
+      // Métricas agregadas de reputación del cliente (todas sus reseñas)
+      const agg = await this.prisma.review.aggregate({
+        where: { userId: user.id },
+        _avg: { rating: true },
+        _count: { _all: true },
+      });
+      const ratingPromedio = agg._avg?.rating ? Math.round(agg._avg.rating * 10) / 10 : rating;
+      const totalReviews = agg._count?._all || 1;
+
+      // Custom fields de reputación.
+      // NOTA AL ORQUESTADOR: el mapeo de syncContactCustomFields() en arizarService.js
+      // (que NO edito) debe incluir estas dos entradas para que los valores lleguen al CRM:
+      //   ratingPromedio: 'luxury_rating_promedio',
+      //   totalReviews:   'luxury_total_reviews',
+      // Sin esas líneas el método los descarta silenciosamente (la nota y los tags sí se envían).
+      await arizarService.syncContactCustomFields(user.arizarContactId, {
+        ratingPromedio,
+        totalReviews,
+      });
+
+      // Tag según la calificación de esta reseña
+      const ratingTag = rating <= 2 ? 'detractor' : `resena-${rating}-estrellas`;
+      await arizarService.updateContactTags(user.arizarContactId, [ratingTag]);
+
+      // Nota con la calificación y el comentario
+      const stars = '⭐'.repeat(Math.max(0, Math.min(5, rating)));
+      await arizarService.addContactNote(user.arizarContactId,
+        `📝 Reseña recibida: ${stars} (${rating}/5)\n` +
+        `💬 ${review?.comment || '(sin comentario)'}\n` +
+        `📅 ${new Date().toLocaleString('es-PY', { timeZone: 'America/Asuncion' })}`
+      );
+
+      // Detractor → seguimiento activo
+      if (rating <= 2) {
+        await arizarService.removeContactTags(user.arizarContactId, [`resena-5-estrellas`, `resena-4-estrellas`, `resena-3-estrellas`]);
+        await arizarService.triggerRecoveryWorkflow(user.arizarContactId);
+        await arizarService.createTask(user.arizarContactId, {
+          title: `⚠️ Reseña negativa (${rating}/5) de ${user.firstName} ${user.lastName}`,
+          body: `El cliente dejó una reseña de ${rating}/5. Contactar para entender y resolver.\nComentario: ${review?.comment || '(sin comentario)'}`,
+        });
+      }
+
+      await this._logSync('review', user.id, user.arizarContactId, { rating, totalReviews, ratingPromedio });
+      console.log(`✅ SYNC: Reseña ${rating}/5 sincronizada para ${user.email}`);
+    } catch (err) {
+      console.error(`❌ SYNC ERROR (review):`, err.message);
+    }
+  }
+
+  /**
+   * Sync de un pago individual (recarga de billetera o pago de servicio).
+   * Registra el pago como NOTA en el contacto y actualiza el saldo de billetera
+   * (`luxury_wallet_balance`) recalculándolo desde los créditos vigentes.
+   *
+   * IMPORTANTE: NO usar para pagos que ya gatillan otra sincronización
+   * (ej. activación de membresía → syncMembershipActivated). Esos ya quedan
+   * cubiertos por su propio flujo.
+   *
+   * Se debería llamar desde routes/payments.js (charge-topup / pago de servicio)
+   * y/o routes/credits.js tras acreditar/debitar un Credit.
+   */
+  async syncPayment(user, payment) {
+    if (!user.arizarContactId) return;
+
+    try {
+      const amount = payment?.amountGs || 0;
+      const method = payment?.paymentMethod || 'Bancard';
+      const concepto = payment?.description || 'Pago';
+
+      // Recalcular saldo de billetera vigente (créditos no expirados)
+      const wallet = await this.prisma.credit.aggregate({
+        where: {
+          userId: user.id,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+        _sum: { amount: true },
+      });
+      const walletBalance = wallet._sum?.amount || 0;
+
+      await arizarService.syncContactCustomFields(user.arizarContactId, {
+        walletBalance,
+      });
+
+      // Nota con el detalle del pago
+      await arizarService.addContactNote(user.arizarContactId,
+        `💳 Pago registrado: ₲${amount.toLocaleString()}\n` +
+        `🧾 Concepto: ${concepto}\n` +
+        `💠 Método: ${method}\n` +
+        `👛 Saldo billetera: ₲${walletBalance.toLocaleString()}\n` +
+        `📅 ${new Date().toLocaleString('es-PY', { timeZone: 'America/Asuncion' })}`
+      );
+
+      await this._logSync('payment', user.id, user.arizarContactId, { paymentId: payment?.id, amount, walletBalance });
+    } catch (err) {
+      console.error(`❌ SYNC ERROR (payment):`, err.message);
+    }
+  }
+
+  /**
    * Sync wallet top-up — custom fields, notification
    */
   async syncWalletTopUp(user, amount) {
@@ -336,6 +466,13 @@ class ArizarSync {
 
   /**
    * Sync inactivity detection
+   *
+   * CRON: ya está conectado. jobs/membershipJobs.js lo invoca a diario 09:00
+   * (America/Asuncion) recorriendo membresías ACTIVE: calcula días desde el
+   * último servicio completado y llama syncInactivity(user, daysSince) cuando
+   * daysSince >= 15. No requiere cron adicional. Si en el futuro se quiere
+   * cubrir también a NO-miembros, el orquestador debería ampliar ese job
+   * (jobs/ no se edita desde acá).
    */
   async syncInactivity(user, daysSinceLastVisit) {
     if (!user.arizarContactId) return;

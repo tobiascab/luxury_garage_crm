@@ -702,3 +702,85 @@ enum PaymentStatus {
   FAILED
   REFUNDED
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// ARIZAR IA / GoHighLevel — integración (OAuth, webhooks, chat)
+// ═══════════════════════════════════════════════════════════════════
+
+model ArizarOAuthToken {
+  id               String    @id @default(uuid())
+  accessToken      String    @map("access_token")
+  refreshToken     String    @map("refresh_token")
+  locationId       String    @unique @map("location_id")
+  companyId        String?   @map("company_id")
+  userType         String?   @map("user_type")            // Company | Location
+  scope            String?
+  expiresAt        DateTime  @map("expires_at")           // expiración del access token
+  lastRefreshedAt  DateTime? @map("last_refreshed_at")
+  lastRefreshError String?   @map("last_refresh_error")
+  refreshAttempts  Int       @default(0) @map("refresh_attempts")
+  isActive         Boolean   @default(true) @map("is_active")
+  requiresReauth   Boolean   @default(false) @map("requires_reauth")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([expiresAt])
+  @@map("arizar_oauth_tokens")
+}
+
+model WebhookEvent {
+  id          String    @id @default(uuid())
+  source      String    @default("arizar")               // arizar | bancard | ...
+  webhookId   String?   @map("webhook_id")               // id del webhook de GHL (idempotencia)
+  eventType   String    @map("event_type")               // ContactCreate, AppointmentUpdate, InboundMessage...
+  locationId  String?   @map("location_id")
+  status      String    @default("received")             // received | processed | failed | duplicate
+  payloadJson Json?     @map("payload_json")
+  error       String?
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([source, webhookId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("webhook_events")
+}
+
+model Conversation {
+  id                   String    @id @default(uuid())
+  userId               String?   @map("user_id")          // FK suelta a User (cliente)
+  arizarContactId      String?   @map("arizar_contact_id")
+  arizarConversationId String?   @unique @map("arizar_conversation_id")
+  channel              String                              // SMS | Email | WhatsApp | Live_Chat | Custom
+  lastMessageAt        DateTime? @map("last_message_at")
+  lastMessageBody      String?   @map("last_message_body")
+  unreadCount          Int       @default(0) @map("unread_count")
+  status               String    @default("open")         // open | closed
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  messages             Message[]
+
+  @@index([userId])
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model Message {
+  id              String   @id @default(uuid())
+  conversationId  String   @map("conversation_id")
+  arizarMessageId String?  @unique @map("arizar_message_id")
+  direction       String                                  // inbound | outbound
+  channel         String
+  body            String?
+  attachmentsJson Json?    @map("attachments_json")
+  isAi            Boolean  @default(false) @map("is_ai")  // generado por IA
+  status          String   @default("sent")              // sent | delivered | read | failed
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("messages")
+}
