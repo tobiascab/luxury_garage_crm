@@ -3,40 +3,47 @@ const slowDown = require('express-slow-down');
 const hpp = require('hpp');
 const crypto = require('crypto');
 
-// 1. General API limiter — 100 req / 15 min per IP
+// 1. General API limiter — 1200 req / 15 min per IP (~80/min).
+// Antes eran 100/15min y era DEMASIADO bajo: el panel admin/cliente hace polling de
+// notificaciones cada 30s + carga varios endpoints por pantalla, así que una sola persona
+// (o una oficina detrás de un mismo NAT/IP) agotaba el cupo y hasta el login caía con 429.
+// 1200/15min sigue frenando scrapers/fuerza bruta (>80 req/min) pero no molesta al uso real.
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 1200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Demasiadas solicitudes. Intentá de nuevo en unos minutos.' },
-  skip: (req) => req.path === '/api/health',
+  // No contar health ni el polling liviano de notificaciones contra el cupo general.
+  skip: (req) => req.path === '/api/health' || req.path === '/api/luxury/notifications',
 });
 
 // 2. Auth-specific limiter — 5 attempts / 15 min
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  // Limita los intentos FALLIDOS por IP (skipSuccessfulRequests: true). En producción
-  // mantenemos un techo razonable; en desarrollo lo subimos para no bloquearnos probando.
-  // La defensa principal anti-fuerza-bruta es loginLockout por cuenta (10 fallos = 30 min).
-  max: process.env.NODE_ENV === 'production' ? 10 : 100,
+  // Limita los intentos FALLIDOS por IP (skipSuccessfulRequests: true). Los logins exitosos
+  // NO cuentan, así que este techo solo lo alcanza quien erra la contraseña muchas veces.
+  // La defensa principal anti-fuerza-bruta es loginLockout por cuenta.
+  max: process.env.NODE_ENV === 'production' ? 40 : 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Demasiados intentos de inicio de sesión. Esperá 15 minutos.' },
   skipSuccessfulRequests: true,
 });
 
-// 3. Slow-down after 30 req
+// 3. Slow-down: recién agrega latencia pasadas 600 requests (antes 50, molestaba al panel).
 const speedLimiter = slowDown({
   windowMs: 15 * 60 * 1000,
-  delayAfter: 50,
-  delayMs: (hits) => (hits - 50) * 100,
+  delayAfter: 600,
+  delayMs: (hits) => (hits - 600) * 100,
   maxDelayMs: 2000, // Máximo 2 segundos en lugar de 5
 });
 
-// 4. In-memory login lockout (10 failures = 30 min block)
-const LOCKOUT_MAX = 10;
-const LOCKOUT_MS = 30 * 60 * 1000;
+// 4. In-memory login lockout (20 fallos por cuenta = 15 min de bloqueo).
+// Más permisivo que antes (eran 10 fallos = 30 min) para no bloquear a quien simplemente
+// se equivoca varias veces; sigue frenando fuerza bruta real (20 intentos y a esperar).
+const LOCKOUT_MAX = 20;
+const LOCKOUT_MS = 15 * 60 * 1000;
 const failedMap = new Map();
 
 setInterval(() => {

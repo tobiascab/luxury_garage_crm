@@ -123,6 +123,49 @@ router.get('/expenses', ...adminOnly, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/accounting/expenses/summary — totales del período + desglose por categoría.
+// Lo consume ExpensesManager (tarjetas de total, IVA y "gasto por categoría"). Antes NO
+// existía → el frontend recibía 404 y las tarjetas de resumen quedaban vacías.
+router.get('/expenses/summary', ...adminOnly, async (req, res, next) => {
+  try {
+    const { from, to } = req.query;
+    const where = {};
+    const gte = parseDate(from);
+    const lte = parseDate(to);
+    if (gte || lte) {
+      where.date = {};
+      if (gte) where.date.gte = gte;
+      if (lte) where.date.lte = lte;
+    }
+
+    const [agg, grouped, categories] = await Promise.all([
+      req.prisma.expense.aggregate({ where, _sum: { amountGs: true, ivaGs: true }, _count: true }),
+      req.prisma.expense.groupBy({ by: ['categoryId'], where, _sum: { amountGs: true } }),
+      req.prisma.expenseCategory.findMany({ select: { id: true, name: true, color: true } }),
+    ]);
+
+    const catMap = new Map(categories.map((c) => [c.id, c]));
+    const byCategory = grouped
+      .map((g) => ({
+        categoryId: g.categoryId,
+        name: catMap.get(g.categoryId)?.name || 'Sin categoría',
+        color: catMap.get(g.categoryId)?.color || null,
+        totalGs: g._sum.amountGs || 0,
+      }))
+      .sort((a, b) => b.totalGs - a.totalGs);
+
+    res.json({
+      success: true,
+      data: {
+        totalGs: agg._sum.amountGs || 0,
+        ivaGs: agg._sum.ivaGs || 0,
+        count: agg._count || 0,
+        byCategory,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 // POST /api/accounting/expenses — registrar gasto. createdById = req.user.id.
 router.post('/expenses', ...adminOnly, validateBody(expenseSchema), async (req, res, next) => {
   try {

@@ -66,12 +66,25 @@ export default function ServiciosExtra({ user }: ServiciosExtraProps) {
             const dateOnly = startTime.toISOString().split('T')[0];
             const startTimeStr = `${dateOnly}T09:00:00`;
 
-            await api.post('/appointments', {
+            const res = await api.post('/appointments', {
                 vehicleId,
                 serviceId: selected.id,
+                vehicleSize: user?.vehicles?.[0]?.size, // para el precio por tamaño
                 date: dateOnly,
                 startTime: startTimeStr,
             });
+            const d = res.data || {};
+
+            // El backend puede responder 200 SIN crear la cita: cupo agotado (needsChoice → hay que
+            // elegir pagar/próximo mes) o pago que requiere 3DS. En esos casos NO declaramos éxito:
+            // derivamos al flujo completo de Reserva que sí maneja esas decisiones y el pago seguro.
+            if (d.needsChoice || d.requires3ds) {
+                setErrorMsg(d.needsChoice
+                    ? 'Ya usaste el cupo de tu plan para este servicio. Reservalo desde "Reserva" para elegir cómo pagarlo.'
+                    : 'Este pago necesita verificación 3DS. Completalo desde "Reserva".');
+                setTimeout(() => { setSelected(null); navigate('/booking'); }, 2200);
+                return;
+            }
 
             setBooked(true);
             setTimeout(() => {

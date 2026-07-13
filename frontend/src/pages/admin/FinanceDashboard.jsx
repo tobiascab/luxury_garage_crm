@@ -392,8 +392,10 @@ function ProfitabilityPanel({ pnl, loading }) {
 
   if (!pnl) return null;
 
-  const income = Number(pnl.incomeGs || 0);
-  const expenses = Number(pnl.expensesGs || 0);
+  // income-statement devuelve forma anidada: income.netGs / expenses.totalGs / profitGs.
+  // Antes se leían pnl.incomeGs / pnl.expensesGs (inexistentes) → Ingresos y Egresos daban ₲0.
+  const income = Number(pnl.income?.netGs || 0);
+  const expenses = Number(pnl.expenses?.totalGs || 0);
   const profit = pnl.profitGs != null ? Number(pnl.profitGs) : income - expenses;
   const margin = income > 0 ? Math.round((profit / income) * 100) : 0;
 

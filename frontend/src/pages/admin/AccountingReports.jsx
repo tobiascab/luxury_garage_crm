@@ -194,14 +194,18 @@ function IncomeStatement({ params }) {
     );
   }
 
+  // El backend (GET /accounting/reports/income-statement) devuelve la forma ANIDADA:
+  // { income:{grossGs,netGs,paymentCount}, expenses:{totalGs,breakdown[]}, profitGs }.
+  // Antes se leían campos planos (d.incomeGs, d.expensesGs…) que no existen → todo daba ₲0.
   const d = data || {};
-  const income = Number(d.incomeGs || 0);
-  const expenses = Number(d.expensesGs || 0);
+  const income = Number(d.income?.netGs || 0);
+  const expenses = Number(d.expenses?.totalGs || 0);
   const profit = d.profitGs != null ? Number(d.profitGs) : income - expenses;
   const margin = income > 0 ? Math.round((profit / income) * 100) : 0;
   const series = Array.isArray(d.monthly) ? d.monthly : [];
-  const incomeByType = Array.isArray(d.incomeBreakdown) ? d.incomeBreakdown : [];
-  const expenseByCat = Array.isArray(d.expenseBreakdown) ? d.expenseBreakdown : [];
+  const expenseByCat = Array.isArray(d.expenses?.breakdown) ? d.expenses.breakdown : [];
+  const incomeCount = d.income?.paymentCount || 0;
+  const expenseCount = expenseByCat.reduce((s, r) => s + (r.count || 0), 0);
   const hasData = income > 0 || expenses > 0;
 
   return (
@@ -209,9 +213,9 @@ function IncomeStatement({ params }) {
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard label="Ingresos" value={<AnimatedNumber value={income} format="gs" />} icon={<TrendingUp size={18} />} color="emerald"
-          sub={`${d.incomeCount || 0} cobros completados`} />
+          sub={`${incomeCount} cobros completados`} />
         <KpiCard label="Egresos" value={<AnimatedNumber value={expenses} format="gs" />} icon={<TrendingDown size={18} />} color="rose"
-          sub={`${d.expenseCount || 0} gastos`} />
+          sub={`${expenseCount} gastos`} />
         <KpiCard
           label="Utilidad neta"
           value={<AnimatedNumber value={profit} format="gs" />}
@@ -257,17 +261,13 @@ function IncomeStatement({ params }) {
             </div>
           )}
 
-          {/* Breakdowns */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <BreakdownPanel
-              title="Ingresos por concepto" total={income}
-              rows={incomeByType} accent="#10b981" emptyMsg="Sin desglose de ingresos."
-            />
+          {/* Desglose de egresos por categoría (el backend no provee desglose de ingresos por concepto) */}
+          {expenseByCat.length > 0 && (
             <BreakdownPanel
               title="Egresos por categoría" total={expenses}
               rows={expenseByCat} accent="#f43f5e" emptyMsg="Sin desglose de egresos."
             />
-          </div>
+          )}
 
           {/* Income statement summary table */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl shadow-sm overflow-hidden">
@@ -378,10 +378,13 @@ function IvaReport({ params }) {
     );
   }
 
+  // Backend (GET /accounting/reports/iva) devuelve forma ANIDADA en español:
+  // { sales:{ivaDebitoGs}, expenses:{ivaCreditoGs}, ivaNetoGs }. Antes se leían nombres
+  // planos en inglés (d.ivaDebitGs…) inexistentes → la liquidación de IVA daba siempre ₲0.
   const d = data || {};
-  const ivaDebit = Number(d.ivaDebitGs ?? d.ivaSalesGs ?? 0);   // IVA sobre ventas (débito fiscal)
-  const ivaCredit = Number(d.ivaCreditGs ?? d.ivaPurchasesGs ?? 0); // IVA sobre compras (crédito fiscal)
-  const balance = d.ivaBalanceGs != null ? Number(d.ivaBalanceGs) : ivaDebit - ivaCredit;
+  const ivaDebit = Number(d.sales?.ivaDebitoGs ?? 0);      // IVA sobre ventas (débito fiscal)
+  const ivaCredit = Number(d.expenses?.ivaCreditoGs ?? 0); // IVA sobre compras (crédito fiscal)
+  const balance = d.ivaNetoGs != null ? Number(d.ivaNetoGs) : ivaDebit - ivaCredit;
   const owes = balance >= 0;
 
   return (
@@ -461,11 +464,14 @@ function Receivables() {
     );
   }
 
+  // Backend (GET /accounting/receivables) devuelve { items[], totals:{outstandingGs,overdueGs,count} }.
+  // Usamos los totales del servidor como fuente de verdad; el cálculo en cliente queda de fallback.
   const d = data || {};
   const items = Array.isArray(d.items) ? d.items : Array.isArray(d) ? d : [];
-  const totalOutstanding = Number(d.totalOutstandingGs ?? items.reduce((s, x) => s + outstanding(x), 0));
-  const overdueTotal = Number(d.overdueGs ?? items.filter(isOverdue).reduce((s, x) => s + outstanding(x), 0));
-  const overdueCount = d.overdueCount ?? items.filter(isOverdue).length;
+  const totalOutstanding = Number(d.totals?.outstandingGs ?? d.totalOutstandingGs ?? items.reduce((s, x) => s + outstanding(x), 0));
+  const overdueTotal = Number(d.totals?.overdueGs ?? d.overdueGs ?? items.filter(isOverdue).reduce((s, x) => s + outstanding(x), 0));
+  // Nota: d.totals.count es el TOTAL de cuentas (= items.length), NO las vencidas; las vencidas se cuentan acá.
+  const overdueCount = items.filter(isOverdue).length;
 
   return (
     <div className="space-y-6">

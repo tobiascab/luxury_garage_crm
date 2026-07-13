@@ -834,8 +834,11 @@ router.post('/admin', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (re
     }
 
     // Precio por tamaño + adicionales (snapshot, igual que el flujo de cliente).
+    // El form admin no manda vehicleSize → derivarlo del tamaño real del vehículo (vehicle.size),
+    // si no el precio caía a basePriceGs (0/nominal) para servicios tarifados por tamaño.
+    const effectiveSize = vehicleSize || vehicle.size || null;
     const sizePricing = service.pricingBySize || {};
-    const basePrice = (vehicleSize && sizePricing[vehicleSize] != null) ? sizePricing[vehicleSize] : service.basePriceGs;
+    const basePrice = (effectiveSize && sizePricing[effectiveSize] != null) ? sizePricing[effectiveSize] : service.basePriceGs;
     const serviceAddons = Array.isArray(service.addons) ? service.addons : [];
     const chosenAddonKeys = Array.isArray(addons) ? addons : [];
     const addonsTotal = serviceAddons
@@ -898,7 +901,7 @@ router.post('/admin', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (re
             status: finalStatus,
             notes: notes || null,
             arizarAppointmentId,
-            vehicleSize: vehicleSize || null,
+            vehicleSize: effectiveSize,
             selectedAddons: chosenAddonKeys.length ? chosenAddonKeys : null,
             totalPriceGs,
             billingMode: 'paid',

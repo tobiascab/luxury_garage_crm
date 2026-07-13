@@ -44,7 +44,7 @@ function verifyQrToken(token) {
 router.get('/profile/full', authenticate, async (req, res, next) => {
     try {
         const userId = req.user.id;
-        const [user, chargeSum, useSum] = await Promise.all([
+        const [user, creditSum] = await Promise.all([
             req.prisma.user.findUnique({
                 where: { id: userId },
                 select: {
@@ -58,7 +58,7 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
                     createdAt: true,
                     memberships: {
                         where: { status: 'ACTIVE' },
-                        include: { plan: { select: { name: true, priceGs: true } } },
+                        include: { plan: { select: { name: true, priceGs: true, limitsJson: true } } },
                         orderBy: { createdAt: 'desc' },
                         take: 1
                     },
@@ -78,19 +78,18 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
                     _count: { select: { vehicles: true, appointments: true } }
                 }
             }),
+            // Saldo de billetera = suma de TODOS los créditos vigentes (mismo criterio que /api/credits).
+            // Antes se filtraba por type 'CHARGE'/'USE' que NUNCA se escriben (los reales son
+            // WALLET_TOPUP, WALLET_PAYMENT, REFERRAL_REWARD, etc.) → el saldo daba siempre ₲0.
             req.prisma.credit.aggregate({
-                where: { userId, type: 'CHARGE' },
-                _sum: { amount: true }
-            }),
-            req.prisma.credit.aggregate({
-                where: { userId, type: 'USE' },
+                where: { userId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
                 _sum: { amount: true }
             })
         ]);
 
         if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
-        const wallet_balance = (chargeSum._sum.amount || 0) - (useSum._sum.amount || 0);
+        const wallet_balance = creditSum._sum.amount || 0;
         const activeMembership = user.memberships[0];
 
         res.json({
@@ -226,6 +225,13 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
             url: '/qr',
         }).catch((e) => console.error('[push] wash-done falló:', e.message));
 
+        // Cupo restante del plan este mes (dato real de limitsJson.maxWashesPerMonth).
+        // -1 o ausente = ilimitado → remainingWashes: null (el front muestra "Ilimitado").
+        const maxWashes = activeMembership?.plan?.limitsJson?.maxWashesPerMonth;
+        const remainingWashes = (maxWashes == null || maxWashes < 0)
+            ? null
+            : Math.max(0, maxWashes - washesThisMonth);
+
         res.json({
             success: true,
             message: `¡${completed.service?.name || 'Servicio'} registrado!`,
@@ -234,8 +240,10 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
                     id: user.id,
                     name: `${user.firstName} ${user.lastName}`,
                     role: activeMembership?.plan?.name || user.role,
-                    vehicle: vehicle || null,
+                    // Agregamos `plate` (el schema usa licensePlate) para que el scanner lo muestre.
+                    vehicle: vehicle ? { ...vehicle, plate: vehicle.licensePlate } : null,
                     totalWashes: washesThisMonth,
+                    remainingWashes, // null = ilimitado
                 },
                 service: completed.service ? { name: completed.service.name } : null,
                 covered: completed.coveredByMembership,

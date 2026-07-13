@@ -92,12 +92,19 @@ const formatShortDate = (value?: string | number | Date | null): string | null =
 };
 
 export default function Profile({ user, onLogout, onUpdate }: ProfileProps) {
+  // El empleado (staff) no es cliente: no tiene billetera, tarjetas ni vehículos propios.
+  // Su perfil se limita a Datos + Seguridad (lo indispensable). Las tabs de Pagos/Vehículos
+  // no se muestran y quedan bloqueadas por si el estado llega ahí por otra vía.
+  const isEmployee = user?.role === 'Empleado' || user?.role === 'EMPLOYEE';
   const [activeTab, setActiveTab] = useState<ProfileTab>('datos');
   const reduce = useReduce();
 
   const renderTabContent = () => {
+    if (isEmployee && (activeTab === 'pagos' || activeTab === 'vehiculos')) {
+      return <PersonalInfo user={user} onUpdate={onUpdate} isEmployee={isEmployee} />;
+    }
     switch (activeTab) {
-      case 'datos': return <PersonalInfo user={user} onUpdate={onUpdate} />;
+      case 'datos': return <PersonalInfo user={user} onUpdate={onUpdate} isEmployee={isEmployee} />;
       case 'pagos': return <PaymentMethods methods={user.paymentMethods || []} userId={user.id} onUpdate={onUpdate} user={user} />;
       case 'vehiculos': return <MyVehicles userId={user.id} initialVehicles={user.vehicles || []} onUpdate={onUpdate} />;
       case 'seguridad': return <SecuritySettings userId={user.id} onLogout={onLogout} />;
@@ -168,8 +175,8 @@ export default function Profile({ user, onLogout, onUpdate }: ProfileProps) {
       {/* Navigation Tabs */}
       <div className="flex overflow-x-auto gap-2 pb-1 no-scrollbar">
         <TabButton active={activeTab === 'datos'} onClick={() => setActiveTab('datos')} icon={<User size={14} />} label="Datos" />
-        <TabButton active={activeTab === 'pagos'} onClick={() => setActiveTab('pagos')} icon={<CreditCard size={14} />} label="Pagos" />
-        <TabButton active={activeTab === 'vehiculos'} onClick={() => setActiveTab('vehiculos')} icon={<Car size={14} />} label="Vehículos" />
+        {!isEmployee && <TabButton active={activeTab === 'pagos'} onClick={() => setActiveTab('pagos')} icon={<CreditCard size={14} />} label="Pagos" />}
+        {!isEmployee && <TabButton active={activeTab === 'vehiculos'} onClick={() => setActiveTab('vehiculos')} icon={<Car size={14} />} label="Vehículos" />}
         <TabButton active={activeTab === 'seguridad'} onClick={() => setActiveTab('seguridad')} icon={<Shield size={14} />} label="Seguridad" />
       </div>
 
@@ -216,7 +223,7 @@ function TabButton({ active, onClick, icon, label }: { active: boolean, onClick:
 }
 
 // Sub-components
-function PersonalInfo({ user, onUpdate }: { user: any, onUpdate: () => void }) {
+function PersonalInfo({ user, onUpdate, isEmployee = false }: { user: any, onUpdate: () => void, isEmployee?: boolean }) {
   const reduce = useReduce();
   const [showModal, setShowModal] = useState(false);
   const [firstName, setFirstName] = useState(user.firstName ?? '');
@@ -317,7 +324,8 @@ function PersonalInfo({ user, onUpdate }: { user: any, onUpdate: () => void }) {
           </AnimatePresence>
         </StaggerItem>
 
-        {/* ── Resumen de Cuenta ── */}
+        {/* ── Resumen de Cuenta ── (solo cliente: el empleado no tiene billetera/membresía/vehículos) */}
+        {!isEmployee && (
         <StaggerItem className="space-y-4">
           <div className="flex items-center gap-2.5 px-1">
             <div className="w-9 h-9 rounded-xl bg-primary/10 dark:bg-blue-500/15 flex items-center justify-center text-primary dark:text-blue-400">
@@ -341,6 +349,7 @@ function PersonalInfo({ user, onUpdate }: { user: any, onUpdate: () => void }) {
             />
           </div>
         </StaggerItem>
+        )}
       </StaggerList>
 
       {/* Modal de edición de datos personales */}

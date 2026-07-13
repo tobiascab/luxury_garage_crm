@@ -20,13 +20,25 @@ import LuxuryLayout from './luxury-design/layouts/MainLayout';
 // Acá lo interceptamos y recargamos UNA vez para bajar los assets frescos
 // (se arregla solo, sin que el usuario tenga que recargar a mano).
 // ═══════════════════════════════════════════════════════════════════
-function lazyWithReload(factory) {
-  return lazy(async () => {
+// Registro de todas las factories lazy para poder PRECARGARLAS en idle (ver preloadLazyModules).
+const _lazyFactories = [];
+
+// Importa el chunk con REINTENTOS antes de rendirse. Al navegar muy rápido entre módulos, un
+// import() puede fallar de forma transitoria (red, chunk a medio bajar, SW): reintentar con un
+// pequeño backoff lo resuelve sin recargar toda la página. Solo si TODOS los reintentos fallan
+// recargamos UNA vez (assets viejos tras deploy). Cachea el módulo, así la 2da navegación es instantánea.
+async function importWithRetry(factory, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
     try {
       const mod = await factory();
       sessionStorage.removeItem('chunk-reloaded'); // cargó bien → reset
       return mod;
     } catch (err) {
+      const isLast = i === attempts - 1;
+      if (!isLast) {
+        await new Promise((r) => setTimeout(r, 250 * (i + 1))); // 250ms, 500ms…
+        continue;
+      }
       if (!sessionStorage.getItem('chunk-reloaded')) {
         sessionStorage.setItem('chunk-reloaded', '1');
         window.location.reload();
@@ -34,7 +46,27 @@ function lazyWithReload(factory) {
       }
       throw err;
     }
-  });
+  }
+}
+
+function lazyWithReload(factory) {
+  _lazyFactories.push(factory);
+  return lazy(() => importWithRetry(factory));
+}
+
+// Precarga TODOS los chunks lazy en tiempo ocioso (tras montar el shell logueado). Así, cuando
+// el usuario cambia de módulo, el chunk ya está en caché y la vista aparece al instante — se
+// elimina el "no carga al navegar rápido". import() cachea la promesa, no vuelve a bajar nada.
+let _preloadStarted = false;
+function preloadLazyModules() {
+  if (_preloadStarted) return; // una sola vez por sesión de página
+  _preloadStarted = true;
+  const run = () => { for (const f of _lazyFactories) { try { f(); } catch { /* noop */ } } };
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(run, { timeout: 4000 });
+  } else {
+    setTimeout(run, 1500);
+  }
 }
 
 // Red de seguridad: si una vista falla al renderizar (no solo al cargar el chunk),
@@ -98,11 +130,12 @@ const CobrosStripe = lazyWithReload(() => import('./pages/admin/CobrosStripe'));
 const AuditLogs = lazyWithReload(() => import('./pages/admin/AuditLogs'));
 const ArizarPanel = lazyWithReload(() => import('./pages/admin/ArizarPanel'));
 const ChatInbox = lazyWithReload(() => import('./pages/admin/ChatInbox'));
-const Notifications = lazyWithReload(() => import('./pages/shared/Notifications'));
+// Panel admin de notificaciones: usamos el componente COMPLETO (con Eliminar + KPIs),
+// no el simple de shared/ que dejaba muertos DELETE /notifications/:id y /admin/stats.
+const Notifications = lazyWithReload(() => import('./pages/admin/Notifications'));
 
 // Luxury Client & Employee Pages - Lazy
 const LuxuryDashboard = lazyWithReload(() => import('./luxury-design/pages/Dashboard'));
-const LuxuryGarage = lazyWithReload(() => import('./luxury-design/pages/Garage'));
 const LuxuryQRPass = lazyWithReload(() => import('./luxury-design/pages/QRPass'));
 const LuxuryBooking = lazyWithReload(() => import('./luxury-design/pages/Booking'));
 const LuxuryPlanes = lazyWithReload(() => import('./luxury-design/pages/Planes'));
@@ -160,7 +193,6 @@ const withLuxury = (Component) => {
 };
 
 const LDashboard = withLuxury(LuxuryDashboard);
-const LGarage = withLuxury(LuxuryGarage);
 const LQRPass = withLuxury(LuxuryQRPass);
 const LBooking = withLuxury(LuxuryBooking);
 const LPlanes = withLuxury(LuxuryPlanes);
@@ -280,7 +312,6 @@ function AppRoutes() {
         {/* Dashboard del cliente: movido de "/" a "/inicio" (la raíz ahora es el RootGate público). */}
         <Route path="/inicio" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LDashboard /></ProtectedRoute>} />
         <Route path="/booking" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LBooking /></ProtectedRoute>} />
-        <Route path="/garage" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LGarage /></ProtectedRoute>} />
         <Route path="/qr" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LQRPass /></ProtectedRoute>} />
         <Route path="/planes" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LPlanes /></ProtectedRoute>} />
         <Route path="/billetera" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LWallet /></ProtectedRoute>} />
@@ -329,6 +360,14 @@ function AppRoutes() {
   );
 }
 
+// Precarga los chunks lazy en cuanto hay sesión (idle). Vive dentro del AuthProvider
+// para poder leer el usuario. Cubre a cliente, empleado y admin por igual.
+function PreloadOnAuth() {
+  const { user } = useAuth();
+  useEffect(() => { if (user) preloadLazyModules(); }, [user]);
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────
 // Root
 // ─────────────────────────────────────────────────────────
@@ -336,6 +375,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <PreloadOnAuth />
         <Toaster
           position="top-center"
           toastOptions={{

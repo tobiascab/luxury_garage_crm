@@ -286,7 +286,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                                     {typeof result.client.remainingWashes === 'number' ? (
                                                         <AnimatedNumber value={result.client.remainingWashes} className="block text-xl font-black text-primary dark:text-blue-400 leading-none" />
                                                     ) : (
-                                                        <p className="text-xl font-black text-primary dark:text-blue-400 leading-none">{result.client.remainingWashes}</p>
+                                                        <p className="text-xl font-black text-primary dark:text-blue-400 leading-none" title="Plan ilimitado">∞</p>
                                                     )}
                                                     <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Disponibles</p>
                                                 </div>
@@ -323,7 +323,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                                     <span className="font-black italic text-sm tracking-tight">{result.client.vehicle.model}</span>
                                                 </div>
                                                 <div className="flex items-center gap-3 text-[10px] font-bold text-white/50 bg-white/5 px-3 py-2 rounded-xl mt-2">
-                                                    <span className="text-white/80">{result.client.vehicle.plate}</span>
+                                                    <span className="text-white/80">{result.client.vehicle.plate || 'Sin patente'}</span>
                                                     <span className="opacity-30">|</span>
                                                     <span>{result.client.vehicle.color}</span>
                                                 </div>

@@ -301,6 +301,10 @@ model Payment {
   paymentMethod       String?       @map("payment_method")
   arizarTransactionId String?       @map("arizar_transaction_id")
   arizarInvoiceId     String?       @map("arizar_invoice_id")
+  // ⚠️ EN LA DB ESTA COLUMNA ES bigint (guarda Date.now(), 13 dígitos). Acá se declara Int
+  // a propósito porque el código usa Number, no BigInt. NO correr `prisma db push`: revierte
+  // la columna a integer y ROMPE TODOS los cobros con tarjeta (value out of range for integer).
+  // Si alguna vez pasa: ALTER TABLE payments ALTER COLUMN bancard_shop_process_id TYPE bigint;
   bancardShopProcessId Int?         @unique @map("bancard_shop_process_id")
   bancardTicketNumber String?       @map("bancard_ticket_number")
   bancardAuthNumber   String?       @map("bancard_auth_number")
@@ -508,6 +512,9 @@ model Setting {
 
 model BancardOperation {
   id            String   @id @default(uuid())
+  // ⚠️ EN LA DB ES bigint (guarda Date.now()). Int a propósito (el código usa Number).
+  // NO correr `prisma db push`: revierte a integer y rompe los cobros. Fix si pasa:
+  // ALTER TABLE bancard_operations ALTER COLUMN shop_process_id TYPE bigint;
   shopProcessId Int      @unique @map("shop_process_id")
   userId        String   @map("user_id")
   type          String   // "single_buy", "charge", "card_registration"

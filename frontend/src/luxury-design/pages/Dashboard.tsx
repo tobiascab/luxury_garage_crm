@@ -69,11 +69,14 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
     }).length;
 
     const walletBalance = user?.wallet_balance ?? 0;
-    const isUnlimited = (user?.role ?? '').toLowerCase().includes('platinum') || (user?.role ?? '').toLowerCase().includes('vip') || (user?.role ?? '').toLowerCase().includes('lujo') || (user?.role ?? '').toLowerCase().includes('prima');
-    const monthlyLimit = (user?.role ?? '').toLowerCase().includes('basico') ? 4 : isUnlimited ? '∞' : 4;
 
-    return { nextBooking, washesDone, walletBalance, monthlyLimit };
-  }, [user?.bookings, user?.wallet_balance, user?.role]);
+    // Datos reales de la membresía activa (no del rol). Límite mensual real desde limitsJson.
+    const planName = user?.activeMembership?.plan?.name || null;
+    const maxWashes = user?.activeMembership?.plan?.limitsJson?.maxWashesPerMonth;
+    const monthlyLimit = (maxWashes == null) ? '—' : (maxWashes < 0 ? '∞' : maxWashes);
+
+    return { nextBooking, washesDone, walletBalance, monthlyLimit, planName };
+  }, [user?.bookings, user?.wallet_balance, user?.activeMembership]);
 
   return (
     <motion.div
@@ -112,11 +115,15 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
             <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-md border border-white/10">
               <Star size={12} className="text-secondary" fill="currentColor" />
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest">{user?.role || 'Premium'}</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Membresía</span>
           </div>
           <div className="relative z-10">
-            <p className="text-[32px] font-headline font-black italic tracking-tighter leading-none mb-1 uppercase">TIER 1</p>
-            <p className="text-[7px] text-white/40 uppercase tracking-[0.3em]">Exclusive Member</p>
+            <p className="text-[24px] font-headline font-black italic tracking-tighter leading-none mb-1 uppercase truncate">
+              {stats.planName || 'Sin plan'}
+            </p>
+            <p className="text-[7px] text-white/40 uppercase tracking-[0.3em]">
+              {user?.membership_status === 'Activa' ? 'Membresía activa' : 'Sin membresía activa'}
+            </p>
           </div>
         </StaggerItem>
 
@@ -268,7 +275,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
           <ActionButton icon={<History size={22} className="text-amber-500" />} label="Historial" onClick={() => navigate('/booking')} />
           <ActionButton icon={<Gift size={22} className="text-rose-500" />} label="Premios" onClick={() => navigate('/referidos')} />
           <ActionButton icon={<Wallet size={22} className="text-emerald-600" />} label="Wallet" onClick={() => navigate('/billetera')} />
-          <ActionButton icon={<QrCode size={22} className="text-blue-500" />} label="Pase Digital" onClick={() => setShowQR(true)} />
+          <ActionButton icon={<QrCode size={22} className="text-blue-500" />} label="Pase Digital" onClick={() => navigate('/qr')} />
           <ActionButton icon={<CreditCard size={22} className="text-sky-500" />} label="Tarjetas" onClick={() => navigate('/tarjetas')} />
           <ActionButton icon={<Sparkles size={22} className="text-purple-500" />} label="Premium" onClick={() => navigate('/servicios-extra')} />
         </StaggerList>

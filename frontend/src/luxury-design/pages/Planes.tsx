@@ -111,39 +111,9 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
     setLoading(false);
   };
 
-  // Fallback plans if API returns empty
-  const displayPlans = plans.length > 0 ? plans : [
-    {
-      id: 'basico', name: 'Plan Básico', priceGs: 250000,
-      washes: '4 Lavados Express + 1 Interior', icon: 'shield', popular: false, dark: false,
-      features: [
-        { label: '4 Lavados Express al mes', included: true },
-        { label: '1 Lavado Interior al mes', included: true },
-        { label: 'Brillo de Llantas', included: true },
-      ],
-      desc: 'Ideal para mantener tu vehículo presentable.', maxVehicles: 1,
-    },
-    {
-      id: 'prima', name: 'Prima del Plan', priceGs: 450000,
-      washes: 'Exteriores Ilimitados + 2 Full + Detailing', icon: 'zap', popular: true, dark: false,
-      features: [
-        { label: 'Lavados Exteriores Ilimitados', included: true },
-        { label: '2 Lavados Full al mes', included: true },
-        { label: 'Detailing Incluido', included: true },
-      ],
-      desc: 'El plan favorito. Cobertura completa.', maxVehicles: 1,
-    },
-    {
-      id: 'vip', name: 'Plan VIP', priceGs: 750000,
-      washes: 'TODOS los servicios ILIMITADOS', icon: 'crown', popular: false, dark: true,
-      features: [
-        { label: 'TODOS los servicios ILIMITADOS', included: true },
-        { label: 'Servicio a Domicilio', included: true },
-        { label: 'Hasta 2 vehículos', included: true },
-      ],
-      desc: 'La experiencia definitiva. Sin límites.', maxVehicles: 2,
-    },
-  ];
+  // Solo planes REALES de la API. Sin fallback con precios inventados (la regla del proyecto
+  // prohíbe datos falsos; si /plans viene vacío se muestra un EmptyState honesto más abajo).
+  const displayPlans = plans;
 
   const currentPlanId = membership?.planId || membership?.plan?.id || null;
 
@@ -314,6 +284,13 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
       </AnimatePresence>
 
       {/* Plans list */}
+      {displayPlans.length === 0 ? (
+        <div className="text-center py-16 px-6 bg-white/70 dark:bg-slate-900/50 rounded-[1.5rem] border border-slate-100 dark:border-slate-800">
+          <p className="text-4xl mb-3">🗂️</p>
+          <p className="font-black text-slate-900 dark:text-white">Todavía no hay planes disponibles</p>
+          <p className="text-sm text-slate-400 mt-1">Estamos definiendo las membresías. Consultá con un asesor por WhatsApp.</p>
+        </div>
+      ) : (
       <StaggerList className="space-y-3">
         {displayPlans.map((plan) => {
           const isCurrent = plan.id === currentPlanId;
@@ -470,6 +447,7 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
           );
         })}
       </StaggerList>
+      )}
 
       {/* Info compact */}
       <Reveal onView className="bg-slate-50 dark:bg-slate-900/40 rounded-[1.5rem] p-4 border border-slate-100 dark:border-slate-800">
