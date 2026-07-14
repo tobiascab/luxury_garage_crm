@@ -18,8 +18,8 @@ const SETTING_SCHEMA = {
   opening_time: { type: 'string', default: '07:00' },
   closing_time: { type: 'string', default: '18:00' },
   working_days: { type: 'string', default: 'Lun-Sáb' },
-  bays_count: { type: 'int', min: 1, max: 50, default: 3 },
-  slot_duration_minutes: { type: 'int', min: 10, max: 480, default: 60 },
+  bays_count: { type: 'int', min: 1, max: 50, default: 2 },        // 2 lavados simultáneos máx (regla del negocio)
+  slot_duration_minutes: { type: 'int', min: 10, max: 480, default: 30 }, // turnos cada 30 min → tope 4/hora
   email_notifications: { type: 'bool', default: true },
   whatsapp_notifications: { type: 'bool', default: true },
 };

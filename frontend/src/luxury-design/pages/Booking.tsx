@@ -35,8 +35,6 @@ const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
-const HORAS = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
-const MINUTOS = ['00', '15', '30', '45'];
 
 function getDaysInMonth(month: number, year: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -285,8 +283,11 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
   const [day, setDay] = useState(now.getDate().toString());
   const [month, setMonth] = useState(now.getMonth().toString());
   const [year, setYear] = useState(now.getFullYear().toString());
-  const [hour, setHour] = useState('09');
-  const [minute, setMinute] = useState('00');
+  // Turno elegido ('HH:MM') + disponibilidad real del día (grilla de turnos).
+  const [slotTime, setSlotTime] = useState('');
+  const [slots, setSlots] = useState<any[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotRefresh, setSlotRefresh] = useState(0);
 
   useEffect(() => {
     const maxDay = getDaysInMonth(parseInt(month), parseInt(year));
@@ -405,8 +406,33 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
   const buildStartTime = () => {
     const m = (parseInt(month) + 1).toString().padStart(2, '0');
     const d = day.padStart(2, '0');
-    return `${year}-${m}-${d}T${hour}:${minute}:00`;
+    return `${year}-${m}-${d}T${slotTime}:00`;
   };
+
+  // Disponibilidad real de turnos del día elegido (horario + bahías + duración del servicio).
+  // Se recarga al cambiar fecha/servicio o tras reservar (slotRefresh), y deselecciona el turno
+  // si dejó de estar disponible → el cliente nunca elige un horario ya completo.
+  useEffect(() => {
+    if (!selectedServiceId) { setSlots([]); return; }
+    const m = (parseInt(month) + 1).toString().padStart(2, '0');
+    const d = day.padStart(2, '0');
+    const dateStr = `${year}-${m}-${d}`;
+    let cancelled = false;
+    setSlotsLoading(true);
+    api.get('/appointments/day-availability', { params: { date: dateStr, serviceId: selectedServiceId }, _noCache: true })
+      .then(res => {
+        if (cancelled) return;
+        const list = Array.isArray(res.data?.data?.slots) ? res.data.data.slots : [];
+        setSlots(list);
+        setSlotTime(prev => {
+          const s = list.find((x: any) => x.time === prev);
+          return s && s.available ? prev : '';
+        });
+      })
+      .catch(() => { if (!cancelled) setSlots([]); })
+      .finally(() => { if (!cancelled) setSlotsLoading(false); });
+    return () => { cancelled = true; };
+  }, [day, month, year, selectedServiceId, slotRefresh]);
 
   // Valida los campos requeridos antes de reservar. Devuelve true si todo OK.
   const validateBooking = () => {
@@ -422,6 +448,10 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
     // Validación suave: si el servicio tiene precios por tamaño, exigir elegir uno
     if (selectedService?.pricingBySize && !selectedSize) {
       setModal({ type: 'error', title: 'Tamaño requerido', message: 'Elegí el tamaño del vehículo' });
+      return false;
+    }
+    if (!slotTime) {
+      setModal({ type: 'error', title: 'Elegí un horario', message: 'Seleccioná un turno disponible para continuar.' });
       return false;
     }
     return true;
@@ -488,7 +518,14 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
       setPayPhase('error');
     } catch (err: any) {
       const resp = err?.response?.data;
-      if (resp?.code === 'INSUFFICIENT_FUNDS') {
+      if (resp?.code === 'SLOT_TAKEN') {
+        // Alguien tomó el último lugar de ese turno mientras el cliente decidía → refrescamos
+        // la grilla para que vea el estado real y elija otro horario.
+        setPayMsg('Ese horario se acaba de completar. Elegí otro turno disponible.');
+        setPayPhase('error');
+        setSlotTime('');
+        setSlotRefresh(x => x + 1);
+      } else if (resp?.code === 'INSUFFICIENT_FUNDS') {
         setPayMsg(resp?.message || 'Saldo insuficiente para pagar este turno con tu billetera.');
         setPayPhase('error');
       } else if (resp?.code === 'NO_CARD') {
@@ -510,6 +547,8 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
       fetchBookings();
       onBookingComplete();
       setSelectedAddons([]);
+      setSlotTime('');
+      setSlotRefresh(x => x + 1); // el turno recién tomado ya no debe figurar libre
       fetchWalletBalance();
       api.get('/appointments/coverage/' + selectedServiceId)
         .then(res => setCoverage(res.data?.data ?? null))
@@ -832,19 +871,50 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
               </div>
             </div>
             <div>
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-2">
                 <Clock size={13} className="text-primary dark:text-blue-400 shrink-0" />
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Hora</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Horario</span>
               </div>
-              <div className="flex gap-2 items-center">
-                <select value={hour} onChange={e => setHour(e.target.value)} className={selectClass}>
-                  {HORAS.map(h => <option key={h} value={h}>{h}hs</option>)}
-                </select>
-                <span className="font-black text-slate-400 dark:text-slate-500 text-lg">:</span>
-                <select value={minute} onChange={e => setMinute(e.target.value)} className={selectClass}>
-                  {MINUTOS.map(m => <option key={m} value={m}>{m}min</option>)}
-                </select>
-              </div>
+              {slotsLoading ? (
+                <p className="text-xs text-slate-400 py-3">Cargando turnos disponibles…</p>
+              ) : slots.length === 0 ? (
+                <div className="text-xs text-slate-500 dark:text-slate-400 py-3 px-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                  No hay turnos configurados para este día. Probá con otra fecha.
+                </div>
+              ) : slots.every((s: any) => !s.available) ? (
+                <div className="text-xs text-slate-500 dark:text-slate-400 py-3 px-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200/70 dark:border-amber-500/20">
+                  No quedan turnos disponibles este día. Elegí otra fecha.
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-2">
+                  {slots.map((s: any) => {
+                    const isSel = slotTime === s.time;
+                    const disabled = !s.available;
+                    return (
+                      <button
+                        key={s.time}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setSlotTime(s.time)}
+                        className={`rounded-xl py-2 text-center border transition-colors ${isSel
+                          ? 'border-primary bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400'
+                          : disabled
+                            ? 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 text-slate-300 dark:text-slate-600 cursor-not-allowed line-through'
+                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 text-slate-700 dark:text-slate-200 hover:border-primary/40'
+                          }`}
+                      >
+                        <span className="block text-[13px] font-black leading-none">{s.time}</span>
+                        <span className={`block text-[8px] font-bold uppercase tracking-wider mt-1 ${disabled
+                          ? 'text-slate-300 dark:text-slate-600'
+                          : s.remaining <= 1 ? 'text-amber-500' : 'text-emerald-500'
+                          }`}>
+                          {s.past ? 'Pasó' : disabled ? 'Completo' : s.remaining === 1 ? 'Último' : 'Libre'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

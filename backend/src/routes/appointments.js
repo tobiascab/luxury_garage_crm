@@ -184,10 +184,10 @@ function parseLocalRange(startTime, durationMinutes) {
  * Cantidad de bahías disponibles (capacidad de turnos solapados permitidos).
  * Se guarda en la tabla `settings` bajo la key `bays_count` (Setting.value es Json).
  * Si no está configurada o es inválida, se usa el mismo default que el panel de
- * ajustes (3, ver SETTING_SCHEMA en routes/settings.js) para que el comportamiento
+ * ajustes (2, ver SETTING_SCHEMA en routes/settings.js) para que el comportamiento
  * coincida con lo que ve el admin. Devuelve un entero >= 1.
  */
-const DEFAULT_BAYS_COUNT = 3;
+const DEFAULT_BAYS_COUNT = 2; // 2 lavados simultáneos máx (regla del negocio)
 async function getBaysCount(prisma) {
   try {
     const row = await prisma.setting.findUnique({ where: { key: 'bays_count' } });
@@ -237,6 +237,84 @@ router.get('/available-slots', authenticate, async (req, res, next) => {
     console.error('Error obteniendo slots de ARIZAR IA:', err.message);
     res.json({ success: true, data: { slots: [] }, message: 'Calendario no disponible temporalmente' });
   }
+});
+
+// Lee un setting string (ej opening_time) con fallback. Setting.value es Json.
+async function getStringSetting(prisma, key, fallback) {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key } });
+    const v = row?.value == null ? '' : String(row.value).trim();
+    return v || fallback;
+  } catch { return fallback; }
+}
+
+// Lee slot_duration_minutes (paso entre turnos) con fallback 30.
+async function getSlotMinutes(prisma) {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: 'slot_duration_minutes' } });
+    const n = Math.trunc(Number(row?.value));
+    return Number.isFinite(n) && n >= 10 ? n : 30;
+  } catch { return 30; }
+}
+
+function parseHHMM(s, fh, fm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim());
+  if (!m) return fh * 60 + fm;
+  return Math.min(23, parseInt(m[1], 10)) * 60 + Math.min(59, parseInt(m[2], 10));
+}
+
+/**
+ * GET /api/appointments/day-availability?date=YYYY-MM-DD&serviceId=...
+ * Disponibilidad REAL por turno del día, según settings (horario + slot_duration_minutes +
+ * bays_count) y la duración del servicio. Cada turno arranca cada `slot_duration_minutes`
+ * dentro del horario y solo se ofrece si el servicio termina antes del cierre. `remaining`
+ * = bahías libres en ese rango (mismo criterio de solapamiento que assertSlotAvailable), así
+ * el front puede deshabilitar los turnos completos ANTES de que el cliente los elija.
+ */
+router.get('/day-availability', authenticate, async (req, res, next) => {
+  try {
+    const { date, serviceId } = req.query;
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+      return res.status(400).json({ success: false, message: 'Fecha inválida (YYYY-MM-DD)' });
+    }
+
+    let durationMinutes = 60;
+    if (serviceId) {
+      const svc = await req.prisma.service.findUnique({ where: { id: String(serviceId) }, select: { durationMinutes: true } });
+      if (svc?.durationMinutes) durationMinutes = svc.durationMinutes;
+    }
+
+    const [baysCount, slotMinutes, openStr, closeStr] = await Promise.all([
+      getBaysCount(req.prisma),
+      getSlotMinutes(req.prisma),
+      getStringSetting(req.prisma, 'opening_time', '07:00'),
+      getStringSetting(req.prisma, 'closing_time', '18:00'),
+    ]);
+    const openMin = parseHHMM(openStr, 7, 0);
+    const closeMin = parseHHMM(closeStr, 18, 0);
+
+    // Citas activas que tocan el día (1 query); el solapamiento por turno se calcula en memoria.
+    const dayStart = parseLocalRange(`${date}T00:00:00`, 0).start;
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const appts = await req.prisma.appointment.findMany({
+      where: { status: { not: 'CANCELLED' }, startTime: { lt: dayEnd }, endTime: { gt: dayStart } },
+      select: { startTime: true, endTime: true },
+    });
+
+    const now = new Date();
+    const slots = [];
+    for (let t = openMin; t + durationMinutes <= closeMin; t += slotMinutes) {
+      const hh = String(Math.floor(t / 60)).padStart(2, '0');
+      const mm = String(t % 60).padStart(2, '0');
+      const { start, end } = parseLocalRange(`${date}T${hh}:${mm}:00`, durationMinutes);
+      const overlapping = appts.filter(a => a.startTime < end && a.endTime > start).length;
+      const remaining = Math.max(0, baysCount - overlapping);
+      const past = start.getTime() <= now.getTime();
+      slots.push({ time: `${hh}:${mm}`, remaining, capacity: baysCount, past, available: remaining > 0 && !past });
+    }
+
+    res.json({ success: true, data: { date, slotMinutes, capacity: baysCount, durationMinutes, slots } });
+  } catch (err) { next(err); }
 });
 
 // GET /api/appointments
