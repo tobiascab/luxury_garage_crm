@@ -83,7 +83,7 @@ export default function Landing() {
         />
         {/* ── NAV ── */}
         <header className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${scrolled ? 'bg-[#070708]/85 backdrop-blur-xl border-b border-white/10 py-3' : 'bg-transparent py-5'}`}>
-          <div className="max-w-6xl mx-auto px-5 flex items-center justify-between">
+          <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <img src="/logo.png" alt="Luxury Garage" className="w-8 h-8 object-contain" />
               <span className="brand-wordmark text-lg sm:text-xl">LUXURY GARAGE</span>
@@ -120,10 +120,10 @@ export default function Landing() {
           <AppPwaSection />
 
           {/* Franja CTA final — abre el cuestionario de membresía */}
-          <section className="relative isolate py-28 px-5 text-center overflow-hidden">
+          <section className="relative isolate py-28 lg:py-32 px-5 sm:px-6 text-center overflow-hidden">
             <div className="absolute inset-0 -z-10 bg-[radial-gradient(60%_60%_at_50%_50%,rgba(254,183,0,0.10),transparent_70%)]" />
-            <img src="/logo.png" alt="" className="w-16 h-16 object-contain mx-auto mb-6 drop-shadow-2xl" />
-            <h2 className="font-headline text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight mb-5">
+            <img src="/logo.png" alt="" className="w-16 h-16 lg:w-20 lg:h-20 object-contain mx-auto mb-6 drop-shadow-2xl" />
+            <h2 className="font-headline text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-tight mb-5 lg:max-w-3xl lg:mx-auto">
               Tu vehículo merece el club.
             </h2>
             <p className="text-slate-400 text-lg mb-9 max-w-xl mx-auto font-light">

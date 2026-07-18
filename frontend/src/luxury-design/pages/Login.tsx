@@ -83,7 +83,7 @@ export default function Login() {
                     className="absolute inset-0 w-full h-full object-cover scale-110 blur-sm opacity-60"
                 />
 
-                <div className="relative z-20 h-full flex flex-col justify-center px-16 text-white">
+                <div className="relative z-20 h-full flex flex-col justify-center px-16 2xl:px-24 text-white lg:max-w-3xl">
                     <StaggerList>
                         <StaggerItem>
                             <img src="/logo.png" alt="" className="w-24 h-24 object-contain mb-8 drop-shadow-2xl" />
@@ -105,7 +105,7 @@ export default function Login() {
                             </motion.div>
                         </StaggerItem>
                         <StaggerItem>
-                            <h2 className="text-6xl font-black italic tracking-tighter mb-4 leading-none">
+                            <h2 className="text-6xl 2xl:text-7xl font-black italic tracking-tighter mb-4 leading-none">
                                 BIENVENIDO A <br />
                                 <span className="brand-wordmark">LUXURY GARAGE</span>
                             </h2>
@@ -124,9 +124,9 @@ export default function Login() {
             </div>
 
             {/* Login Side */}
-            <div className="flex items-center justify-center p-8 bg-white dark:bg-slate-900 transition-colors">
+            <div className="flex items-center justify-center p-8 lg:p-12 bg-white dark:bg-slate-900 transition-colors">
                 <motion.div
-                    className="w-full max-w-md"
+                    className="w-full max-w-md xl:max-w-lg"
                     key={errorShake}
                     animate={errorShake && !reduce ? { x: [0, -10, 10, -8, 8, -4, 0] } : undefined}
                     transition={{ duration: 0.45, ease: 'easeInOut' }}

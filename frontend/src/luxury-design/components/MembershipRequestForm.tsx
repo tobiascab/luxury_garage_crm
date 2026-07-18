@@ -191,10 +191,10 @@ export default function MembershipRequestForm({
                     {/* Panel */}
                     <motion.div
                         {...panelAnim}
-                        className="relative z-10 w-full max-w-lg max-h-[92vh] flex flex-col rounded-t-3xl sm:rounded-3xl border border-white/10 bg-[#0c0c0e] shadow-2xl shadow-black/60 overflow-hidden"
+                        className="relative z-10 w-full max-w-lg sm:max-w-xl max-h-[92vh] flex flex-col rounded-t-3xl sm:rounded-3xl border border-white/10 bg-[#0c0c0e] shadow-2xl shadow-black/60 overflow-hidden"
                     >
                         {/* Header */}
-                        <div className="relative shrink-0 px-6 pt-6 pb-4 border-b border-white/[0.06]">
+                        <div className="relative shrink-0 px-6 pt-6 pb-4 sm:px-8 sm:pt-7 border-b border-white/[0.06]">
                             <button
                                 type="button"
                                 onClick={onClose}
@@ -209,7 +209,7 @@ export default function MembershipRequestForm({
                             </span>
                             <h3
                                 id="membership-request-title"
-                                className="mt-3 text-2xl font-black italic tracking-tight text-white"
+                                className="mt-3 text-2xl lg:text-3xl font-black italic tracking-tight text-white"
                             >
                                 Solicitar Membresía
                             </h3>
@@ -219,7 +219,7 @@ export default function MembershipRequestForm({
                         </div>
 
                         {/* Body */}
-                        <div className="overflow-y-auto overscroll-contain flex-1 px-6 py-5">
+                        <div className="overflow-y-auto overscroll-contain flex-1 px-6 py-5 sm:px-8">
                             {success ? (
                                 <div className="flex flex-col items-center text-center py-8">
                                     <motion.div
@@ -283,7 +283,8 @@ export default function MembershipRequestForm({
                                         </div>
                                     </div>
 
-                                    {/* Teléfono */}
+                                    {/* Teléfono + Email */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
                                         <label htmlFor="mr-phone" className={labelCls}>
                                             Teléfono <span className="text-secondary">*</span>
@@ -327,6 +328,7 @@ export default function MembershipRequestForm({
                                             />
                                         </div>
                                     </div>
+                                    </div>
 
                                     {/* Vehículo marca/modelo */}
                                     <div className="space-y-1.5">
@@ -349,7 +351,8 @@ export default function MembershipRequestForm({
                                         </div>
                                     </div>
 
-                                    {/* Tamaño */}
+                                    {/* Tamaño + Plan de interés */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
                                         <label htmlFor="mr-vehicleSize" className={labelCls}>
                                             Tamaño del vehículo
@@ -391,6 +394,7 @@ export default function MembershipRequestForm({
                                                 </option>
                                             ))}
                                         </select>
+                                    </div>
                                     </div>
 
                                     {/* Mensaje */}
