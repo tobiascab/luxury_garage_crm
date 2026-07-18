@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { authenticate, authorize } = require('../middleware/auth');
 const bancardService = require('../services/bancardService');
 const { postPaymentCompleted } = require('../services/journalService');
+const { evaluatePlanChange, computeMembershipCharge, DOWNGRADE_MSG } = require('../services/membershipRules');
 
 /**
  * Bancard Payment Routes
@@ -354,7 +355,7 @@ router.post('/card/set-primary', authenticate, async (req, res, next) => {
  */
 router.post('/charge-membership', authenticate, async (req, res, next) => {
   try {
-    const { planId, cardId } = req.body;
+    const { planId, cardId, expectedAmountGs } = req.body;
     if (!planId) return res.status(400).json({ success: false, message: 'planId requerido' });
 
     // 1. Get plan
@@ -368,13 +369,53 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     });
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
+    // 2b. SEGURIDAD: mismo bloqueo de baja que /memberships/upgrade. Este endpoint es el que
+    //     realmente activa el plan, así que la regla de downgrade debe validarse acá también
+    //     (antes solo la aplicaba la UI, que se podía saltar llamando directo al endpoint).
+    const change = await evaluatePlanChange(req.prisma, user.id, plan);
+    if (!change.allowed) {
+      return res.status(403).json({ success: false, code: 'DOWNGRADE_BLOCKED', message: DOWNGRADE_MSG });
+    }
+
+    // 2c. Cuánto cobrar y qué vencimiento tendrá la nueva membresía. Si es un UPGRADE a mitad de
+    //     ciclo, cobramos solo la DIFERENCIA prorrateada y conservamos el vencimiento vigente
+    //     (keepEndDate). En cualquier otro caso, precio completo y ciclo nuevo (+1 mes).
+    const charge = computeMembershipCharge({
+      activeMembership: change.membership || null,
+      currentPlan: change.currentPlan || null,
+      targetPlan: plan,
+    });
+    const chargeAmountGs = charge.amountGs;
+    const keepEndDate = charge.keepEndDate; // ISO string o null
+    const nextEndDate = () => {
+      if (keepEndDate) return new Date(keepEndDate);
+      const e = new Date();
+      e.setMonth(e.getMonth() + 1);
+      return e;
+    };
+    const chargeDescription = charge.prorated
+      ? `Upgrade a ${plan.name} (diferencia prorrateada)`
+      : `Membresía ${plan.name}`;
+
+    // 2d. Techo de CONSENTIMIENTO: el cliente envía el monto que se le mostró (expectedAmountGs).
+    //     Si el monto recalculado ahora SUPERA ese techo — típicamente porque el ciclo venció con
+    //     el modal abierto y el prorrateo saltó al precio completo — NO cobramos a ciegas: pedimos
+    //     reconfirmar. Cobrar MENOS que lo mostrado siempre está permitido. Es seguro: el cliente
+    //     solo fija un tope, el monto real lo computa el servidor (no puede forzar sobre/subcobro).
+    if (expectedAmountGs != null && Number.isFinite(Number(expectedAmountGs)) && chargeAmountGs > Number(expectedAmountGs)) {
+      return res.status(409).json({
+        success: false,
+        code: 'AMOUNT_CHANGED',
+        message: 'El monto cambió (probablemente venció tu ciclo). Volvé a confirmar el nuevo precio.',
+      });
+    }
+
     // 3. Test mode — simulate successful charge without hitting Bancard.
     //    SEGURIDAD: inerte en producción. En prod NUNCA se activa una membresía sin cobro Bancard,
     //    aunque el usuario tenga isTestMode=true. Sigue sirviendo para desarrollo.
     if (user.isTestMode && process.env.NODE_ENV !== 'production') {
       const start = new Date();
-      const end = new Date();
-      end.setMonth(end.getMonth() + 1);
+      const end = nextEndDate();
       const fakeShopProcessId = Date.now();
 
       let membership, payment;
@@ -398,13 +439,13 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
           data: {
             userId: user.id,
             membershipId: membership.id,
-            amountGs: plan.priceGs,
+            amountGs: chargeAmountGs,
             paymentMethod: 'bancard_test',
             bancardShopProcessId: fakeShopProcessId,
             bancardTicketNumber: `TEST_${Date.now()}`,
             bancardAuthNumber: 'TEST',
             status: 'COMPLETED',
-            description: `[TEST] Membresía ${plan.name}`,
+            description: `[TEST] ${chargeDescription}`,
           },
         });
         await tx.auditLog.create({
@@ -413,15 +454,15 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
             action: 'membership_charged_test',
             entityId: payment.id,
             userId: user.id,
-            detailsJson: { planName: plan.name, amount: plan.priceGs, testMode: true },
+            detailsJson: { planName: plan.name, amount: chargeAmountGs, prorated: charge.prorated, fullPrice: charge.fullPrice, testMode: true },
           },
         });
       });
 
-      console.log(`[TEST MODE] Membresía ${plan.name} activada para ${user.email}`);
+      console.log(`[TEST MODE] Membresía ${plan.name} activada para ${user.email} (cobro ₲${chargeAmountGs}${charge.prorated ? ', prorrateado' : ''})`);
       return res.json({
         success: true,
-        data: { membership, payment: { id: payment.id, amount: plan.priceGs, status: 'COMPLETED' } },
+        data: { membership, payment: { id: payment.id, amount: chargeAmountGs, status: 'COMPLETED' }, charge },
         message: `¡Membresía ${plan.name} activada! (modo prueba)`,
       });
     }
@@ -484,7 +525,7 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     const shopProcessId = bancardService.generateShopProcessId();
     const appBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://luxurygarage.com.py';
     const returnUrl = `${appBaseUrl}/billetera?paymentResult=1`;
-    const description = `Membresía ${plan.name} - Luxury Garage`;
+    const description = `${chargeDescription} - Luxury Garage`;
 
     try {
       await req.prisma.$transaction(async (tx) => {
@@ -496,13 +537,18 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
         await tx.bancardOperation.create({
           data: {
             shopProcessId, userId: user.id, type: 'charge', status: 'PENDING',
-            amountGs: plan.priceGs,
-            metadataJson: { planId: plan.id, planName: plan.name, cardId: selectedCard.id },
+            amountGs: chargeAmountGs,
+            // keepEndDate/prorated viajan persistidos: la materialización (directa, 3DS o
+            // reconciliación) los usa para respetar el ciclo vigente y validar el monto.
+            metadataJson: {
+              planId: plan.id, planName: plan.name, cardId: selectedCard.id,
+              chargeAmountGs, prorated: charge.prorated, keepEndDate, fullPrice: charge.fullPrice,
+            },
           },
         });
         await tx.payment.create({
           data: {
-            userId: user.id, amountGs: plan.priceGs, paymentMethod: 'bancard_card',
+            userId: user.id, amountGs: chargeAmountGs, paymentMethod: 'bancard_card',
             bancardShopProcessId: shopProcessId, status: 'PENDING', description,
           },
         });
@@ -523,7 +569,7 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     try {
       chargeResult = await bancardService.charge({
         shopProcessId,
-        amount: plan.priceGs,
+        amount: chargeAmountGs,
         aliasToken,
         description,
         returnUrl,
@@ -586,8 +632,7 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     const bancardTicketNumber = chargeResult.ticketNumber;
     const bancardAuthNumber = chargeResult.authorizationNumber;
     const start = new Date();
-    const end = new Date();
-    end.setMonth(end.getMonth() + 1);
+    const end = nextEndDate(); // conserva el ciclo vigente si fue un upgrade prorrateado
 
     let membership, payment, alreadyMaterialized = false;
     await req.prisma.$transaction(async (tx) => {
@@ -643,7 +688,9 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
           userId: user.id,
           detailsJson: {
             planName: plan.name,
-            amount: plan.priceGs,
+            amount: chargeAmountGs,
+            prorated: charge.prorated,
+            fullPrice: charge.fullPrice,
             shopProcessId,
             ticketNumber: bancardTicketNumber,
             authNumber: bancardAuthNumber,
@@ -681,11 +728,12 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
         membership,
         payment: {
           id: payment.id,
-          amount: plan.priceGs,
+          amount: chargeAmountGs,
           shopProcessId,
           ticketNumber: bancardTicketNumber,
           status: 'COMPLETED',
         },
+        charge,
       },
       message: `¡Membresía ${plan.name} activada exitosamente!`,
     });
@@ -736,6 +784,12 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Plan no encontrado para este pago.' });
     }
 
+    // Monto y vencimiento REALES del cobro (persistidos al iniciarlo). En un upgrade prorrateado
+    // el monto es la diferencia (no el precio completo del plan) y el ciclo se conserva.
+    const meta = op.metadataJson || {};
+    const expectedChargeAmount = meta.chargeAmountGs ?? op.amountGs ?? plan.priceGs;
+    const keepEndDate = meta.keepEndDate || null;
+
     // Verify with Bancard
     let confirmation;
     try {
@@ -751,14 +805,15 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
 
     const approved = confirmation.response === 'S' && String(confirmation.response_code) === '00';
 
-    // SEGURIDAD: validar que el monto realmente cobrado por Bancard coincida con el precio del plan.
+    // SEGURIDAD: validar que el monto realmente cobrado por Bancard coincida con el monto que
+    // iniciamos (persistido; diferencia prorrateada en upgrades, precio completo en el resto).
     // Bancard devuelve `amount` como string con 2 decimales (ej "150000.00").
     if (approved) {
       const confirmedAmount = Math.round(parseFloat(confirmation.amount));
-      if (!Number.isFinite(confirmedAmount) || confirmedAmount !== plan.priceGs) {
+      if (!Number.isFinite(confirmedAmount) || confirmedAmount !== expectedChargeAmount) {
         await req.prisma.payment.update({
           where: { id: pendingPayment.id },
-          data: { status: 'FAILED', description: `${pendingPayment.description || ''} — Monto no coincide (cobrado ${confirmation.amount}, esperado ${plan.priceGs})` },
+          data: { status: 'FAILED', description: `${pendingPayment.description || ''} — Monto no coincide (cobrado ${confirmation.amount}, esperado ${expectedChargeAmount})` },
         });
         await req.prisma.bancardOperation.update({
           where: { shopProcessId: Number(shopProcessId) },
@@ -791,8 +846,7 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
     const bancardTicketNumber = confirmation.ticket_number || null;
     const bancardAuthNumber = confirmation.authorization_number || null;
     const start = new Date();
-    const end = new Date();
-    end.setMonth(end.getMonth() + 1);
+    const end = keepEndDate ? new Date(keepEndDate) : (() => { const e = new Date(); e.setMonth(e.getMonth() + 1); return e; })();
 
     let membership, payment, alreadyMaterialized = false;
     await req.prisma.$transaction(async (tx) => {
@@ -842,7 +896,9 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
           userId: req.user.id,
           detailsJson: {
             planName: plan.name,
-            amount: plan.priceGs,
+            amount: expectedChargeAmount,
+            prorated: !!meta.prorated,
+            fullPrice: meta.fullPrice ?? plan.priceGs,
             shopProcessId,
             ticketNumber: bancardTicketNumber,
             authNumber: bancardAuthNumber,
@@ -879,7 +935,7 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
         membership,
         payment: {
           id: payment.id,
-          amount: plan.priceGs,
+          amount: expectedChargeAmount,
           shopProcessId,
           ticketNumber: bancardTicketNumber,
           status: 'COMPLETED',

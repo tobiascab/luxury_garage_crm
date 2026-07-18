@@ -107,7 +107,9 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
       const plan = await tx.plan.findUnique({ where: { id: meta.planId } });
       if (!plan) throw new Error('plan_not_found');
       const startD = new Date();
-      const endD = new Date(); endD.setMonth(endD.getMonth() + 1);
+      // Upgrade prorrateado: conservar el vencimiento del ciclo vigente (keepEndDate). Resto: +1 mes.
+      const endD = meta.keepEndDate ? new Date(meta.keepEndDate) : (() => { const e = new Date(); e.setMonth(e.getMonth() + 1); return e; })();
+      const membershipAmount = meta.chargeAmountGs ?? op.amountGs ?? plan.priceGs;
       await tx.membership.updateMany({ where: { userId: op.userId, status: 'ACTIVE' }, data: { status: 'REPLACED' } });
       const membership = await tx.membership.create({
         data: { userId: op.userId, planId: plan.id, status: 'ACTIVE', startDate: startD, endDate: endD, autoRenew: true },
@@ -115,7 +117,7 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
       if (existingPayment) {
         await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', membershipId: membership.id, bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber } });
       } else {
-        await tx.payment.create({ data: { userId: op.userId, amountGs: plan.priceGs, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', membershipId: membership.id, bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: `Membresía ${plan.name}` } });
+        await tx.payment.create({ data: { userId: op.userId, amountGs: membershipAmount, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', membershipId: membership.id, bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: `Membresía ${plan.name}` } });
       }
     } else if (isTopup) {
       kind = 'topup';

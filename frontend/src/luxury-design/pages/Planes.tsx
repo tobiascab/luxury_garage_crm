@@ -50,6 +50,15 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
   const [membership, setMembership] = useState<any>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  // Tarjetas guardadas del usuario (para mostrar cuál se va a cobrar en el modal).
+  const [cards, setCards] = useState<any[]>([]);
+  // ¿La lista de tarjetas se cargó de verdad al menos una vez? Solo bloqueamos el pago por
+  // "sin tarjeta" cuando SABEMOS que no hay (no cuando el fetch falló transitoriamente).
+  const [cardsLoaded, setCardsLoaded] = useState(false);
+  // Cotización del cambio de plan: cuánto se cobra realmente (diferencia prorrateada en upgrades).
+  const [quote, setQuote] = useState<any>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState(false);
 
   const token = localStorage.getItem('luxury_token');
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -72,13 +81,55 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
     if (match) setSelectedPlan(match);
   }, [loading, plans]);
 
-  const loadData = async () => {
-    setLoading(true);
+  // Al abrir el modal de pago, pedimos la cotización REAL del cambio: si es un upgrade a mitad
+  // de ciclo, el backend devuelve la diferencia prorrateada (no el precio completo del plan).
+  // Se puede reintentar (fetchQuote) si el request falla.
+  const fetchQuote = React.useCallback(async (planId: string) => {
+    setQuoteLoading(true);
+    setQuoteError(false);
     try {
-      const [plansRes, memberRes] = await Promise.all([
+      const res = await api.get(`/memberships/upgrade-quote?planId=${planId}`, { _noCache: true } as any);
+      if (res.data?.success) { setQuote(res.data.data); return true; }
+      setQuoteError(true);
+      return false;
+    } catch {
+      setQuoteError(true);
+      return false;
+    } finally {
+      setQuoteLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showPayment) { setQuote(null); setQuoteError(false); return; }
+    let cancelled = false;
+    setQuote(null);
+    setQuoteError(false);
+    setQuoteLoading(true);
+    api.get(`/memberships/upgrade-quote?planId=${showPayment.id}`, { _noCache: true } as any)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data?.success) setQuote(res.data.data);
+        else setQuoteError(true);
+      })
+      .catch(() => { if (!cancelled) setQuoteError(true); })
+      .finally(() => { if (!cancelled) setQuoteLoading(false); });
+    return () => { cancelled = true; };
+  }, [showPayment]);
+
+  const loadData = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    try {
+      const [plansRes, memberRes, cardsRes] = await Promise.all([
         api.get('/plans'),
         api.get('/memberships/me').catch(() => ({ data: null })),
+        api.get('/payments/cards').catch(() => ({ data: null })),
       ]);
+
+      if (cardsRes && cardsRes.data?.success) {
+        setCards(cardsRes.data.data || []);
+        setCardsLoaded(true); // ahora SÍ conocemos el estado real de tarjetas del usuario
+      }
 
       const plansData = plansRes.data;
       if (plansData.success && plansData.data) {
@@ -108,7 +159,7 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
         }
       }
     } catch { /* silent */ }
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   // Solo planes REALES de la API. Sin fallback con precios inventados (la regla del proyecto
@@ -128,6 +179,26 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
     !!currentPlanId && plan.id !== currentPlanId && (plan.priceGs ?? 0) < currentPrice;
   const isBlockedDowngrade = (plan: any) => isDowngrade(plan) && !downgradeAllowed;
 
+  // Tarjeta que se va a cobrar (la principal, o la primera guardada).
+  const primaryCard = cards.find((c) => c.isPrimary) || cards[0] || null;
+  const cardLast4 = (c: any) => (c?.maskedNumber || '').replace(/\D/g, '').slice(-4) || '••••';
+  const brandLabel = (c: any) => (c?.brand ? c.brand.charAt(0).toUpperCase() + c.brand.slice(1).toLowerCase() : 'Tarjeta');
+  // Solo bloqueamos por "sin tarjeta" si el fetch confirmó que no hay ninguna (no si falló).
+  const noCardConfirmed = cardsLoaded && !primaryCard;
+
+  // ¿Es un upgrade (plan activo + plan más caro)? Solo en ese caso el monto real es la diferencia
+  // prorrateada; para compra nueva / mismo precio el precio del plan ya es correcto.
+  const isUpgrade =
+    !!showPayment && !!currentPlanId && showPayment.id !== currentPlanId &&
+    (showPayment.priceGs ?? 0) > currentPrice;
+
+  // Monto a cobrar en el modal: la cotización manda (diferencia prorrateada). En un upgrade sin
+  // cotización disponible NO afirmamos un monto (evita mostrar el precio completo cuando el
+  // backend cobra solo la diferencia) → pedimos reintentar.
+  const amountUncertain = isUpgrade && !quote;
+  const payAmount = quote?.amountGs ?? showPayment?.priceGs ?? 0;
+  const isProrated = !!quote?.prorated;
+
   const handleSelectPlan = (plan: any) => {
     if (plan.id === currentPlanId) return;
     if (isBlockedDowngrade(plan)) return; // baja de plan bloqueada por el admin
@@ -137,10 +208,21 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
   const handleCancelMembership = async () => {
     setCancelling(true);
     try {
-      await api.post('/memberships/cancel');
+      const res = await api.post('/memberships/cancel');
+      const updated = res?.data?.data;
+      // Reflejo instantáneo en la UI: no esperamos el refetch. La caché GET de 45s
+      // de api.get devolvería el estado viejo (autoRenew: true), por eso hay que
+      // actualizar el estado local con la respuesta del propio cancel. Mergeamos
+      // sobre el membership actual (conserva `plan`, que el cancel no incluye) y
+      // forzamos autoRenew:false por robustez.
+      setMembership((prev: any) => (prev ? { ...prev, ...(updated || {}), autoRenew: false } : prev));
       setShowCancelConfirm(false);
       toast.success('Tu plan no se renovará. Seguirá activo hasta el vencimiento.');
-      await loadData();
+      // Invalidamos la caché en memoria (si no, futuras lecturas siguen stale) y
+      // reconciliamos con el server en segundo plano, sin el skeleton de pantalla completa.
+      api.invalidate('/memberships', '/auth/me');
+      onUpdate?.();
+      loadData({ silent: true });
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'No se pudo cancelar el plan. Intentá de nuevo.');
     } finally {
@@ -150,20 +232,44 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
 
   const handlePay = async () => {
     if (!showPayment) return;
+    // Solo bloqueamos si CONFIRMAMOS que no hay tarjeta; si el fetch falló, dejamos que el
+    // backend (que lee las tarjetas de la DB) decida.
+    if (noCardConfirmed) {
+      setPayMsg('No tenés una tarjeta guardada. Agregala en Perfil → Mis Tarjetas.');
+      setPayPhase('error');
+      return;
+    }
+    // Upgrade sin cotización: no cobramos a ciegas un monto que no pudimos mostrar.
+    if (amountUncertain) {
+      setPayMsg('No pudimos calcular el monto. Reintentá en un momento.');
+      setPayPhase('error');
+      return;
+    }
     setPayPhase('processing');
     const r = await runBancardPayment(
       '/payments/charge-membership',
-      { planId: showPayment.id },
+      // expectedAmountGs = techo de consentimiento: el backend recalcula el monto real, pero
+      // RECHAZA si ese monto supera lo que el usuario vio (p. ej. si el ciclo venció con el modal
+      // abierto y el prorrateo salta al precio completo). Cobrar menos siempre está permitido.
+      { planId: showPayment.id, expectedAmountGs: payAmount },
       '/payments/charge-3ds-complete',
       bancard3ds,
     );
     if (r.ok) {
+      // Reflejo instantáneo del nuevo plan activo con el dato AUTORITATIVO del backend
+      // (incluye `plan`). Así el banner "Plan Activo" y el badge "TU PLAN" cambian ya,
+      // sin depender de que el refetch llegue antes de que el usuario mire.
+      if (r.data?.membership) setMembership(r.data.membership);
+      onUpdate?.();
       setPayPhase('success');
     } else {
       setPayMsg(r.code === 'NO_CARD'
         ? 'No tenés una tarjeta guardada. Agregala en Perfil → Mis Tarjetas.'
         : (r.message || 'No se pudo procesar el pago.'));
       setPayPhase('error');
+      // Si es un upgrade, refrescamos la cotización: el rechazo pudo ser por "el monto cambió"
+      // (ciclo vencido con el modal abierto). Así el reintento usa el monto actualizado.
+      if (isUpgrade && showPayment) fetchQuote(showPayment.id);
     }
   };
 
@@ -569,7 +675,7 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
                     onClick={() => { setSelectedPlan(null); handleSelectPlan(selectedPlan); }}
                     className={`w-full py-3.5 rounded-xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 active:scale-95 transition-all ${selectedPlan.dark ? 'bg-white text-slate-900' : 'bg-primary dark:bg-blue-500 text-white shadow-lg shadow-primary/20 dark:shadow-blue-500/20'}`}
                   >
-                    <CreditCard size={15} /> Pagar {formatGs(selectedPlan.priceGs)}
+                    Elegir plan <ArrowRight size={15} />
                   </button>
                 )}
               </div>
@@ -614,7 +720,7 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
                   </div>
                   <div className="flex-1">
                     <p className="font-bold text-sm text-slate-900 dark:text-white">{showPayment.name}</p>
-                    <p className="text-[11px] text-slate-400">Membresía mensual</p>
+                    <p className="text-[11px] text-slate-400">{isProrated ? 'Mejora de plan' : 'Membresía mensual'}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-black text-base text-slate-900 dark:text-white">{formatGs(showPayment.priceGs)}</p>
@@ -623,29 +729,98 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
                 </div>
               </div>
 
-              {/* In-app card payment info */}
-              <div className="p-5">
-                <div className="text-center py-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
-                  <CreditCard size={28} className="text-primary dark:text-blue-400 mx-auto mb-2" />
-                  <p className="text-xs text-slate-600 dark:text-slate-300 font-bold">
-                    Vamos a cobrar a tu tarjeta guardada.
-                  </p>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-                    El pago se procesa de forma segura, sin salir de la app.
-                  </p>
-                </div>
+              <div className="p-5 space-y-4">
+                {/* Desglose del cobro: solo la diferencia prorrateada en un upgrade a mitad de ciclo. */}
+                {isProrated && (
+                  <div className="rounded-2xl border border-primary/20 dark:border-blue-500/20 bg-primary/5 dark:bg-blue-500/10 p-4 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                      <span>Precio {showPayment.name}</span>
+                      <span className="font-semibold tabular-nums">{formatGs(quote.fullPrice)}/mes</span>
+                    </div>
+                    {quote.currentPrice > 0 && (
+                      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                        <span>Tu {quote.currentPlanName || 'plan actual'}</span>
+                        <span className="font-semibold tabular-nums">{formatGs(quote.currentPrice)}/mes</span>
+                      </div>
+                    )}
+                    <div className="h-px bg-primary/10 dark:bg-blue-500/20 my-1" />
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">
+                        Diferencia a pagar{quote.daysRemaining ? ` · ${quote.daysRemaining} día${quote.daysRemaining === 1 ? '' : 's'}` : ''}
+                      </span>
+                      <span className="text-base font-black text-primary dark:text-blue-400 tabular-nums">{formatGs(payAmount)}</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      Pagás solo la diferencia entre los dos planes, proporcional a los días que te quedan del ciclo.
+                      {quote.keepEndDate && ` Tu ${showPayment.name} queda activo hasta el ${new Date(quote.keepEndDate).toLocaleDateString('es-PY', { day: '2-digit', month: 'long', year: 'numeric' })}`}
+                      {` y desde el próximo mes se cobra ${formatGs(quote.fullPrice)}.`}
+                    </p>
+                  </div>
+                )}
+
+                {/* Tarjeta catastrada que se va a cobrar */}
+                {primaryCard ? (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Se cobrará a</p>
+                    <div className="flex items-center gap-3 rounded-2xl bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 text-white p-4 shadow-lg">
+                      <CreditCard size={22} className="shrink-0 opacity-90" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-sm tracking-wide">
+                          {brandLabel(primaryCard)} •••• {cardLast4(primaryCard)}
+                        </p>
+                        {primaryCard.expirationDate && (
+                          <p className="text-[11px] opacity-70 font-medium tabular-nums">Vence {primaryCard.expirationDate}</p>
+                        )}
+                      </div>
+                      <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider bg-white/15 rounded-full px-2 py-1 shrink-0">
+                        <Lock size={9} /> Segura
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 text-center">
+                      El pago se procesa de forma segura, sin salir de la app.
+                    </p>
+                  </div>
+                ) : noCardConfirmed ? (
+                  <div className="rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-4 flex items-start gap-3">
+                    <AlertCircle size={18} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-800 dark:text-amber-300">
+                      No tenés una tarjeta guardada. Agregala en <strong>Perfil → Mis Tarjetas</strong> para poder pagar.
+                    </p>
+                  </div>
+                ) : (
+                  // No pudimos confirmar las tarjetas (fetch falló): no afirmamos que no tenga.
+                  // El backend elige la tarjeta guardada de la cuenta al cobrar.
+                  <div className="text-center py-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <CreditCard size={26} className="text-primary dark:text-blue-400 mx-auto mb-2" />
+                    <p className="text-xs text-slate-600 dark:text-slate-300 font-bold">Se cobrará a tu tarjeta guardada.</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">El pago se procesa de forma segura, sin salir de la app.</p>
+                  </div>
+                )}
               </div>
 
               {/* CTA */}
               <div className="p-4 pt-0">
-                <button
-                  onClick={handlePay}
-                  disabled={payPhase === 'processing'}
-                  className="w-full py-3.5 rounded-xl bg-primary dark:bg-blue-500 text-white font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-primary/20 dark:shadow-blue-500/20 disabled:opacity-50 disabled:shadow-none"
-                >
-                  <CreditCard size={15} />
-                  Pagar {formatGs(showPayment.priceGs)}
-                </button>
+                {amountUncertain && !quoteLoading ? (
+                  // Upgrade sin cotización disponible: no afirmamos un monto; ofrecemos reintentar.
+                  <button
+                    onClick={() => fetchQuote(showPayment.id)}
+                    className="w-full py-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
+                  >
+                    <AlertCircle size={15} /> No pudimos calcular el monto · Reintentar
+                  </button>
+                ) : (
+                  <button
+                    onClick={handlePay}
+                    disabled={payPhase === 'processing' || quoteLoading || noCardConfirmed}
+                    className="w-full py-3.5 rounded-xl bg-primary dark:bg-blue-500 text-white font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-primary/20 dark:shadow-blue-500/20 disabled:opacity-50 disabled:shadow-none"
+                  >
+                    {quoteLoading ? (
+                      <><Loader2 size={15} className="animate-spin" /> Calculando…</>
+                    ) : (
+                      <><CreditCard size={15} /> Pagar {formatGs(payAmount)}</>
+                    )}
+                  </button>
+                )}
 
                 <p className="text-center text-[10px] text-slate-400 dark:text-slate-600 mt-3 flex items-center justify-center gap-1">
                   <Shield size={10} /> Pago seguro
@@ -663,7 +838,16 @@ export default function Planes({ user, onUpdate }: PlanesProps) {
         onClose={() => {
           const wasSuccess = payPhase === 'success';
           setPayPhase(null);
-          if (wasSuccess) { setShowPayment(null); loadData(); }
+          if (wasSuccess) {
+            setShowPayment(null);
+            // Igual que en la cancelación: invalidamos la caché para que el nuevo
+            // plan activo se refleje al instante (si no, la caché de 45s lo oculta).
+            // Refetch SILENCIOSO: la actualización optimista (setMembership) ya mostró el
+            // nuevo plan; un loadData no-silencioso flashea el skeleton de pantalla completa.
+            api.invalidate('/memberships', '/auth/me');
+            onUpdate?.();
+            loadData({ silent: true });
+          }
         }}
         onRetry={payPhase === 'error' ? handlePay : undefined}
       />

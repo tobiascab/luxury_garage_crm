@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const { authenticate, authorize } = require('../middleware/auth');
 const ArizarSync = require('../services/arizarSync');
-const { evaluatePlanChange, DOWNGRADE_MSG } = require('../services/membershipRules');
+const { evaluatePlanChange, computeMembershipCharge, DOWNGRADE_MSG } = require('../services/membershipRules');
 
 const adminOnly = [authenticate, authorize('SUPER_ADMIN', 'ADMIN')];
 
@@ -33,6 +33,46 @@ router.get('/me', authenticate, async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
     });
     res.json({ success: true, data: membership });
+  } catch (err) { next(err); }
+});
+
+// GET /api/memberships/upgrade-quote?planId=xxx — cotización de cambio de plan.
+// Devuelve el monto EXACTO que se va a cobrar (prorrateado si es un upgrade a mitad de ciclo)
+// para que el modal de pago muestre la cifra real. Es READ-ONLY (no cobra ni activa nada).
+// La fuente de verdad del cobro sigue siendo /payments/charge-membership, que RE-CALCULA.
+router.get('/upgrade-quote', authenticate, async (req, res, next) => {
+  try {
+    const planId = req.query.planId;
+    if (!planId) return res.status(400).json({ success: false, message: 'planId requerido' });
+    const targetPlan = await req.prisma.plan.findUnique({ where: { id: String(planId) } });
+    if (!targetPlan) return res.status(404).json({ success: false, message: 'Plan no encontrado' });
+
+    const change = await evaluatePlanChange(req.prisma, req.user.id, targetPlan);
+    const charge = computeMembershipCharge({
+      activeMembership: change.membership || null,
+      currentPlan: change.currentPlan || null,
+      targetPlan,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        planId: targetPlan.id,
+        planName: targetPlan.name,
+        fullPrice: targetPlan.priceGs,
+        currentPrice: charge.currentPrice,
+        amountGs: charge.amountGs,
+        prorated: charge.prorated,
+        creditApplied: charge.creditApplied,
+        daysRemaining: charge.daysRemaining,
+        keepEndDate: charge.keepEndDate,
+        isUpgrade: change.hasActive && !change.samePlan && (targetPlan.priceGs > (change.currentPlan?.priceGs ?? 0)),
+        isRenewal: change.samePlan === true,
+        samePlan: change.samePlan === true,
+        allowed: change.allowed,
+        currentPlanName: change.currentPlan?.name || null,
+      },
+    });
   } catch (err) { next(err); }
 });
 

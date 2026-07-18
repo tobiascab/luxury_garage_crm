@@ -21,6 +21,8 @@ export interface PayResult {
   ok: boolean;
   code: PayCode;
   message?: string;
+  /** `data` de la respuesta del backend (ej. { membership, payment, charge }) cuando el cobro fue OK. */
+  data?: any;
 }
 
 /** Tipado mínimo del objeto global que inyecta el SDK de Bancard. */
@@ -142,7 +144,7 @@ export async function runBancardPayment(
 
     // Cobro aprobado de una (sin 3DS).
     if (data.success && !data.requires3ds) {
-      return { ok: true, code: 'OK' };
+      return { ok: true, code: 'OK', data: data.data };
     }
 
     // Desafío 3DS: montar iframe y confirmar al terminar.
@@ -169,7 +171,7 @@ export async function runBancardPayment(
       // Confirmar el resultado con el backend (incluye shopProcessId + cualquier dato del body).
       const conf = await api.post(confirmPath, { ...body, shopProcessId });
       return conf.data?.success
-        ? { ok: true, code: 'OK' }
+        ? { ok: true, code: 'OK', data: conf.data?.data }
         : { ok: false, code: 'FAILED', message: conf.data?.message || 'El pago no se completó.' };
     }
 
