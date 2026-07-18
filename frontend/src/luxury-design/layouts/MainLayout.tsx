@@ -241,9 +241,34 @@ export default function MainLayout({ children }: MainLayoutProps) {
     return (
         <div className={`min-h-screen transition-colors duration-500 ${darkMode ? 'dark bg-[#0f172a]' : 'bg-background'}`}>
 
-            {/* ── Header ── */}
-            <header className={`fixed top-0 w-full z-50 px-4 py-3 border-b transition-all duration-300 ${darkMode ? 'bg-[#1e293b]/80 border-slate-800' : 'bg-white/80 border-slate-100'} backdrop-blur-xl`}>
-                <div className="max-w-md mx-auto flex justify-between items-center">
+            {/* ── Sidebar (SOLO PC, lg+) — nav vertical; en móvil no se renderiza ── */}
+            <aside className={`hidden lg:flex fixed inset-y-0 left-0 w-64 flex-col border-r z-50 ${darkMode ? 'bg-[#1e293b] border-slate-800' : 'bg-white border-slate-100'}`}>
+                <div className={`flex items-center gap-2.5 px-6 h-16 border-b shrink-0 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+                    <img src="/logo.png" alt="" className="w-7 h-7 object-contain shrink-0" />
+                    <span className="brand-wordmark text-[16px] leading-none">LUXURY GARAGE</span>
+                </div>
+                <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
+                    {NAV_ITEMS.map(item => {
+                        const active = location.pathname === item.path;
+                        return (
+                            <button
+                                key={item.path}
+                                onClick={() => goTo(item.path)}
+                                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors ${active
+                                    ? (darkMode ? 'bg-blue-500/15 text-blue-400' : 'bg-primary/10 text-primary')
+                                    : (darkMode ? 'text-slate-400 hover:bg-slate-800 hover:text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900')}`}
+                            >
+                                <item.Icon size={18} className="shrink-0" />
+                                {item.label}
+                            </button>
+                        );
+                    })}
+                </nav>
+            </aside>
+
+            {/* ── Header ── (en PC se desplaza a la derecha del sidebar) */}
+            <header className={`fixed top-0 w-full z-40 px-4 py-3 border-b transition-all duration-300 lg:pl-64 ${darkMode ? 'bg-[#1e293b]/80 border-slate-800' : 'bg-white/80 border-slate-100'} backdrop-blur-xl`}>
+                <div className="max-w-md mx-auto lg:max-w-none lg:px-4 flex justify-between items-center">
 
                     <div className="flex items-center gap-3">
                         {!isTabRoute && (
@@ -264,7 +289,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    {/* Logo central: solo en móvil (en PC ya está en el sidebar) */}
+                    <div className="flex items-center gap-2 lg:hidden">
                         <img src="/logo.png" alt="" className="w-6 h-6 object-contain shrink-0" />
                         <h1 className="text-[15px] leading-none brand-wordmark">LUXURY GARAGE</h1>
                     </div>
@@ -393,14 +419,16 @@ export default function MainLayout({ children }: MainLayoutProps) {
             </header>
 
             {/* ── Main content — swipe captured here ── */}
+            {/* Móvil: columna centrada max-w-md. PC: desplazado a la derecha del sidebar y centrado. */}
             <main
-                className="pt-16 px-4 max-w-md mx-auto pb-24"
+                className="pt-16 px-4 max-w-md mx-auto pb-24 lg:pt-20 lg:pl-72 lg:pr-8 lg:max-w-none lg:pb-12"
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
             >
                 <AnimatePresence mode="wait" initial={false}>
                     <motion.div
                         key={location.pathname}
+                        className="lg:max-w-3xl lg:mx-auto"
                         variants={reduce ? undefined : pageVariants}
                         initial={reduce ? { opacity: 0 } : 'initial'}
                         animate={reduce ? { opacity: 1 } : 'animate'}
@@ -412,8 +440,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 </AnimatePresence>
             </main>
 
-            {/* ── Bottom Navigation ── */}
-            <nav className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 rounded-t-3xl transition-all duration-300 shadow-[0_-8px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'}`}>
+            {/* ── Bottom Navigation ── (solo móvil; en PC el nav vive en el sidebar) */}
+            <nav className={`lg:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md flex justify-around items-center px-2 pb-5 pt-2 border-t z-50 rounded-t-3xl transition-all duration-300 shadow-[0_-8px_20px_rgba(0,0,0,0.04)] ${darkMode ? 'bg-[#1e293b]/90 border-slate-800 backdrop-blur-2xl' : 'bg-white/90 border-slate-100 backdrop-blur-2xl'}`}>
                 {NAV_ITEMS.map(item => (
                     <NavItem
                         key={item.path}

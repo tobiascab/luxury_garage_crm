@@ -82,7 +82,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
     <motion.div
       initial={false}
       animate={{ opacity: 1 }}
-      className="space-y-6 pb-28 max-w-lg mx-auto"
+      className="space-y-6 pb-28 max-w-lg mx-auto lg:max-w-none"
     >
       {/* Welcome Section */}
       <Reveal className="flex justify-between items-center px-1">
@@ -104,7 +104,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
       </Reveal>
 
       {/* KPI Cards Grid */}
-      <StaggerList className="grid grid-cols-2 gap-4">
+      <StaggerList className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Tier Card */}
         <StaggerItem
           {...useInteraction(hoverable)}
