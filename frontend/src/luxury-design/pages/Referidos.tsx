@@ -68,10 +68,11 @@ export default function Referidos({ user }: ReferidosProps) {
     const activos = stats.registered + stats.purchased;
 
     return (
-        <div className="space-y-4 pb-24 max-w-xl mx-auto">
+        <div className="space-y-4 pb-24 max-w-xl mx-auto lg:max-w-3xl">
+            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
             {/* Hero Banner */}
             <Reveal variant={scaleIn}>
-                <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary to-[#1a365d] dark:from-blue-600 dark:to-slate-900 text-white p-6 text-center shadow-xl border border-white/5 transition-colors">
+                <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary to-[#1a365d] dark:from-blue-600 dark:to-slate-900 text-white p-6 lg:p-8 text-center shadow-xl border border-white/5 transition-colors">
                     <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-2xl" />
                     <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-secondary/20 rounded-full blur-2xl opacity-40" />
                     <div className="relative z-10">
@@ -84,13 +85,13 @@ export default function Referidos({ user }: ReferidosProps) {
                         >
                             <Gift size={26} className="text-secondary" />
                         </motion.div>
-                        <h1 className="font-headline text-xl font-black mb-1">Invitá y Ganá</h1>
+                        <h1 className="font-headline text-xl lg:text-2xl font-black mb-1">Invitá y Ganá</h1>
                         <p className="text-white/70 text-xs">Por cada amigo que se una al club, ganás</p>
                         <AnimatedNumber
                             value={10000}
                             prefix="₲ "
                             currency
-                            className="block text-3xl font-headline font-black text-secondary mt-1.5 leading-none"
+                            className="block text-3xl lg:text-4xl font-headline font-black text-secondary mt-1.5 leading-none"
                         />
                         <p className="text-white/50 text-[11px] mt-1.5 uppercase tracking-widest font-bold">en tu billetera digital</p>
                     </div>
@@ -99,8 +100,8 @@ export default function Referidos({ user }: ReferidosProps) {
 
             {/* Referral Link */}
             <Reveal delay={0.06}>
-                <div className="bg-white dark:bg-slate-900/40 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-colors">
-                    <h3 className="font-bold text-sm mb-3 dark:text-white">Tu Enlace de Referido</h3>
+                <div className="bg-white dark:bg-slate-900/40 p-5 lg:p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-colors">
+                    <h3 className="font-bold text-sm lg:text-base mb-3 dark:text-white">Tu Enlace de Referido</h3>
                     <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100/50 dark:border-slate-700">
                         <p className="flex-1 text-xs font-medium text-slate-600 dark:text-slate-400 truncate">{referralLink}</p>
                         <Pressable
@@ -140,9 +141,10 @@ export default function Referidos({ user }: ReferidosProps) {
                     </div>
                 </div>
             </Reveal>
+            </div>
 
             {/* Stats */}
-            <StaggerList className="grid grid-cols-3 gap-2">
+            <StaggerList className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
                 {[
                     { val: stats.total, label: 'Referidos', color: 'text-primary dark:text-blue-400', currency: false },
                     { val: activos, label: 'Activos', color: 'text-emerald-600 dark:text-emerald-400', currency: false },
@@ -150,22 +152,22 @@ export default function Referidos({ user }: ReferidosProps) {
                 ].map((s) => (
                     <StaggerItem
                         key={s.label}
-                        className="bg-white dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm text-center transition-colors"
+                        className="bg-white dark:bg-slate-900/40 p-3 lg:p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm text-center transition-colors"
                     >
                         {s.currency ? (
                             <AnimatedNumber
                                 value={s.val}
                                 prefix="₲"
                                 currency
-                                className={`block text-lg font-black ${s.color}`}
+                                className={`block text-lg lg:text-2xl font-black ${s.color}`}
                             />
                         ) : (
                             <AnimatedNumber
                                 value={s.val}
-                                className={`block text-lg font-black ${s.color}`}
+                                className={`block text-lg lg:text-2xl font-black ${s.color}`}
                             />
                         )}
-                        <p className="text-[9px] font-bold uppercase text-slate-400 dark:text-slate-500 mt-0.5">{s.label}</p>
+                        <p className="text-[9px] lg:text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mt-0.5 lg:mt-1">{s.label}</p>
                     </StaggerItem>
                 ))}
             </StaggerList>
@@ -173,8 +175,8 @@ export default function Referidos({ user }: ReferidosProps) {
             {/* List */}
             <Reveal delay={0.12}>
                 <div className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
-                    <div className="p-4 border-b border-slate-50 dark:border-slate-800 flex items-center justify-between">
-                        <h3 className="font-bold text-sm flex items-center gap-2 text-slate-800 dark:text-white">
+                    <div className="p-4 lg:p-5 border-b border-slate-50 dark:border-slate-800 flex items-center justify-between">
+                        <h3 className="font-bold text-sm lg:text-base flex items-center gap-2 text-slate-800 dark:text-white">
                             <Users size={15} className="text-primary dark:text-blue-400" /> Mis Referidos
                         </h3>
                         <Pressable
@@ -213,13 +215,13 @@ export default function Referidos({ user }: ReferidosProps) {
                                 return (
                                     <StaggerItem
                                         key={r.id}
-                                        className="flex items-center gap-3 p-4 border-b border-slate-50 dark:border-slate-800 last:border-b-0 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                                        className="flex items-center gap-3 p-4 lg:p-5 border-b border-slate-50 dark:border-slate-800 last:border-b-0 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                                     >
                                         <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-black text-slate-500 dark:text-slate-400 text-sm shrink-0">
                                             {displayName[0]?.toUpperCase()}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="font-bold text-xs dark:text-slate-200 truncate">{displayName}</p>
+                                            <p className="font-bold text-xs lg:text-sm dark:text-slate-200 truncate">{displayName}</p>
                                             <span className={`text-[10px] font-bold ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
                                                 {isActive ? 'Activo' : 'Pendiente'}
                                             </span>

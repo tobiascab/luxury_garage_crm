@@ -41,12 +41,12 @@ export default function DashboardEmpleado({ user }: { user: any }) {
     }, [user.id]);
 
     return (
-        <div className="space-y-6 pb-24 max-w-lg mx-auto">
+        <div className="space-y-6 pb-24 max-w-lg mx-auto lg:max-w-2xl">
             {/* Greeting */}
             <Reveal>
                 <div className="flex items-center justify-between px-1 pt-2">
                     <div>
-                        <h2 className="text-3xl font-black tracking-tighter text-slate-900 dark:text-white transition-colors uppercase italic">Hola, {user.name.split(' ')[0]} 👋</h2>
+                        <h2 className="text-3xl lg:text-4xl font-black tracking-tighter text-slate-900 dark:text-white transition-colors uppercase italic">Hola, {user.name.split(' ')[0]} 👋</h2>
                         <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-0.5">Centro de Operaciones</p>
                     </div>
                     <div className="w-14 h-14 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-center text-primary dark:text-blue-400 group hover:scale-105 transition-all">
@@ -57,12 +57,12 @@ export default function DashboardEmpleado({ user }: { user: any }) {
 
             {/* Quick Stats Grid */}
             {isLoading ? (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 sm:gap-5">
                     <Skeleton className="w-full h-36 rounded-[2rem]" />
                     <Skeleton className="w-full h-36 rounded-[2rem]" />
                 </div>
             ) : (
-                <StaggerList className="grid grid-cols-2 gap-4">
+                <StaggerList className="grid grid-cols-2 gap-4 sm:gap-5">
                     <StaggerItem>
                         <StatCard
                             label="Lavados Hoy"
@@ -92,7 +92,7 @@ export default function DashboardEmpleado({ user }: { user: any }) {
                     <div className="absolute -inset-1 bg-gradient-to-r from-primary to-blue-400 dark:from-blue-600 dark:to-cyan-400 rounded-[2.5rem] blur opacity-25 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
                     <Pressable
                         onClick={() => navigate('/scan')}
-                        className="relative w-full overflow-hidden bg-primary dark:bg-blue-600 p-8 rounded-[2.5rem] text-white shadow-2xl flex flex-col items-center text-center gap-4 group transition-all"
+                        className="relative w-full overflow-hidden bg-primary dark:bg-blue-600 p-8 lg:p-10 rounded-[2.5rem] text-white shadow-2xl flex flex-col items-center text-center gap-4 group transition-all"
                     >
                         <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-1000" />
                         <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-secondary/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-1000" />
@@ -102,8 +102,8 @@ export default function DashboardEmpleado({ user }: { user: any }) {
                         </div>
 
                         <div>
-                            <h3 className="text-2xl font-black italic tracking-tighter uppercase">Listo para Escanear</h3>
-                            <p className="text-white/80 text-xs mt-1.5 font-medium max-w-[200px] mx-auto leading-relaxed">Presioná aquí para iniciar la cámara y registrar un servicio</p>
+                            <h3 className="text-2xl lg:text-3xl font-black italic tracking-tighter uppercase">Listo para Escanear</h3>
+                            <p className="text-white/80 text-xs mt-1.5 font-medium max-w-[200px] lg:max-w-[240px] mx-auto leading-relaxed">Presioná aquí para iniciar la cámara y registrar un servicio</p>
                         </div>
 
                         <div className="mt-2 bg-white text-primary dark:text-blue-700 px-6 py-2 rounded-full text-[10px] font-black tracking-[0.2em] shadow-lg group-hover:bg-secondary group-hover:text-slate-900 transition-colors duration-300">
@@ -115,7 +115,7 @@ export default function DashboardEmpleado({ user }: { user: any }) {
 
             {/* Workplace Info */}
             <Reveal delay={0.14}>
-                <div className="bg-white/80 dark:bg-slate-900/40 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex items-center gap-5 shadow-sm transition-colors">
+                <div className="bg-white/80 dark:bg-slate-900/40 p-6 lg:p-7 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex items-center gap-5 shadow-sm transition-colors">
                     <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center shrink-0 border border-slate-100 dark:border-slate-700">
                         <Users size={24} className="text-slate-500 dark:text-slate-400" />
                     </div>
@@ -134,18 +134,18 @@ function StatCard({ label, value, icon, color, bgColor, accentColor }: any) {
     return (
         <motion.div
             {...useInteraction(hoverable)}
-            className={`p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-shadow hover:shadow-lg bg-white dark:bg-slate-900/40 group overflow-hidden relative h-full`}
+            className={`p-5 lg:p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-shadow hover:shadow-lg bg-white dark:bg-slate-900/40 group overflow-hidden relative h-full`}
         >
             {/* Background design element */}
             <div className={`absolute top-0 right-0 w-12 h-12 ${accentColor} opacity-[0.03] rounded-full blur-xl -translate-y-1/2 translate-x-1/2`} />
 
-            <div className={`w-10 h-10 rounded-[1rem] flex items-center justify-center mb-3 ${color} border border-current/10 ${bgColor} group-hover:scale-110 transition-transform duration-300`}>
+            <div className={`w-10 h-10 lg:w-12 lg:h-12 rounded-[1rem] flex items-center justify-center mb-3 lg:mb-4 ${color} border border-current/10 ${bgColor} group-hover:scale-110 transition-transform duration-300`}>
                 {React.cloneElement(icon as React.ReactElement, { size: 20, strokeWidth: 2.5 })}
             </div>
 
             <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest transition-colors mb-1">{label}</p>
             <div className="flex items-baseline gap-1">
-                <AnimatedNumber value={value} className={`text-2xl font-black ${color} tracking-tight`} />
+                <AnimatedNumber value={value} className={`text-2xl lg:text-3xl font-black ${color} tracking-tight`} />
                 <div className={`w-1 h-1 rounded-full ${accentColor} opacity-40`} />
             </div>
         </motion.div>

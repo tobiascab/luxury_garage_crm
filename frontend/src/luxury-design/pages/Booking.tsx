@@ -87,7 +87,7 @@ function ServiceCarousel({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={springSoft}
-            className="relative bg-primary dark:bg-blue-600 rounded-2xl p-5 text-white overflow-hidden shadow-xl shadow-primary/25"
+            className="relative bg-primary dark:bg-blue-600 rounded-2xl p-5 lg:p-6 text-white overflow-hidden shadow-xl shadow-primary/25"
           >
             <div className="absolute -top-8 -right-8 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
             <div className="absolute -bottom-6 -left-6 w-24 h-24 bg-black/10 rounded-full blur-2xl" />
@@ -102,7 +102,7 @@ function ServiceCarousel({
                 >
                   <Sparkles size={9} fill="currentColor" /> Seleccionado
                 </motion.div>
-                <h3 className="font-black text-lg leading-tight tracking-tight">{selected.name}</h3>
+                <h3 className="font-black text-lg lg:text-xl leading-tight tracking-tight">{selected.name}</h3>
                 {selected.description && (
                   <p className="text-white/60 text-xs mt-1 leading-relaxed line-clamp-2">{selected.description}</p>
                 )}
@@ -565,12 +565,12 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
     <>
       <StaggerList className="space-y-4 pb-24">
         {/* Formulario de reserva — SIEMPRE visible (no detrás de un botón) */}
-        <StaggerItem className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm p-5 transition-colors">
+        <StaggerItem className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm p-5 lg:p-7 transition-colors">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-9 h-9 bg-primary/10 dark:bg-blue-500/20 rounded-xl flex items-center justify-center text-primary dark:text-blue-400">
               <Sparkles size={18} />
             </div>
-            <h2 className="text-base font-black tracking-tight text-slate-900 dark:text-white">Nueva Reserva</h2>
+            <h2 className="text-base lg:text-lg font-black tracking-tight text-slate-900 dark:text-white">Nueva Reserva</h2>
           </div>
 
           {/* Service Picker */}
@@ -596,7 +596,7 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
                 <Car size={13} className="text-primary dark:text-blue-400 shrink-0" />
                 <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Tamaño del Vehículo</p>
               </div>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {sizeOptions.map(vs => {
                   const isSel = selectedSize === vs.key;
                   return (
@@ -645,7 +645,7 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
                 <Plus size={13} className="text-primary dark:text-blue-400 shrink-0" />
                 <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Adicionales</p>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-2.5">
                 {serviceAddons.map((a: any) => {
                   const isSel = selectedAddons.includes(a.key);
                   const included = isAddonIncluded(a.key);
@@ -886,7 +886,7 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
                   No quedan turnos disponibles este día. Elegí otra fecha.
                 </div>
               ) : (
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-2">
                   {slots.map((s: any) => {
                     const isSel = slotTime === s.time;
                     const disabled = !s.available;
@@ -933,7 +933,7 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
             <History size={16} className="text-primary dark:text-blue-400" />
             <h3 className="text-sm font-black tracking-tight text-slate-900 dark:text-white">Historial de Reservas</h3>
           </div>
-          <div className="divide-y divide-slate-50 dark:divide-slate-800 max-h-[380px] overflow-y-auto">
+          <div className="divide-y divide-slate-50 dark:divide-slate-800 max-h-[380px] lg:max-h-[480px] overflow-y-auto">
             {isLoading ? (
               <div className="p-4 space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
@@ -1020,7 +1020,7 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
                   <StatusBadge status={b.status} light />
                 </motion.div>
               </div>
-              <StaggerList className="space-y-3 mb-5">
+              <StaggerList className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-3 mb-5">
                 <StaggerItem><DetailRow icon={<Calendar size={15} />} label="Fecha" value={dt.toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} /></StaggerItem>
                 <StaggerItem><DetailRow icon={<Clock size={15} />} label="Hora" value={dt.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })} /></StaggerItem>
                 {b.service?.durationMinutes && <StaggerItem><DetailRow icon={<Timer size={15} />} label="Duración estimada" value={`${b.service.durationMinutes} minutos`} /></StaggerItem>}

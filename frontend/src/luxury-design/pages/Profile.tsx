@@ -120,7 +120,7 @@ export default function Profile({ user, onLogout, onUpdate }: ProfileProps) {
       className="space-y-4 pb-24"
     >
       {/* Header / Profile Summary */}
-      <Reveal className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary via-primary to-blue-700 dark:from-blue-600 dark:via-blue-600 dark:to-blue-800 p-5 text-white shadow-lg shadow-primary/20 transition-colors">
+      <Reveal className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary via-primary to-blue-700 dark:from-blue-600 dark:via-blue-600 dark:to-blue-800 p-5 sm:p-6 text-white shadow-lg shadow-primary/20 transition-colors">
         <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-[60px] -translate-y-1/2 translate-x-1/2" />
         <div className="absolute -bottom-10 -left-6 w-32 h-32 bg-secondary/20 rounded-full blur-[60px]" />
         {/* Sheen sweep al montar */}
@@ -695,12 +695,12 @@ function MyVehicles({ userId, initialVehicles, onUpdate }: { userId: string; ini
           </Pressable>
         </div>
       ) : (
-        <StaggerList className="space-y-3">
+        <StaggerList className="space-y-3 md:space-y-0 md:grid md:grid-cols-2 md:gap-3">
           {vehicles.map(v => (
             <StaggerItem
               key={v.id}
               layout
-              className={`bg-white dark:bg-slate-900/40 rounded-[1.5rem] border transition-colors overflow-hidden ${v.isPrimary ? 'border-primary/30 dark:border-blue-500/30' : 'border-slate-100 dark:border-slate-800'
+              className={`md:flex md:flex-col bg-white dark:bg-slate-900/40 rounded-[1.5rem] border transition-colors overflow-hidden ${v.isPrimary ? 'border-primary/30 dark:border-blue-500/30' : 'border-slate-100 dark:border-slate-800'
                 }`}
             >
               {/* Card Header */}
@@ -730,7 +730,7 @@ function MyVehicles({ userId, initialVehicles, onUpdate }: { userId: string; ini
               </div>
 
               {/* Card Actions */}
-              <div className="flex border-t border-slate-50 dark:border-slate-800">
+              <div className="flex border-t border-slate-50 dark:border-slate-800 md:mt-auto">
                 {!v.isPrimary && (
                   <Pressable
                     tapOnly

@@ -152,7 +152,7 @@ const Billetera = memo(function Billetera({ user }: { user?: any }) {
 
     if (loading) {
         return (
-            <div className="space-y-6 pb-24 max-w-lg mx-auto">
+            <div className="space-y-6 pb-24 max-w-lg lg:max-w-3xl mx-auto">
                 <Skeleton className="w-full h-64 rounded-[2.5rem]" />
                 <div className="grid grid-cols-2 gap-4">
                     <Skeleton className="w-full h-28 rounded-[2rem]" />
@@ -170,7 +170,7 @@ const Billetera = memo(function Billetera({ user }: { user?: any }) {
         <motion.div
             initial={false}
             animate={{ opacity: 1 }}
-            className="space-y-6 pb-24 max-w-lg mx-auto"
+            className="space-y-6 pb-24 max-w-lg lg:max-w-3xl mx-auto"
         >
             {/* ── Tarjeta de saldo — sobria y real ── */}
             <Reveal className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 to-slate-800 p-8 text-white shadow-xl border border-white/5">
@@ -219,9 +219,12 @@ const Billetera = memo(function Billetera({ user }: { user?: any }) {
                 </div>
             </Reveal>
 
-            {/* ── Ingresos / Gastos del mes (calculados de los movimientos reales) ── */}
-            <div className="grid grid-cols-2 gap-4">
-                <Reveal delay={0.05} className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm">
+            {/* ── Cuerpo: en desktop, KPIs + movimientos a la izquierda y tarjetas a la derecha ── */}
+            <div className="space-y-6 lg:space-y-0 lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start">
+                <div className="space-y-6 lg:col-span-3">
+                    {/* ── Ingresos / Gastos del mes (calculados de los movimientos reales) ── */}
+                    <div className="grid grid-cols-2 gap-4">
+                <Reveal delay={0.05} className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md p-5 lg:p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm">
                     <div className="flex items-center gap-2 mb-2">
                         <span className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center">
                             <TrendingUp size={15} className="text-emerald-500" />
@@ -235,7 +238,7 @@ const Billetera = memo(function Billetera({ user }: { user?: any }) {
                         className="text-xl font-headline font-black text-emerald-600 dark:text-emerald-400 tracking-tight block"
                     />
                 </Reveal>
-                <Reveal delay={0.1} className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm">
+                <Reveal delay={0.1} className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md p-5 lg:p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm">
                     <div className="flex items-center gap-2 mb-2">
                         <span className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center">
                             <TrendingDown size={15} className="text-rose-500" />
@@ -279,8 +282,12 @@ const Billetera = memo(function Billetera({ user }: { user?: any }) {
                 )}
             </Reveal>
 
-            {/* ── Medios de pago (Bancard) ── */}
-            <Reveal delay={0.2} className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden transition-all">
+                </div>
+
+                {/* ── Medios de pago (Bancard) — columna derecha en desktop ── */}
+                <div className="lg:col-span-2">
+                    {/* ── Medios de pago (Bancard) ── */}
+                    <Reveal delay={0.2} className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden transition-all">
                 <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
                     <h3 className="font-headline text-sm font-bold flex items-center gap-2 text-slate-700 dark:text-slate-200">
                         <CreditCard size={16} className="text-slate-400 dark:text-slate-500" /> Mis tarjetas
@@ -289,7 +296,9 @@ const Billetera = memo(function Billetera({ user }: { user?: any }) {
                 <div className="p-6">
                     <BancardCardManager onChange={loadData} />
                 </div>
-            </Reveal>
+                    </Reveal>
+                </div>
+            </div>
 
             {/* ── Modal de recarga (solo tarjeta) ── */}
             <AnimatePresence>

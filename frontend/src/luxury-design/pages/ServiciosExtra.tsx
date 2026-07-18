@@ -121,16 +121,16 @@ export default function ServiciosExtra({ user }: ServiciosExtraProps) {
                     <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 dark:bg-blue-500/10 text-primary dark:text-blue-400 rounded-full text-[10px] font-bold tracking-widest uppercase mb-3 border border-primary/20 dark:border-blue-500/30">
                         <Sparkles size={12} /> Servicios Exclusivos
                     </div>
-                    <h1 className="font-headline text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white transition-colors">
+                    <h1 className="font-headline text-2xl lg:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white transition-colors">
                         Servicios Extra
                     </h1>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Más allá del lavado. Cuidado premium para tu vehículo.</p>
+                    <p className="text-sm lg:text-base text-slate-500 dark:text-slate-400 mt-1">Más allá del lavado. Cuidado premium para tu vehículo.</p>
                 </div>
             </Reveal>
 
             {/* Services Grid */}
             {loading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
                     {[0, 1, 2, 3].map((i) => (
                         <div
                             key={i}
@@ -156,7 +156,7 @@ export default function ServiciosExtra({ user }: ServiciosExtraProps) {
                     <p className="text-sm text-slate-400 dark:text-slate-500 font-bold">No hay servicios disponibles</p>
                 </div>
             ) : (
-                <StaggerList className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <StaggerList className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
                     {services.map((service) => (
                         <StaggerItem key={service.id}>
                             <Pressable

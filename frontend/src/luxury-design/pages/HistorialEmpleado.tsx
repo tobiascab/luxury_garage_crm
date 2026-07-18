@@ -51,17 +51,17 @@ export default function HistorialEmpleado({ user }: { user: any }) {
                     <History size={20} />
                 </div>
                 <div>
-                    <h2 className="text-xl font-black tracking-tight text-slate-900 dark:text-white">Mi Historial</h2>
+                    <h2 className="text-xl lg:text-2xl font-black tracking-tight text-slate-900 dark:text-white">Mi Historial</h2>
                     <p className="text-xs text-slate-500 dark:text-slate-400">Lavados realizados por vos</p>
                 </div>
             </Reveal>
 
             {isLoading ? (
-                <div className="space-y-3">
+                <div className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-3">
                     {Array.from({ length: 4 }).map((_, i) => (
                         <div
                             key={i}
-                            className="bg-white dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 transition-colors"
+                            className="bg-white dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 lg:p-6 transition-colors"
                         >
                             <div className="flex justify-between items-start mb-4">
                                 <div className="flex items-center gap-3">
@@ -86,13 +86,13 @@ export default function HistorialEmpleado({ user }: { user: any }) {
                     <p className="text-sm font-bold text-slate-500">Aún no registraste lavados.</p>
                 </Reveal>
             ) : (
-                <StaggerList className="space-y-3">
+                <StaggerList className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-3">
                     {history.map((h) => (
-                        <StaggerItem key={h.id}>
+                        <StaggerItem key={h.id} className="h-full">
                             <Pressable
                                 asDiv
                                 tapOnly
-                                className="w-full text-left bg-white dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-sm transition-colors hover:shadow-md"
+                                className="w-full h-full text-left bg-white dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 lg:p-6 shadow-sm transition-colors hover:shadow-md"
                             >
                                 <div className="flex justify-between items-start mb-4">
                                     <div className="flex items-center gap-3">

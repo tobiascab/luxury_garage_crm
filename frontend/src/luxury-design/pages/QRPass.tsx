@@ -177,14 +177,14 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="space-y-4 pb-24 max-w-sm mx-auto"
+            className="space-y-4 sm:space-y-5 pb-24 max-w-sm sm:max-w-md mx-auto"
         >
             {/* Header */}
             <Reveal className="px-1">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 dark:bg-blue-500/10 text-primary dark:text-blue-400 rounded-full text-[10px] font-bold tracking-widest uppercase mb-2 border border-primary/20 dark:border-blue-500/30 transition-colors">
                     <QrCode size={11} /> Pase Digital
                 </div>
-                <h1 className="font-headline text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white transition-colors uppercase italic tracking-tighter">Mi QR de Lavado</h1>
+                <h1 className="font-headline text-2xl lg:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white transition-colors uppercase italic tracking-tighter">Mi QR de Lavado</h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Presentá tu QR al llegar al lavadero para registrar tu servicio.</p>
             </Reveal>
 
@@ -396,7 +396,7 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
                                     initial={reduce ? { scale: 1, opacity: 0 } : { scale: 0.8, opacity: 0 }}
                                     animate={{ scale: 1, opacity: 1 }}
                                     transition={reduce ? { duration: 0.25 } : springPop}
-                                    className="bg-white border-2 border-slate-100 dark:border-slate-800 rounded-[2.5rem] p-5 inline-block mb-4 shadow-xl relative"
+                                    className="bg-white border-2 border-slate-100 dark:border-slate-800 rounded-[2.5rem] p-5 sm:p-6 inline-block mb-4 shadow-xl relative"
                                 >
                                     {/* Glow pulse ring around the QR (signals "live / waiting") */}
                                     {!reduce && (
@@ -456,7 +456,7 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
             )}
 
             {/* Steps */}
-            <Reveal delay={0.18} className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm p-6 transition-colors">
+            <Reveal delay={0.18} className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm p-6 lg:p-7 transition-colors">
                 <h3 className="font-black text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest px-1 italic mb-4">Pasos a seguir</h3>
                 <StaggerList onView className="space-y-4">
                     {[

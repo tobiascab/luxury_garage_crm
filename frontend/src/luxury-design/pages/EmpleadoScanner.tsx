@@ -130,7 +130,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
     return (
         <div className="p-4 flex flex-col items-center pb-24">
             {/* Header */}
-            <Reveal className="w-full max-w-sm pt-4 pb-6 relative z-10">
+            <Reveal className="w-full max-w-sm sm:max-w-md lg:max-w-lg pt-4 pb-6 relative z-10">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-primary/10 dark:bg-blue-500/20 rounded-xl flex items-center justify-center text-primary dark:text-blue-400">
                         <ScanLine size={20} />
@@ -142,7 +142,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                 </div>
             </Reveal>
 
-            <div className="w-full max-w-sm space-y-4">
+            <div className="w-full max-w-sm sm:max-w-md lg:max-w-lg space-y-4">
                 {/* Scanner Frame */}
                 <AnimatePresence mode="wait">
                     {!result && (
@@ -154,7 +154,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                             exit="exit"
                             className="bg-white dark:bg-slate-900/40 rounded-[2.5rem] overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm transition-colors relative"
                         >
-                            <div className="relative h-64 w-full bg-slate-950 overflow-hidden">
+                            <div className="relative h-64 md:h-72 lg:h-80 w-full bg-slate-950 overflow-hidden">
                                 <div id="reader" className="w-full h-full object-cover" />
 
                                 {/* Camera Error View */}
@@ -191,7 +191,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                 {/* Overlay UI (only show if no error) */}
                                 {!cameraError && (
                                     <div className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center">
-                                        <div className="w-48 h-48 relative">
+                                        <div className="w-48 h-48 md:w-56 md:h-56 relative">
                                             <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary dark:border-blue-400 rounded-tl-xl" />
                                             <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary dark:border-blue-400 rounded-tr-xl" />
                                             <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary dark:border-blue-400 rounded-bl-xl" />
@@ -208,7 +208,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                 )}
                             </div>
 
-                            <div className="p-5 space-y-3 bg-white dark:bg-slate-900 transition-colors">
+                            <div className="p-5 lg:p-6 space-y-3 bg-white dark:bg-slate-900 transition-colors">
                                 <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 text-center">Ingreso manual de código</p>
                                 <textarea
                                     value={manualToken}
@@ -237,7 +237,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                             initial="hidden"
                             animate="show"
                             exit="exit"
-                            className={`rounded-[2.5rem] border p-6 shadow-2xl transition-colors ${result.success
+                            className={`rounded-[2.5rem] border p-6 lg:p-8 shadow-2xl transition-colors ${result.success
                                 ? 'bg-white dark:bg-slate-900 border-emerald-500/30'
                                 : 'bg-white dark:bg-slate-900 border-red-500/30'
                                 }`}
@@ -266,7 +266,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                 <div className="space-y-4">
                                     {/* Client info */}
                                     <Reveal delay={0.08}>
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
+                                        <div className="p-4 lg:p-5 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
                                             <div className="flex items-center gap-3 mb-4">
                                                 <div className="w-10 h-10 bg-primary dark:bg-blue-600 rounded-full flex items-center justify-center font-black text-white text-sm shadow-sm">
                                                     {result.client.name[0]}
@@ -279,14 +279,14 @@ export default function EmpleadoScanner({ user }: { user: any }) {
 
                                             <div className="grid grid-cols-2 gap-3 mt-4 border-t border-slate-100 dark:border-slate-700 pt-4">
                                                 <div className="text-center">
-                                                    <AnimatedNumber value={result.client.totalWashes} className="block text-xl font-black text-slate-900 dark:text-white leading-none" />
+                                                    <AnimatedNumber value={result.client.totalWashes} className="block text-xl lg:text-2xl font-black text-slate-900 dark:text-white leading-none" />
                                                     <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Acumulados</p>
                                                 </div>
                                                 <div className="text-center border-l border-slate-100 dark:border-slate-700">
                                                     {typeof result.client.remainingWashes === 'number' ? (
-                                                        <AnimatedNumber value={result.client.remainingWashes} className="block text-xl font-black text-primary dark:text-blue-400 leading-none" />
+                                                        <AnimatedNumber value={result.client.remainingWashes} className="block text-xl lg:text-2xl font-black text-primary dark:text-blue-400 leading-none" />
                                                     ) : (
-                                                        <p className="text-xl font-black text-primary dark:text-blue-400 leading-none" title="Plan ilimitado">∞</p>
+                                                        <p className="text-xl lg:text-2xl font-black text-primary dark:text-blue-400 leading-none" title="Plan ilimitado">∞</p>
                                                     )}
                                                     <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Disponibles</p>
                                                 </div>
