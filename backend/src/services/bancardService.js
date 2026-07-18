@@ -143,8 +143,11 @@ class BancardService {
           additional_data: '', // SOLO para códigos de promoción Bancard (ej: "099VS ORO000045"); vacío = pago normal. NO poner la descripción acá.
           description: description || '',
           alias_token: aliasToken,
-          return_url: returnUrl || '',
-          extra_response_attributes: ['confirmation.process_id']
+          return_url: returnUrl || ''
+          // NOTA: NO enviar `extra_response_attributes: ['confirmation.process_id']`.
+          // Bancard aclaró (certificación 2026-07-16) que ese parámetro es EXCLUSIVO de la
+          // integración 3DS Token, que Luxury Garage NO usa (pago con token/alias, sin 3DS).
+          // Enviarlo hace fallar la certificación de "Pago con Token".
         }
       });
 
