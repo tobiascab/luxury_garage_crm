@@ -210,7 +210,11 @@ export default function MembersManager() {
 
   // ── Membership / Plan ──
   const openPlan = () => {
-    setPlanForm({ planId: selected.memberships?.find(m => m.status === 'ACTIVE')?.planId || '', months: 1 });
+    setPlanForm({
+      planId: selected.memberships?.find(m => m.status === 'ACTIVE')?.planId || '',
+      months: 1,
+      cobradoAparte: false, // por defecto NO se saltea el cobro
+    });
     setShowPlan(true);
   };
 
@@ -219,11 +223,12 @@ export default function MembersManager() {
     if (!planForm.planId) { toast.error('Seleccioná un plan'); return; }
     setSavingPlan(true);
     try {
-      await api.post(`/members/${selected.id}/membership`, {
+      const res = await api.post(`/members/${selected.id}/membership`, {
         planId: planForm.planId,
         months: parseInt(planForm.months) || 1,
+        cobradoAparte: !!planForm.cobradoAparte,
       });
-      toast.success('Membresía asignada');
+      toast.success(res.data?.message || 'Membresía asignada');
       setShowPlan(false);
       await refreshDetail(selected.id);
       loadMembers();
@@ -296,6 +301,9 @@ export default function MembersManager() {
   };
 
   const activeMembership = selected?.memberships?.find(m => m.status === 'ACTIVE');
+  // Plan asignado por el admin que todavía no se pagó: el cliente lo verá preseleccionado
+  // en su alta y recién ahí se cobra y arranca el ciclo.
+  const pendingMembership = !activeMembership ? selected?.memberships?.find(m => m.status === 'PENDING') : null;
 
   return (
     <div className="page-content pb-20">
@@ -578,6 +586,26 @@ export default function MembersManager() {
                       Cancelar membresía
                     </button>
                   </div>
+                ) : pendingMembership ? (
+                  /* Plan asignado pero SIN pagar: no mostramos vencimiento porque el ciclo
+                     todavía no arrancó — corre desde que el cliente paga, no desde ahora. */
+                  <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <Crown size={14} className="text-amber-500" /> {pendingMembership.plan?.name}
+                        </p>
+                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 font-medium">
+                          Pendiente de pago · sin cobertura
+                        </p>
+                      </div>
+                      <AnimatedNumber className="text-sm font-semibold text-slate-900 dark:text-white tabular-nums" value={pendingMembership.plan?.priceGs} format="gs" />
+                    </div>
+                    <p className="text-[11px] text-amber-700/80 dark:text-amber-400/70 mt-2.5 leading-relaxed">
+                      Se activa cuando el cliente entre, cargue su tarjeta y se le debite. Puede elegir
+                      otro plan en ese momento. El mes empieza a correr desde el pago.
+                    </p>
+                  </div>
                 ) : (
                   <div className="rounded-xl border border-dashed border-slate-200 dark:border-white/10 p-4 text-center">
                     <p className="text-sm text-slate-400">Sin membresía activa</p>
@@ -733,11 +761,11 @@ export default function MembersManager() {
         isOpen={showPlan}
         onClose={() => setShowPlan(false)}
         title={activeMembership ? 'Cambiar plan' : 'Asignar plan'}
-        subtitle="Se activa una nueva membresía para el cliente"
+        subtitle="El cliente lo confirma y lo paga al entrar"
         icon={<Crown size={18} />}
         formId="plan-form"
         submitting={savingPlan}
-        submitLabel="Asignar"
+        submitLabel={planForm.cobradoAparte ? 'Activar sin cobro' : 'Asignar'}
         size="md"
       >
         <form id="plan-form" onSubmit={handleAssignPlan} className="space-y-4">
@@ -748,12 +776,42 @@ export default function MembersManager() {
           </FormField>
           <FormField as="select" label="Duración" name="months" value={planForm.months}
             onChange={(e) => setPlanForm({ ...planForm, months: e.target.value })}
-            hint="Define la fecha de vencimiento de la membresía">
+            hint="Cuántos meses cubre el pago">
             <option value={1}>1 mes</option>
             <option value={3}>3 meses</option>
             <option value={6}>6 meses</option>
             <option value={12}>12 meses</option>
           </FormField>
+
+          {/* Qué va a pasar realmente, explicado antes de confirmar. */}
+          {!planForm.cobradoAparte ? (
+            <div className="rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-3.5">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                El plan queda <strong>preseleccionado</strong>. Al entrar, el cliente carga su tarjeta,
+                confirma el plan (puede elegir otro) y se le debita. <strong>El mes empieza a correr
+                desde ese pago</strong>, no desde ahora.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 p-3.5">
+              <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                <strong>Se activa ya, sin cobrarle nada.</strong> Usalo solo si te pagó en efectivo o
+                por transferencia. El mes corre desde hoy y queda registrado en la auditoría a tu nombre.
+              </p>
+            </div>
+          )}
+
+          <label className="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!planForm.cobradoAparte}
+              onChange={(e) => setPlanForm({ ...planForm, cobradoAparte: e.target.checked })}
+              className="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-white/20 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Ya me pagó por fuera del sistema (efectivo o transferencia) — activar sin débito
+            </span>
+          </label>
         </form>
       </FormModal>
 

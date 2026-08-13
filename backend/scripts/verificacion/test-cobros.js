@@ -142,7 +142,7 @@ let userId = null;
     // ── 8. Overage anulado al cancelar el turno ───────────────────────────────
     console.log('\n── 8. Extra diferido: si se cancela el turno, no se cobra al renovar ──');
     const vehiculo = await prisma.vehicle.create({ data: { userId, brand: 'Ford', model: 'Ka', year: 2019, licensePlate: 'OVER01', isPrimary: true } });
-    const servicio = await prisma.service.findFirst({ where: { slug: 'ducha-cera-carnauba' } });
+    const servicio = await prisma.service.findFirst({ where: { slug: (plan.servicesIncluded || [])[0]?.slug } });
     const cita = await prisma.appointment.create({
       data: {
         userId, vehicleId: vehiculo.id, serviceId: servicio.id,

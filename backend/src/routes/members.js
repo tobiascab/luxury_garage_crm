@@ -277,7 +277,13 @@ router.put('/:id/password', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), asy
 // Asignar / cambiar de plan. Cancela la membresía ACTIVE previa y crea una nueva.
 router.post('/:id/membership', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
   try {
-    const { planId, months } = req.body;
+    // `cobradoAparte` es la ÚNICA forma de activar un plan sin débito, y hay que pedirlo
+    // explícitamente. Por defecto el plan queda PENDING y el cliente paga al entrar.
+    //
+    // Antes este endpoint activaba SIEMPRE la membresía sin cobrar, y como en el panel es
+    // el botón "Asignar plan" (el que parece el normal para poner el plan), un cliente real
+    // entró sin que se le pidiera la tarjeta: ya tenía plan activo y nunca se le cobró.
+    const { planId, months, cobradoAparte } = req.body;
     if (!planId) return res.status(400).json({ success: false, message: 'planId requerido' });
 
     const [user, plan] = await Promise.all([
@@ -288,27 +294,42 @@ router.post('/:id/membership', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), 
     if (!plan) return res.status(400).json({ success: false, message: 'Plan no válido' });
 
     const durationMonths = Number.isInteger(months) && months > 0 ? months : 1;
+    const sinCobro = cobradoAparte === true;
     const start = new Date();
     const end = new Date(); end.setMonth(end.getMonth() + durationMonths);
 
-    // Cancelar la membresía activa previa y crear la nueva de forma atómica:
-    // si el create falla, el cliente no queda sin membresía activa (pierde cobertura).
+    // Cancelar la membresía previa y crear la nueva de forma atómica.
     const membership = await req.prisma.$transaction(async (tx) => {
       await tx.membership.updateMany({
         where: { userId: user.id, status: { in: ['ACTIVE', 'PENDING'] } },
         data: { status: 'REPLACED' },
       });
       return tx.membership.create({
-        data: { userId: user.id, planId: plan.id, status: 'ACTIVE', startDate: start, endDate: end },
+        data: {
+          userId: user.id, planId: plan.id,
+          status: sinCobro ? 'ACTIVE' : 'PENDING',
+          startDate: start, endDate: end,
+        },
         include: { plan: true },
       });
     });
 
     await req.prisma.auditLog.create({
-      data: { entity: 'membership', action: 'admin_assign', entityId: membership.id, userId: req.user.id, detailsJson: { by: req.user.email, target: user.email, plan: plan.name, months: durationMonths } }
+      data: {
+        entity: 'membership',
+        action: sinCobro ? 'admin_assign_sin_cobro' : 'admin_assign_pendiente_de_pago',
+        entityId: membership.id, userId: req.user.id,
+        detailsJson: { by: req.user.email, target: user.email, plan: plan.name, months: durationMonths, cobradoAparte: sinCobro },
+      }
     }).catch(() => {});
 
-    res.status(201).json({ success: true, data: membership });
+    res.status(201).json({
+      success: true,
+      data: membership,
+      message: sinCobro
+        ? `Plan ${plan.name} activado sin débito (cobrado por fuera del sistema).`
+        : `Plan ${plan.name} preseleccionado. Se activa cuando el cliente entre, cargue su tarjeta y se le debite.`,
+    });
   } catch (err) { next(err); }
 });
 

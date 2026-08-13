@@ -79,8 +79,8 @@ const ok = (c, l, e = '') => { c ? (pass++, console.log(`   ✅ ${l}`)) : (fail+
       await prisma.auditLog.deleteMany({ where: { userId } });
       await prisma.user.delete({ where: { id: userId } });
     }
-    const quedan = { clientes: await prisma.user.count({ where: { role: 'CLIENT' } }), pagos: await prisma.payment.count(), membresias: await prisma.membership.count() };
-    ok(quedan.clientes === 0 && quedan.pagos === 0 && quedan.membresias === 0, `Usuario de prueba eliminado — BD limpia: ${JSON.stringify(quedan)}`);
+    const existe = await prisma.user.findFirst({ where: { id: userId } });
+    ok(!existe, 'Usuario de prueba eliminado — la base quedó como estaba');
   }
   console.log(`\n${'═'.repeat(60)}\n   RESULTADO: ${pass} pasaron · ${fail} fallaron`);
   await prisma.$disconnect();

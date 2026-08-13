@@ -28,8 +28,9 @@ const ROLLBACK = new Error('__ROLLBACK__');
     await prisma.$transaction(async (tx) => {
       const planBasico = await tx.plan.findFirst({ where: { name: 'Plan Básico' } });
       const planVip = await tx.plan.findFirst({ where: { name: 'Plan VIP' } });
-      const service = await tx.service.findFirst({ where: { slug: 'ducha-cera-carnauba' } });
-      const sellador = await tx.service.findFirst({ where: { slug: 'sellador-ceramico' } });
+      const planPremium = await tx.plan.findFirst({ where: { name: 'Plan Premium' } });
+      const service = await tx.service.findFirst({ where: { slug: (planBasico.servicesIncluded || [])[0]?.slug } });
+      const sellador = await tx.service.findFirst({ where: { slug: (planPremium?.servicesIncluded || []).find(x => x.slug !== (planBasico.servicesIncluded||[])[0]?.slug)?.slug } });
       const size = await tx.vehicleSize.findFirst();
       console.log(`\nPlan Básico: ₲${planBasico.priceGs} · cupo ducha-cera = ${planBasico.servicesIncluded[0].quota}`);
 

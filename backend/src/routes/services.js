@@ -98,10 +98,12 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validateBody(s
 router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), validateBody(serviceSchema.partial()), async (req, res, next) => {
   try {
     const data = { ...req.validatedBody };
-    // Si cambia el nombre regeneramos el slug para mantenerlo coherente y único.
-    if (data.name) {
-      data.slug = await uniqueServiceSlug(req.prisma, data.name, req.params.id);
-    }
+    // El slug NO se regenera al renombrar: es la identidad del servicio, no su etiqueta.
+    // Los planes guardan a qué servicios dan cobertura por slug (`plan.servicesIncluded`),
+    // así que regenerarlo dejaba a los planes apuntando a un servicio inexistente y el
+    // cliente pasaba a pagar cada lavado aparte pese a tener plan. Pasó en producción al
+    // renombrar «Ducha, aspirado y cera carnauba». El nombre visible se cambia libremente.
+    delete data.slug;
     const service = await req.prisma.service.update({ where: { id: req.params.id }, data });
     res.json({ success: true, data: service });
   } catch (err) { next(err); }

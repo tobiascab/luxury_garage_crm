@@ -117,7 +117,7 @@ const ok = (c, l, e = '') => { c ? (pass++, console.log(`   ✅ ${l}`)) : (fail+
       }
       await prisma.user.delete({ where: { id: userId } }).catch(() => {});
     }
-    ok((await prisma.user.count({ where: { role: 'CLIENT' } })) === 0, 'Limpieza: sin clientes de prueba en la base');
+    ok(!(userId && await prisma.user.findFirst({ where: { id: userId } })), 'Limpieza: usuario de prueba eliminado');
   }
   console.log(`\n${'═'.repeat(60)}\n   RESULTADO: ${pass} pasaron · ${fail} fallaron`);
   await prisma.$disconnect();

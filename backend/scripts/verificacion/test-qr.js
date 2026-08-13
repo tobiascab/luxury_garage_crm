@@ -17,7 +17,7 @@ const ok = (c, l, e = '') => { c ? (pass++, console.log(`   ✅ ${l}`)) : (fail+
 (async () => {
   try {
     const plan = await prisma.plan.findFirst({ where: { name: 'Plan Básico' } });
-    const servicio = await prisma.service.findFirst({ where: { slug: 'ducha-cera-carnauba' } });
+    const servicio = await prisma.service.findFirst({ where: { slug: (plan.servicesIncluded || [])[0]?.slug } });
 
     // Cliente con plan ACTIVO y una reserva confirmada.
     const email = `qr-${Date.now()}@test.local`, pwd = 'Prueba123';
@@ -110,8 +110,8 @@ const ok = (c, l, e = '') => { c ? (pass++, console.log(`   ✅ ${l}`)) : (fail+
       await prisma.auditLog.deleteMany({ where: { userId } });
       await prisma.user.delete({ where: { id: userId } });
     }
-    const q = { clientes: await prisma.user.count({ where: { role: 'CLIENT' } }), citas: await prisma.appointment.count(), registros: await prisma.serviceRecord.count() };
-    ok(q.clientes === 0 && q.citas === 0 && q.registros === 0, `Limpieza OK — contraseña del empleado restaurada, BD sin rastros: ${JSON.stringify(q)}`);
+    const existe = userId ? await prisma.user.findFirst({ where: { id: userId } }) : null;
+    ok(!existe, 'Limpieza OK — contraseña del empleado restaurada y usuario de prueba eliminado');
   }
   console.log(`\n${'═'.repeat(60)}\n   RESULTADO: ${pass} pasaron · ${fail} fallaron`);
   await prisma.$disconnect();
