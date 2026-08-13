@@ -6,11 +6,20 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { authLimiter, loginLockout } = require('../middleware/security');
 const ArizarSync = require('../services/arizarSync');
 const { provisionClient } = require('../services/clientProvisioning');
+const emailService = require('../services/emailService');
+const resetTokens = require('../services/passwordResetTokens');
+
+// Formato de correo. Es el usuario con el que se entra y el canal por el que se recuperan
+// las contraseñas, así que se valida en TODAS las vías de alta, no solo en el registro público.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const esEmailValido = (e) => EMAIL_RE.test(String(e || '').trim());
 
 // Apply strict rate limiter on all auth write endpoints
 router.post('/login', authLimiter);
 router.post('/public-register', authLimiter);
 router.post('/register', authLimiter);
+router.post('/forgot-password', authLimiter);
+router.post('/reset-password', authLimiter);
 
 
 // POST /api/auth/login
@@ -64,8 +73,10 @@ router.post('/login', async (req, res, next) => {
 // usar /members/staff o /admin-create, que validan la jerarquía de roles.
 router.post('/register', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
   try {
-    const { email, password, firstName, lastName, phone, arizarContactId, vehicle, planId, referralCode, sendCredentials } = req.body;
-    if (!email || !password || !firstName || !lastName) return res.status(400).json({ success: false, message: 'Campos requeridos: email, password, firstName, lastName' });
+    const { password, firstName, lastName, phone, arizarContactId, vehicle, planId, referralCode, sendCredentials } = req.body;
+    if (!req.body?.email || !password || !firstName || !lastName) return res.status(400).json({ success: false, message: 'Campos requeridos: email, password, firstName, lastName' });
+    const email = String(req.body.email).trim().toLowerCase();
+    if (!esEmailValido(email)) return res.status(400).json({ success: false, message: 'El correo no tiene un formato válido' });
 
     const exists = await req.prisma.user.findUnique({ where: { email } });
     if (exists) return res.status(409).json({ success: false, message: 'El email ya está registrado' });
@@ -104,13 +115,14 @@ router.post('/register', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async 
         });
       }
 
-      // Auto-assign plan if provided
+      // Plan elegido al registrarse: queda PENDING (preseleccionado), no activo. Se activa
+      // recién con el débito del primer mes en la pantalla de alta obligatoria.
       let membership = null;
       if (planRecord) {
         const start = new Date();
         const end = new Date(); end.setMonth(end.getMonth() + 1);
         membership = await tx.membership.create({
-          data: { userId: user.id, planId: planRecord.id, status: 'ACTIVE', startDate: start, endDate: end },
+          data: { userId: user.id, planId: planRecord.id, status: 'PENDING', startDate: start, endDate: end },
           include: { plan: true }
         });
       }
@@ -252,9 +264,16 @@ router.post('/public-register', async (req, res, next) => {
 // POST /api/auth/admin-create — Admin/Employee creates a client (syncs to CRM)
 router.post('/admin-create', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'EMPLOYEE'), async (req, res, next) => {
   try {
-    const { email, firstName, lastName, phone, planId, vehicleBrand, vehicleModel, vehicleYear, vehicleColor, vehiclePlate, sendWhatsApp: doSendWA } = req.body;
-    if (!email || !firstName || !lastName) {
+    const { firstName, lastName, phone, planId, vehicleBrand, vehicleModel, vehicleYear, vehicleColor, vehiclePlate, sendWhatsApp: doSendWA } = req.body;
+    if (!req.body?.email || !firstName || !lastName) {
       return res.status(400).json({ success: false, message: 'Email, nombre y apellido son requeridos' });
+    }
+    // El correo es la llave de la cuenta y el canal de recuperación: se normaliza y se valida
+    // el formato acá también (antes solo se validaba en el registro público, así que por el
+    // panel entraban direcciones mal escritas que después no recibían nada).
+    const email = String(req.body.email).trim().toLowerCase();
+    if (!esEmailValido(email)) {
+      return res.status(400).json({ success: false, message: 'El correo no tiene un formato válido' });
     }
 
     const exists = await req.prisma.user.findUnique({ where: { email } });
@@ -294,18 +313,29 @@ router.post('/admin-create', authenticate, authorize('SUPER_ADMIN', 'ADMIN', 'EM
           `📧 Email: ${email}\n` +
           `🔑 Contraseña: ${tempPassword}\n\n` +
           `Accedé acá: https://luxurygarage.arizar-ia.cloud/login\n\n` +
-          `Desde ahí podés agendar turnos, ver tu membresía y más. 💎`
+          `👉 Al entrar por primera vez vas a registrar tu tarjeta y confirmar tu plan. ` +
+          `El primer mes se cobra en ese momento y después se renueva solo, todos los meses.\n\n` +
+          `Desde la app agendás turnos, ves tu membresía y más. 💎`
         );
       } catch (e) { console.error('Error enviando credenciales por WhatsApp:', e.message); }
     }
 
+    // Credenciales por CORREO — siempre, sin depender del CRM ni de que tenga teléfono.
+    // Es el canal principal: el correo es obligatorio, el WhatsApp no.
+    const mail = await emailService.sendWelcome(user, tempPassword, membership?.plan?.name || null);
+    // Y el pedido de confirmación del correo, para saber que la dirección existe de verdad.
+    if (mail.ok) enviarVerificacion(user).catch(() => {});
+
     const { passwordHash: _, ...userData } = user;
     // Nota: tempPassword NO se devuelve en la respuesta HTTP por seguridad
-    // Se envía solo por WhatsApp/Email (ver líneas anteriores)
+    // Se envía solo por correo / WhatsApp (ver líneas anteriores)
+    const canales = [mail.ok ? 'correo' : null, (doSendWA && contactId && phone) ? 'WhatsApp' : null].filter(Boolean);
     res.status(201).json({
       success: true,
-      data: { ...userData, vehicle, membership, arizarContactId: contactId },
-      message: `Cliente creado${doSendWA ? ' y credenciales enviadas por WhatsApp' : ''}`
+      data: { ...userData, vehicle, membership, arizarContactId: contactId, credencialesEnviadasPor: canales },
+      message: canales.length
+        ? `Cliente creado y credenciales enviadas por ${canales.join(' y ')}`
+        : 'Cliente creado, pero NO se pudieron enviar las credenciales. Pasáselas vos.',
     });
   } catch (err) {
     if (err.code === 'P2002') return res.status(409).json({ success: false, message: 'El email ya está registrado' });
@@ -354,11 +384,18 @@ router.get('/me', authenticate, async (req, res, next) => {
 // PUT /api/auth/me — Update profile (syncs to CRM)
 router.put('/me', authenticate, async (req, res, next) => {
   try {
-    const { firstName, lastName, phone, avatarUrl } = req.body;
+    const { firstName, lastName, phone, avatarUrl, ruc, razonSocial } = req.body;
     const user = await req.prisma.user.update({
       where: { id: req.user.id },
-      // phone usa `!== undefined` (no truthy) para permitir vaciarlo: enviar null/'' borra el teléfono.
-      data: { ...(firstName && { firstName }), ...(lastName && { lastName }), ...(phone !== undefined && { phone: phone || null }), ...(avatarUrl !== undefined && { avatarUrl }) }
+      // phone/ruc/razonSocial usan `!== undefined` (no truthy) para permitir vaciarlos: null/'' borra.
+      // ruc: se guarda para la factura electrónica (sin RUC ⇒ factura innominada).
+      data: {
+        ...(firstName && { firstName }), ...(lastName && { lastName }),
+        ...(phone !== undefined && { phone: phone || null }),
+        ...(avatarUrl !== undefined && { avatarUrl }),
+        ...(ruc !== undefined && { ruc: ruc ? String(ruc).trim() : null }),
+        ...(razonSocial !== undefined && { razonSocial: razonSocial ? String(razonSocial).trim() : null }),
+      }
     });
 
     // ═══ ARIZAR IA SYNC ═══
@@ -395,5 +432,158 @@ router.post('/change-password', authenticate, async (req, res, next) => {
     res.json({ success: true, message: 'Contraseña actualizada' });
   } catch (err) { next(err); }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  RECUPERACIÓN DE CONTRASEÑA (auto-servicio, por correo)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/auth/forgot-password { email }
+// Manda el enlace de recuperación. SIEMPRE responde igual exista o no la cuenta: si
+// contestara distinto, cualquiera podría averiguar qué correos están registrados.
+router.post('/forgot-password', async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const respuestaNeutra = {
+      success: true,
+      message: 'Si ese correo tiene una cuenta, te enviamos un enlace para restablecer tu contraseña.',
+    };
+    if (!esEmailValido(email)) return res.json(respuestaNeutra);
+
+    const user = await req.prisma.user.findUnique({ where: { email } });
+    // Cuenta inexistente o desactivada → misma respuesta, sin enviar nada.
+    if (!user || !user.isActive) return res.json(respuestaNeutra);
+
+    const token = resetTokens.create(user, 'reset');
+    const appUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://luxurygarage.arizar-ia.cloud';
+    const resetUrl = `${appUrl}/restablecer?token=${encodeURIComponent(token)}`;
+
+    const envio = await emailService.sendPasswordReset(user, resetUrl);
+
+    await req.prisma.auditLog.create({
+      data: {
+        entity: 'user', action: 'PASSWORD_RESET_REQUESTED', entityId: user.id, userId: user.id,
+        detailsJson: { emailEnviado: envio.ok, motivo: envio.error || null },
+      },
+    }).catch(() => {});
+
+    res.json(respuestaNeutra);
+  } catch (err) { next(err); }
+});
+
+// GET /api/auth/reset-password/check?token=... — valida el enlace antes de mostrar el formulario.
+router.get('/reset-password/check', async (req, res, next) => {
+  try {
+    const token = String(req.query?.token || '');
+    const userId = resetTokens.peekUserId(token);
+    if (!userId) return res.status(400).json({ success: false, code: 'INVALID', message: 'El enlace no es válido.' });
+
+    const user = await req.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) return res.status(400).json({ success: false, code: 'INVALID', message: 'El enlace no es válido.' });
+
+    const v = resetTokens.verify(token, user, 'reset');
+    if (!v.ok) {
+      const message = v.reason === 'expired'
+        ? 'El enlace venció. Pedí uno nuevo desde «Olvidé mi contraseña».'
+        : 'El enlace no es válido o ya se usó. Pedí uno nuevo.';
+      return res.status(400).json({ success: false, code: v.reason.toUpperCase(), message });
+    }
+    res.json({ success: true, data: { email: user.email, firstName: user.firstName } });
+  } catch (err) { next(err); }
+});
+
+// POST /api/auth/reset-password { token, newPassword }
+router.post('/reset-password', async (req, res, next) => {
+  try {
+    const { token, newPassword } = req.body || {};
+    const strengthError = validarPassword(newPassword);
+    if (strengthError) return res.status(400).json({ success: false, message: strengthError });
+
+    const userId = resetTokens.peekUserId(String(token || ''));
+    if (!userId) return res.status(400).json({ success: false, message: 'El enlace no es válido.' });
+
+    const user = await req.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) return res.status(400).json({ success: false, message: 'El enlace no es válido.' });
+
+    const v = resetTokens.verify(token, user, 'reset');
+    if (!v.ok) {
+      return res.status(400).json({
+        success: false,
+        message: v.reason === 'expired'
+          ? 'El enlace venció. Pedí uno nuevo desde «Olvidé mi contraseña».'
+          : 'El enlace no es válido o ya se usó. Pedí uno nuevo.',
+      });
+    }
+
+    // Al guardar el hash nuevo, el token usado deja de validar solo (va firmado con el hash viejo).
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await req.prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+    await req.prisma.auditLog.create({
+      data: { entity: 'user', action: 'PASSWORD_RESET_COMPLETED', entityId: user.id, userId: user.id, detailsJson: {} },
+    }).catch(() => {});
+
+    res.json({ success: true, message: 'Listo, ya podés entrar con tu contraseña nueva.' });
+  } catch (err) { next(err); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  VERIFICACIÓN DEL CORREO
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/auth/send-verification — el cliente pide (o repide) el correo de confirmación.
+router.post('/send-verification', authenticate, async (req, res, next) => {
+  try {
+    const user = await req.prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    if (user.emailVerifiedAt) return res.json({ success: true, message: 'Tu correo ya está confirmado.' });
+
+    const envio = await enviarVerificacion(user);
+    if (!envio.ok) {
+      return res.status(502).json({ success: false, message: 'No pudimos enviar el correo. Probá de nuevo en unos minutos.' });
+    }
+    res.json({ success: true, message: 'Te enviamos el correo de confirmación.' });
+  } catch (err) { next(err); }
+});
+
+// GET /api/auth/verify-email?token=... — el enlace del correo.
+router.get('/verify-email', async (req, res, next) => {
+  try {
+    const token = String(req.query?.token || '');
+    const userId = resetTokens.peekUserId(token);
+    if (!userId) return res.status(400).json({ success: false, message: 'El enlace no es válido.' });
+
+    const user = await req.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(400).json({ success: false, message: 'El enlace no es válido.' });
+    if (user.emailVerifiedAt) return res.json({ success: true, message: 'Tu correo ya estaba confirmado.' });
+
+    // Propósito 'verify-email' y ventana de 7 días. La separación por propósito es lo que
+    // impide que este enlace (que vive una semana) sirva para restablecer la contraseña.
+    const v = resetTokens.verify(token, user, 'verify-email', 7 * 24 * 60 * 60 * 1000);
+    if (!v.ok) {
+      return res.status(400).json({
+        success: false,
+        message: v.reason === 'expired' ? 'El enlace venció. Pedí uno nuevo desde tu perfil.' : 'El enlace no es válido.',
+      });
+    }
+
+    await req.prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
+    res.json({ success: true, message: '¡Listo! Tu correo quedó confirmado.' });
+  } catch (err) { next(err); }
+});
+
+/** Arma y manda el correo de verificación. Best-effort: devuelve el resultado del envío. */
+async function enviarVerificacion(user) {
+  const token = resetTokens.create(user, 'verify-email');
+  const appUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://luxurygarage.arizar-ia.cloud';
+  return emailService.sendEmailVerification(user, `${appUrl}/verificar-correo?token=${encodeURIComponent(token)}`);
+}
+
+/** Reglas de contraseña, iguales a las de /change-password y las del panel de admin. */
+function validarPassword(pwd) {
+  if (!pwd || typeof pwd !== 'string' || pwd.length < 8) return 'La contraseña debe tener al menos 8 caracteres';
+  if (!/[A-Z]/.test(pwd)) return 'La contraseña debe incluir al menos una mayúscula';
+  if (!/[0-9]/.test(pwd)) return 'La contraseña debe incluir al menos un número';
+  return null;
+}
 
 module.exports = router;

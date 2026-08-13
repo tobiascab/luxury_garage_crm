@@ -2,17 +2,6 @@ const router = require('express').Router();
 const bancardService = require('../services/bancardService');
 const { materializeApprovedPayment } = require('../services/paymentReconciliation');
 
-// Guarda el shop_process_id del último single_buy de prueba (/test-pago) para
-// poder dispararle un rollback desde /test-rollback-ultimo (test "Recibir rollback").
-let lastTestPaymentSp = null;
-
-// Los endpoints /test-* de certificación NO tienen auth y disparan operaciones REALES de Bancard.
-// Útiles en staging/dev, pero NUNCA deben existir en producción. Este guard los hace 404 en prod.
-router.use(['/test-catastro', '/test-catastro-result', '/test-pago', '/test-rollback-ultimo'], (req, res, next) => {
-  if (process.env.NODE_ENV === 'production') return res.status(404).json({ success: false, message: 'Recurso no encontrado' });
-  next();
-});
-
 /**
  * POST /api/bancard/webhook/confirm
  * Bancard llama a este endpoint cuando finaliza un pago (single_buy o charge).

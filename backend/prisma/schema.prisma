@@ -17,20 +17,14 @@ model User {
   avatarUrl         String?         @map("avatar_url")
   documentNumber    String?         @map("document_number")
   documentType      String?         @default("CI") @map("document_type")
+  ruc               String?         // RUC para factura electrónica (opcional; sin RUC = factura innominada)
+  razonSocial       String?         @map("razon_social") // nombre/razón social a facturar (default: nombre del cliente)
   arizarContactId   String?         @unique @map("arizar_contact_id")
   masfazzilCustomerUuid String?     @unique @map("masfazzil_customer_uuid") // deprecated: reemplazado por bancardUserId
   bancardUserId     Int?            @unique @map("bancard_user_id")
-  // ── Stripe (plataforma = Avanzantec LLC; Connect V2) ──
-  stripeCustomerId        String?   @unique @map("stripe_customer_id")          // customer (cliente que paga)
-  stripeConnectAccountId  String?   @unique @map("stripe_connect_account_id")   // acct_... si el user se onboardea como connected account
-  stripeAccountStatus     String?   @map("stripe_account_status")               // none|pending|active|restricted
-  defaultPaymentMethodId  String?   @map("default_payment_method_id")           // pm_... default off-session
-  // ── Suscripción de plataforma (Avanzantec cobra una cuota SaaS al negocio desde su stripe_balance) ──
-  platformSubscriptionId          String? @unique @map("platform_subscription_id")           // sub_... cuota SaaS que el negocio le paga a la plataforma
-  platformSubscriptionStatus      String? @map("platform_subscription_status")               // active|past_due|canceled|...
-  platformBalancePaymentMethodId  String? @map("platform_balance_payment_method_id")         // pm_... del SetupIntent stripe_balance del negocio
   isActive          Boolean         @default(true) @map("is_active")
-  isTestMode        Boolean         @default(false) @map("is_test_mode")
+  // Confirmación del correo (enlace enviado por Resend). null = sin confirmar.
+  emailVerifiedAt   DateTime?       @map("email_verified_at")
   lastLoginAt       DateTime?       @map("last_login_at")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -48,7 +42,6 @@ model User {
   serviceRecords    ServiceRecord[] @relation("employee_records")
   vehicles          Vehicle[]
   bancardOperations BancardOperation[]
-  stripeLedgerEntries StripeLedgerEntry[]
   stockMovements    StockMovement[]
   expenses          Expense[]           @relation("expense_creator")
   creditNotes       CreditNote[]        @relation("credit_note_user")
@@ -72,9 +65,6 @@ model Plan {
   features         Json?
   isActive         Boolean      @default(true) @map("is_active")
   sortOrder        Int          @default(0) @map("sort_order")
-  // ── Stripe (Product/Price creados en el connected account) ──
-  stripeProductId  String?      @unique @map("stripe_product_id")
-  stripePriceId    String?      @unique @map("stripe_price_id")
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
   memberships      Membership[]
@@ -92,7 +82,6 @@ model Membership {
   autoRenew            Boolean          @default(true) @map("auto_renew")
   downgradeAllowed     Boolean          @default(false) @map("downgrade_allowed") // un admin habilitó bajar de plan (1 uso)
   arizarSubscriptionId String?          @map("arizar_subscription_id")
-  stripeSubscriptionId String?          @unique @map("stripe_subscription_id")
   servicesUsed         Int              @default(0) @map("services_used")
   createdAt            DateTime         @default(now()) @map("created_at")
   updatedAt            DateTime         @updatedAt @map("updated_at")
@@ -308,20 +297,19 @@ model Payment {
   bancardShopProcessId Int?         @unique @map("bancard_shop_process_id")
   bancardTicketNumber String?       @map("bancard_ticket_number")
   bancardAuthNumber   String?       @map("bancard_auth_number")
-  // ── Stripe ──
-  stripePaymentIntentId  String?    @unique @map("stripe_payment_intent_id")
-  stripeChargeId         String?    @unique @map("stripe_charge_id")
-  stripeSessionId        String?    @unique @map("stripe_session_id")
-  stripeConnectAccountId String?    @map("stripe_connect_account_id")  // destino del cobro (no unique: muchos pagos por account)
+  // Factura electrónica Bancard/SIFEN (poblados solo si el cobro emitió factura)
+  bancardInvoiceNumber   String?    @map("bancard_invoice_number")     // ej "001-001-0002563"
+  ivaAmountGs            Int?       @map("iva_amount_gs")              // IVA desglosado por Bancard
+  bancardIvaTicketNumber String?    @map("bancard_iva_ticket_number")
+  billingStatus          String?    @map("billing_status")            // success | error | null (sin factura)
   applicationFeeGs       Int?       @map("application_fee_gs")          // comisión de la plataforma
-  currency               String     @default("PYG")                    // PYG es zero-decimal en Stripe
+  currency               String     @default("PYG")                    // PYG es zero-decimal (sin centavos)
   status              PaymentStatus @default(PENDING)
   description         String?
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @default(now()) @updatedAt @map("updated_at")
   membership          Membership?   @relation(fields: [membershipId], references: [id])
   user                User          @relation(fields: [userId], references: [id], onDelete: Restrict)
-  ledgerEntries       StripeLedgerEntry[]
   creditNotes         CreditNote[]
 
   @@index([userId])
@@ -337,7 +325,6 @@ model PaymentCard {
   masfazzilCardId     String?  @map("masfazzil_card_id")
   bancardCardId       Int?     @unique @map("bancard_card_id")
   bancardAliasToken   String?  @map("bancard_alias_token")
-  stripePaymentMethodId String? @unique @map("stripe_payment_method_id")  // pm_... (reemplaza alias_token)
   fingerprint         String?  // detectar tarjetas duplicadas
   expirationDate      String?  @map("expiration_date")
   alias               String?
@@ -531,49 +518,10 @@ model BancardOperation {
   @@map("bancard_operations")
 }
 
-// Ledger por connected account: registra charges, application fees, transfers,
-// payouts y refunds para reconciliar y liquidar a cada cliente (Payoneer).
-model StripeLedgerEntry {
-  id                     String   @id @default(uuid())
-  userId                 String   @map("user_id")
-  paymentId              String?  @map("payment_id")
-  stripeConnectAccountId String?  @map("stripe_connect_account_id")
-  stripeEventId          String?  @unique @map("stripe_event_id")   // idempotencia
-  stripeObjectId         String?  @map("stripe_object_id")          // pi_/ch_/tr_/po_...
-  type                   String   // charge | application_fee | transfer | payout | refund
-  direction              String   // credit | debit
-  amountGs               Int      @map("amount_gs")
-  currency               String   @default("PYG")
-  status                 String   @default("PENDING")
-  metadataJson           Json?    @map("metadata_json")
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at")
-  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  payment                Payment? @relation(fields: [paymentId], references: [id])
-
-  @@index([userId])
-  @@index([stripeConnectAccountId])
-  @@index([status])
-  @@map("stripe_ledger_entries")
-}
-
-// Idempotencia de webhooks: Stripe reintenta entregas; registramos cada evento
-// procesado para no aplicarlo dos veces.
-model StripeWebhookEvent {
-  id            String    @id @default(uuid())
-  stripeEventId String    @unique @map("stripe_event_id")
-  type          String
-  processedAt   DateTime? @map("processed_at")
-  payloadJson   Json?     @map("payload_json")
-  createdAt     DateTime  @default(now()) @map("created_at")
-
-  @@map("stripe_webhook_events")
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // MÓDULO CONTABLE
 // Montos en Guaraníes (PYG) ENTEROS, sin decimales. IVA Paraguay general 10%.
-// La facturación de ingresos vive en Payment + StripeLedgerEntry (Stripe).
+// La facturación de ingresos vive en Payment (Bancard).
 // Estos modelos cubren egresos, notas de crédito y contabilidad de partida doble.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -619,7 +567,7 @@ model CreditNote {
   amountGs       Int      @map("amount_gs")                   // monto de la nota en PYG (entero)
   reason         String
   type           String                                       // refund | cancellation | adjustment
-  stripeRefundId String?  @map("stripe_refund_id")            // re_... si el reembolso se hizo por Stripe
+  bancardRollbackRef String? @map("bancard_rollback_ref")     // ref del rollback de Bancard (bancard_rollback:<shop_process_id>)
   createdById    String   @map("created_by_id")
   createdAt      DateTime @default(now()) @map("created_at")
   payment        Payment? @relation(fields: [paymentId], references: [id])

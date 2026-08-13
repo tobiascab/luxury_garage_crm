@@ -75,7 +75,7 @@ export default defineConfig({
       output: {
         // Solo forzamos chunk para lo que SÍ está en el camino crítico y es compartido
         // por casi todas las vistas (react, framer-motion/lucide del layout, axios).
-        // recharts, html5-qrcode, @stripe, date-fns NO se fuerzan: rolldown los deja
+        // recharts, html5-qrcode, date-fns NO se fuerzan: rolldown los deja
         // en el chunk async de la página lazy que los usa → solo se descargan al entrar
         // a esa vista (el cliente final nunca baja recharts ni el lector QR del admin).
         manualChunks(id) {

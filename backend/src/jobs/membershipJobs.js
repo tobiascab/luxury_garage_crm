@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const arizarService = require('../services/arizarService');
+const emailService = require('../services/emailService');
 
 // Zona horaria de Paraguay (UTC-4, sin DST desde 2024). Todos los cron schedules
 // y los cálculos de "inicio/fin de día" deben anclarse acá para no usar la TZ del
@@ -215,7 +216,16 @@ async function renewMembership(prisma, membership) {
     },
   });
 
-  // 5. Cobrar con Bancard
+  // 5. Cobrar con Bancard (con factura electrónica si está habilitada).
+  //    Ítems: renovación del plan + (si hay) los extras diferidos del mes anterior, para que la
+  //    suma de details cuadre EXACTO con chargeAmount (regla dura de Bancard).
+  const billingItems = [{ description: `Renovación ${plan.name}`, amountGs: plan.priceGs, ivaRate: 10, qty: 1 }];
+  if (overageTotal > 0) billingItems.push({ description: 'Servicios extra del mes anterior', amountGs: overageTotal, ivaRate: 10, qty: 1 });
+  const billing = bancardService.buildBilling({
+    client: bancardService.billingClientFromUser(user),
+    items: billingItems,
+    totalGs: chargeAmount,
+  });
   let chargeResult;
   try {
     chargeResult = await bancardService.charge({
@@ -224,6 +234,7 @@ async function renewMembership(prisma, membership) {
       aliasToken,
       description: `Renovacion ${plan.name}`,
       returnUrl: `${process.env.FRONTEND_URL || 'https://luxurygarage.arizar-ia.cloud'}/billetera`,
+      billing,
     });
   } catch (err) {
     console.error(`❌ Error Bancard charge renovación userId=${membership.userId}:`, err.message);
@@ -275,6 +286,7 @@ async function renewMembership(prisma, membership) {
           membershipId: newMembership.id,
           bancardTicketNumber: chargeResult.ticketNumber?.toString(),
           bancardAuthNumber: chargeResult.authorizationNumber?.toString(),
+          ...bancardService.billingToPaymentData(chargeResult.billing), // nº factura + IVA si se emitió
         },
       });
 
@@ -387,6 +399,8 @@ function initJobs(prisma) {
               );
             } catch (e) { console.error('Error enviando aviso 7d:', e.message); }
           }
+          // Por correo SIEMPRE: es el canal que no depende del CRM ni del teléfono.
+          emailService.sendExpiringSoon(m.user, { planName: m.plan.name, endDate: m.endDate, days: 7 }).catch(() => {});
         } catch (err) {
           console.error(`Error procesando miembro ${m.userId} (aviso 7d):`, err.message);
         }
@@ -428,6 +442,7 @@ function initJobs(prisma) {
               );
             } catch (e) { console.error('Error enviando aviso 1d:', e.message); }
           }
+          emailService.sendExpiringSoon(m.user, { planName: m.plan.name, endDate: m.endDate, days: 1 }).catch(() => {});
         } catch (err) {
           console.error(`Error procesando miembro ${m.userId} (aviso 1d):`, err.message);
         }
@@ -524,6 +539,11 @@ function initJobs(prisma) {
               );
             } catch (e) { console.error('Error enviando recordatorio:', e.message); }
           }
+          emailService.sendAppointmentReminder(a.user, {
+            serviceName: a.service.name,
+            when: `mañana a las ${time}`,
+            vehicle: `${a.vehicle.brand} ${a.vehicle.model}`.trim(),
+          }).catch(() => {});
         } catch (err) {
           console.error(`Error procesando turno ${a.id} (recordatorio):`, err.message);
         }
@@ -628,20 +648,6 @@ function initJobs(prisma) {
         const { user, plan } = membership;
 
         try {
-          // Modo test: extender sin cobrar.
-          // SEGURIDAD: inerte en producción — en prod la renovación exige cobro Bancard real.
-          if (user.isTestMode && process.env.NODE_ENV !== 'production') {
-            const newEnd = new Date(membership.endDate);
-            newEnd.setMonth(newEnd.getMonth() + 1);
-            await prisma.membership.update({
-              where: { id: membership.id },
-              data: { endDate: newEnd, startDate: new Date(membership.endDate) },
-            });
-            const emailRedactedTest = user.email ? user.email.substring(0, 3) + '***@***' : 'unknown';
-            console.log(`🧪 [TEST] Auto-renovación simulada: ${emailRedactedTest}`);
-            continue;
-          }
-
           // ─ Intentar el cobro con Bancard ──────────────────────────
           const result = await renewMembership(prisma, membership);
 
@@ -671,6 +677,14 @@ function initJobs(prisma) {
                 await sync.syncMembershipActivated(user, { ...membership, plan, endDate: newEnd, startDate: newStart });
               } catch (e) { console.error('Error sync ARIZAR renovación:', e.message); }
             }
+
+            // Comprobante por correo del cobro — va SIEMPRE, tenga o no CRM/teléfono.
+            emailService.sendRenewalOk(user, {
+              planName: plan.name,
+              amountGs: plan.priceGs,
+              endDate: newEnd,
+              cardLast4: primaryCard?.maskedNumber?.slice(-4) || null,
+            }).catch(() => {});
 
             const emailRedactedOk = user.email ? user.email.substring(0, 3) + '***@***' : 'unknown';
             console.log(`✅ Auto-renovación OK: ${emailRedactedOk} → ${plan.name} hasta ${newEnd.toLocaleDateString()}`);
@@ -710,6 +724,9 @@ function initJobs(prisma) {
                 }
               } catch (e) { console.error('Error enviando WA fallo renovación:', e.message); }
             }
+
+            // Aviso por correo del cobro fallido — el cliente tiene que enterarse sí o sí.
+            emailService.sendRenewalFailed(user, { planName: plan.name, noCard }).catch(() => {});
 
             const emailRedactedFail = user.email ? user.email.substring(0, 3) + '***@***' : 'unknown';
             console.error(`❌ Auto-renovación fallida (${reason}): ${emailRedactedFail}`);

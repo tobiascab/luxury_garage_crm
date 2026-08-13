@@ -197,7 +197,13 @@ export default function Login() {
                                 </div>
 
                                 <div className="flex justify-end px-1">
-                                    <button type="button" className="text-[10px] font-black uppercase tracking-widest text-primary dark:text-blue-400 hover:underline">¿Olvidaste tu contraseña?</button>
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/olvide-contrasena')}
+                                        className="text-[10px] font-black uppercase tracking-widest text-primary dark:text-blue-400 hover:underline"
+                                    >
+                                        ¿Olvidaste tu contraseña?
+                                    </button>
                                 </div>
 
                                 <Pressable

@@ -90,9 +90,13 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, re
     const user = await req.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({ data: { email, passwordHash, firstName, lastName, phone, role: 'CLIENT' } });
       if (plan) {
+        // El plan que elige el admin queda PENDING, NO activo: la membresía se activa recién
+        // cuando el cliente entra, carga su tarjeta y se le debita (cobro por adelantado).
+        // Una membresía PENDING es inerte en todo el sistema (cobertura, cupos, renovación y
+        // reportes filtran por status ACTIVE), así que no da beneficios hasta estar paga.
         const start = new Date();
         const end = new Date(); end.setMonth(end.getMonth() + 1);
-        await tx.membership.create({ data: { userId: created.id, planId: plan.id, status: 'ACTIVE', startDate: start, endDate: end } });
+        await tx.membership.create({ data: { userId: created.id, planId: plan.id, status: 'PENDING', startDate: start, endDate: end } });
       }
       return created;
     });
@@ -218,20 +222,54 @@ router.put('/:id/password', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), asy
       data: { entity: 'user', action: 'RESET_PASSWORD', entityId: target.id, userId: req.user.id, detailsJson: { by: req.user.email, target: target.email, sentCredentials: !!sendCredentials } }
     }).catch(() => {});
 
-    // Reenvío opcional de credenciales por WhatsApp vía ARIZAR.
-    if (sendCredentials && target.arizarContactId && target.phone) {
-      try {
-        const arizarService = require('../services/arizarService');
-        await arizarService.sendWhatsApp(target.arizarContactId,
-          `🔐 Luxury Garage — Restablecimiento de contraseña\n\n` +
-          `Hola ${target.firstName}, tu nueva contraseña es:\n` +
-          `🔑 ${newPassword}\n\n` +
-          `Ingresá en: https://luxurygarage.arizar-ia.cloud/login`
-        );
-      } catch (e) { console.error('Error enviando credenciales por WhatsApp:', e.message); }
+    // Reenvío opcional de credenciales. Por correo va siempre que se pida (el correo es
+    // obligatorio); el WhatsApp solo si el contacto está sincronizado en el CRM.
+    let enviadoPorCorreo = false;
+    if (sendCredentials) {
+      const emailService = require('../services/emailService');
+      const appUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://luxurygarage.arizar-ia.cloud';
+      const r = await emailService.send({
+        to: target.email,
+        subject: 'Tu contraseña de Luxury Garage fue restablecida',
+        html: `<!doctype html><html lang="es"><body style="margin:0;padding:32px 16px;background:#F4F2ED;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:10px;overflow:hidden;">
+            <tr><td style="background:#141210;padding:22px 28px;"><div style="color:#C9A227;font-size:15px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;">Luxury Garage</div></td></tr>
+            <tr><td style="padding:32px 28px;">
+              <h1 style="margin:0 0 16px;font-size:21px;color:#141210;">Tu contraseña fue restablecida</h1>
+              <p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#3D3831;">Hola ${String(target.firstName || '').replace(/[<>&"']/g, '')}, un administrador generó una contraseña nueva para tu cuenta:</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#F7F5F0;border-radius:8px;margin:0 0 16px;"><tr><td style="padding:16px 18px;">
+                <p style="margin:0;font-size:17px;color:#141210;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace;">${String(newPassword).replace(/[<>&"']/g, '')}</p>
+              </td></tr></table>
+              <p style="margin:0 0 20px;font-size:15px;line-height:1.65;color:#3D3831;">Entrá con ella y cambiala desde tu perfil apenas puedas.</p>
+              <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:#141210;border-radius:6px;">
+                <a href="${appUrl}/login" style="display:inline-block;padding:13px 26px;color:#C9A227;font-size:14px;font-weight:700;text-decoration:none;">Entrar a mi cuenta</a>
+              </td></tr></table>
+            </td></tr>
+            <tr><td style="padding:18px 28px;border-top:1px solid #EAE6DD;"><p style="margin:0;font-size:12px;color:#8A8175;">Si no pediste este cambio, avisanos respondiendo este correo.</p></td></tr>
+          </table></td></tr></table></body></html>`,
+      });
+      enviadoPorCorreo = r.ok;
+
+      if (target.arizarContactId && target.phone) {
+        try {
+          const arizarService = require('../services/arizarService');
+          await arizarService.sendWhatsApp(target.arizarContactId,
+            `🔐 Luxury Garage — Restablecimiento de contraseña\n\n` +
+            `Hola ${target.firstName}, tu nueva contraseña es:\n` +
+            `🔑 ${newPassword}\n\n` +
+            `Ingresá en: ${appUrl}/login`
+          );
+        } catch (e) { console.error('Error enviando credenciales por WhatsApp:', e.message); }
+      }
     }
 
-    res.json({ success: true, message: 'Contraseña actualizada' });
+    res.json({
+      success: true,
+      message: sendCredentials
+        ? (enviadoPorCorreo ? 'Contraseña actualizada y enviada por correo' : 'Contraseña actualizada, pero NO se pudo enviar el correo. Pasásela vos.')
+        : 'Contraseña actualizada',
+    });
   } catch (err) { next(err); }
 });
 
@@ -257,7 +295,7 @@ router.post('/:id/membership', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), 
     // si el create falla, el cliente no queda sin membresía activa (pierde cobertura).
     const membership = await req.prisma.$transaction(async (tx) => {
       await tx.membership.updateMany({
-        where: { userId: user.id, status: 'ACTIVE' },
+        where: { userId: user.id, status: { in: ['ACTIVE', 'PENDING'] } },
         data: { status: 'REPLACED' },
       });
       return tx.membership.create({
@@ -327,23 +365,6 @@ router.put('/:id/status', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async
       return res.status(403).json({ success: false, message: 'No podés cambiar el estado de un usuario con privilegios iguales o superiores' });
     }
     const user = await req.prisma.user.update({ where: { id: req.params.id }, data: { isActive } });
-    const { passwordHash, ...userData } = user;
-    res.json({ success: true, data: userData });
-  } catch (err) { next(err); }
-});
-
-router.put('/:id/test-mode', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
-  try {
-    const { isTestMode } = req.body;
-    if (typeof isTestMode !== 'boolean') {
-      return res.status(400).json({ success: false, message: 'isTestMode debe ser un booleano' });
-    }
-    const target = await req.prisma.user.findUnique({ where: { id: req.params.id } });
-    if (!target) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
-    if (!canManageTarget(req.user, target)) {
-      return res.status(403).json({ success: false, message: 'No podés cambiar el modo de pruebas de un usuario con privilegios iguales o superiores' });
-    }
-    const user = await req.prisma.user.update({ where: { id: req.params.id }, data: { isTestMode } });
     const { passwordHash, ...userData } = user;
     res.json({ success: true, data: userData });
   } catch (err) { next(err); }

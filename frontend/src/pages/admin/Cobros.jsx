@@ -23,7 +23,6 @@ const fmtCompact = (n) => {
 // Etiquetas legibles para los métodos que devuelve la API en byMethod.
 const METHOD_LABELS = {
   bancard_card: 'Tarjeta Bancard',
-  bancard_test: 'Tarjeta (prueba)',
   bancard: 'Bancard',
   wallet: 'Billetera',
   card: 'Tarjeta',
@@ -39,7 +38,7 @@ const methodLabel = (m) => {
 };
 const methodIcon = (m) => (m === 'wallet' ? <Wallet size={14} /> : <CreditCard size={14} />);
 
-export default function CobrosStripe() {
+export default function Cobros() {
   const [config, setConfig] = useState(null);   // /payments/status
   const [finance, setFinance] = useState(null); // /payments/admin/finance
   const [stats, setStats] = useState(null);     // /payments/admin/stats

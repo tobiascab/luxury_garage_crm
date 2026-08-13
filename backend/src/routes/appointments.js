@@ -6,35 +6,10 @@ const bancardService = require('../services/bancardService');
 const inventoryService = require('../services/inventoryService');
 const { postPaymentCompleted } = require('../services/journalService');
 
-/**
- * Cobertura del plan del usuario para un servicio dado.
- * Devuelve si lo cubre (con cupo disponible), si está en el plan, e info de cupo.
- * El cupo se calcula contando las reservas CUBIERTAS de ese servicio en el mes actual
- * (sin contadores frágiles). quota === -1 → ilimitado.
- */
-async function getServiceCoverage(prisma, userId, service) {
-  const membership = await prisma.membership.findFirst({
-    where: { userId, status: 'ACTIVE' },
-    include: { plan: true },
-  });
-  if (!membership) return { hasMembership: false, inPlan: false, covered: false };
-
-  const included = Array.isArray(membership.plan?.servicesIncluded) ? membership.plan.servicesIncluded : [];
-  const entry = included.find((s) => s && s.slug === service.slug);
-  if (!entry) return { hasMembership: true, inPlan: false, covered: false, membership };
-
-  const quota = Number(entry.quota);
-  const includedAddons = entry.includedAddons ?? null; // 'all' | [keys] | null (ninguno)
-  if (quota === -1) return { hasMembership: true, inPlan: true, covered: true, unlimited: true, remaining: -1, includedAddons, membership };
-
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const used = await prisma.appointment.count({
-    where: { userId, serviceId: service.id, coveredByMembership: true, createdAt: { gte: monthStart } },
-  });
-  const remaining = Math.max(0, quota - used);
-  return { hasMembership: true, inPlan: true, covered: remaining > 0, unlimited: false, quota, used, remaining, includedAddons, membership };
-}
+// Cobertura del plan para un servicio: fuente única compartida con el dashboard del cliente
+// y el scanner del empleado (services/membershipCoverage.js), para que los tres vean el
+// MISMO cupo restante.
+const { getServiceCoverage } = require('../services/membershipCoverage');
 
 /**
  * Cobra un turno a la tarjeta guardada del usuario en Bancard (cuando NO está cubierto por el plan).
@@ -88,6 +63,11 @@ async function chargeForBooking(prisma, userId, amountGs, description) {
   const appBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'https://luxurygarage.com.py';
   const returnUrl = `${appBaseUrl}/booking?paymentResult=1`;
 
+  const billing = bancardService.buildBilling({
+    client: bancardService.billingClientFromUser(user),
+    items: [{ description: description || 'Turno - Luxury Garage', amountGs, ivaRate: 10, qty: 1 }],
+    totalGs: amountGs,
+  });
   let chargeResult;
   try {
     chargeResult = await bancardService.charge({
@@ -96,6 +76,7 @@ async function chargeForBooking(prisma, userId, amountGs, description) {
       aliasToken,
       description: description || 'Turno - Luxury Garage',
       returnUrl,
+      billing,
     });
   } catch (err) {
     const msg = (err.message || '').startsWith('Bancard:')
@@ -124,6 +105,7 @@ async function chargeForBooking(prisma, userId, amountGs, description) {
     shopProcessId,
     ticketNumber: chargeResult.ticketNumber || null,
     authNumber: chargeResult.authorizationNumber || null,
+    billing: chargeResult.billing || null,
   };
 }
 
@@ -455,6 +437,7 @@ router.post('/', authenticate, async (req, res, next) => {
     let bancardShopProcessId = null;
     let bancardTicketNumber = null;
     let bancardAuthNumber = null;
+    let bancardBilling = null;
     let paidWithWallet = false;
     if (chargeNow && chargeable > 0) {
       if (paymentSource === 'wallet') {
@@ -522,6 +505,7 @@ router.post('/', authenticate, async (req, res, next) => {
         bancardShopProcessId = r.shopProcessId;
         bancardTicketNumber = r.ticketNumber;
         bancardAuthNumber = r.authNumber;
+        bancardBilling = r.billing || null;
       }
     }
 
@@ -600,6 +584,8 @@ router.post('/', authenticate, async (req, res, next) => {
           bancardShopProcessId: paidWithWallet ? null : bancardShopProcessId,
           bancardTicketNumber: paidWithWallet ? null : bancardTicketNumber,
           bancardAuthNumber: paidWithWallet ? null : bancardAuthNumber,
+          // Factura solo si se cobró con tarjeta Bancard (el pago con saldo ya se facturó al recargar).
+          ...(paidWithWallet ? {} : bancardService.billingToPaymentData(bancardBilling)),
         },
       });
       // Marcar la operación Bancard como COMPLETED (solo si fue cobro con tarjeta).
@@ -616,11 +602,15 @@ router.post('/', authenticate, async (req, res, next) => {
         });
       }
     } else if (billingMode === 'overage_next_cycle') {
-      // Extra a facturar en la próxima renovación (cargado al próximo mes)
+      // Extra a facturar en la próxima renovación (cargado al próximo mes).
+      // El id de la cita va en la descripción (`overage:<slug>#<appointmentId>`) para poder
+      // anular este cargo si el cliente cancela el turno: sin ese vínculo, un turno cancelado
+      // se seguía cobrando igual al renovar. El job de renovación filtra por el prefijo
+      // 'overage:' y por status PENDING, así que el formato le sigue sirviendo.
       await req.prisma.payment.create({
         data: {
           userId: req.user.id, amountGs: chargeable, paymentMethod: 'bancard_card',
-          currency: 'PYG', status: 'PENDING', description: `overage:${service.slug}`,
+          currency: 'PYG', status: 'PENDING', description: `overage:${service.slug}#${appointment.id}`,
         },
       });
     }
@@ -801,7 +791,7 @@ router.post('/charge-booking-3ds-complete', authenticate, async (req, res, next)
       if (pendingPayment) {
         completedPayment = await tx.payment.update({
           where: { id: pendingPayment.id },
-          data: { status: 'COMPLETED', bancardTicketNumber, bancardAuthNumber },
+          data: { status: 'COMPLETED', bancardTicketNumber, bancardAuthNumber, ...bancardService.billingToPaymentData(confirmation) },
         });
       } else {
         completedPayment = await tx.payment.create({
@@ -811,6 +801,7 @@ router.post('/charge-booking-3ds-complete', authenticate, async (req, res, next)
             description: `appointment:${service.slug}`,
             bancardShopProcessId: Number(shopProcessId),
             bancardTicketNumber, bancardAuthNumber,
+            ...bancardService.billingToPaymentData(confirmation),
           },
         });
       }
@@ -1248,6 +1239,21 @@ router.delete('/:id', authenticate, async (req, res, next) => {
     }
 
     await req.prisma.appointment.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
+
+    // Si el turno se había diferido "al próximo mes", anular ese cargo pendiente: cancelar el
+    // turno no puede seguir generando un cobro en la renovación. Se marca FAILED (no se borra)
+    // para conservar la traza; el job de renovación solo cobra los que están en PENDING.
+    if (appointment.billingMode === 'overage_next_cycle') {
+      const anulados = await req.prisma.payment.updateMany({
+        where: {
+          userId: appointment.userId,
+          status: 'PENDING',
+          description: { endsWith: `#${appointment.id}` },
+        },
+        data: { status: 'FAILED', description: `overage anulado por cancelación del turno #${appointment.id}` },
+      });
+      if (anulados.count) console.log(`↩️  Overage anulado por cancelación: turno ${appointment.id}`);
+    }
 
     // ═══ ARIZAR IA: Notify cancellation ═══
     const sync = new ArizarSync(req.prisma);

@@ -87,6 +87,8 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
 
   const ticketNumber = confirmation.ticket_number ? String(confirmation.ticket_number) : null;
   const authNumber = confirmation.authorization_number ? String(confirmation.authorization_number) : null;
+  // Factura electrónica (si el cobro la generó): nº de factura + IVA, mismo dato en los 3 caminos.
+  const billingData = bancardService.billingToPaymentData(confirmation);
 
   const result = await prisma.$transaction(async (tx) => {
     // Lock de la fila del usuario: serializa con el *-3ds-complete y con otra materialización
@@ -110,23 +112,23 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
       // Upgrade prorrateado: conservar el vencimiento del ciclo vigente (keepEndDate). Resto: +1 mes.
       const endD = meta.keepEndDate ? new Date(meta.keepEndDate) : (() => { const e = new Date(); e.setMonth(e.getMonth() + 1); return e; })();
       const membershipAmount = meta.chargeAmountGs ?? op.amountGs ?? plan.priceGs;
-      await tx.membership.updateMany({ where: { userId: op.userId, status: 'ACTIVE' }, data: { status: 'REPLACED' } });
+      await tx.membership.updateMany({ where: { userId: op.userId, status: { in: ['ACTIVE', 'PENDING'] } }, data: { status: 'REPLACED' } });
       const membership = await tx.membership.create({
         data: { userId: op.userId, planId: plan.id, status: 'ACTIVE', startDate: startD, endDate: endD, autoRenew: true },
       });
       if (existingPayment) {
-        await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', membershipId: membership.id, bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber } });
+        await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', membershipId: membership.id, bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, ...billingData } });
       } else {
-        await tx.payment.create({ data: { userId: op.userId, amountGs: membershipAmount, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', membershipId: membership.id, bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: `Membresía ${plan.name}` } });
+        await tx.payment.create({ data: { userId: op.userId, amountGs: membershipAmount, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', membershipId: membership.id, bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: `Membresía ${plan.name}`, ...billingData } });
       }
     } else if (isTopup) {
       kind = 'topup';
       const amt = Number(meta.amountGs ?? op.amountGs);
       await tx.credit.create({ data: { userId: op.userId, amount: amt, type: 'WALLET_TOPUP', description: 'Recarga de billetera' } });
       if (existingPayment) {
-        await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber } });
+        await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, ...billingData } });
       } else {
-        await tx.payment.create({ data: { userId: op.userId, amountGs: amt, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: 'Recarga de billetera' } });
+        await tx.payment.create({ data: { userId: op.userId, amountGs: amt, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: 'Recarga de billetera', ...billingData } });
       }
     } else if (isAppointment && meta.appointmentDraft) {
       kind = 'appointment';
@@ -162,9 +164,9 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
         },
       });
       if (existingPayment) {
-        await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber } });
+        await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, ...billingData } });
       } else {
-        await tx.payment.create({ data: { userId: op.userId, amountGs: d.totalPriceGs, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: `appointment:${service?.slug || ''}` } });
+        await tx.payment.create({ data: { userId: op.userId, amountGs: d.totalPriceGs, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: `appointment:${service?.slug || ''}`, ...billingData } });
       }
       meta.appointmentId = appointment.id;
     } else if (existingPayment) {

@@ -344,14 +344,13 @@ router.post('/card/set-primary', authenticate, async (req, res, next) => {
  *
  * Flow:
  *  1. Validate plan and user
- *  2. If isTestMode → simulate approved charge
- *  3. Select card (by cardId or primary)
- *  4. Get a fresh alias_token from Bancard (getUserCards)
- *  5. Create PENDING BancardOperation + Payment records
- *  6. Call bancardService.charge()
- *  7a. If 3DS required → return { requires3ds: true, processId } for iframe
- *  7b. If approved  → activate membership in a DB transaction
- *  7c. If declined  → mark payment FAILED, return 402
+ *  2. Select card (by cardId or primary)
+ *  3. Get a fresh alias_token from Bancard (getUserCards)
+ *  4. Create PENDING BancardOperation + Payment records
+ *  5. Call bancardService.charge()
+ *  6a. If 3DS required → return { requires3ds: true, processId } for iframe
+ *  6b. If approved  → activate membership in a DB transaction
+ *  6c. If declined  → mark payment FAILED, return 402
  */
 router.post('/charge-membership', authenticate, async (req, res, next) => {
   try {
@@ -410,64 +409,7 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
       });
     }
 
-    // 3. Test mode — simulate successful charge without hitting Bancard.
-    //    SEGURIDAD: inerte en producción. En prod NUNCA se activa una membresía sin cobro Bancard,
-    //    aunque el usuario tenga isTestMode=true. Sigue sirviendo para desarrollo.
-    if (user.isTestMode && process.env.NODE_ENV !== 'production') {
-      const start = new Date();
-      const end = nextEndDate();
-      const fakeShopProcessId = Date.now();
-
-      let membership, payment;
-      await req.prisma.$transaction(async (tx) => {
-        await tx.membership.updateMany({
-          where: { userId: user.id, status: 'ACTIVE' },
-          data: { status: 'REPLACED' },
-        });
-        membership = await tx.membership.create({
-          data: {
-            userId: user.id,
-            planId: plan.id,
-            status: 'ACTIVE',
-            startDate: start,
-            endDate: end,
-            autoRenew: true,
-          },
-          include: { plan: true },
-        });
-        payment = await tx.payment.create({
-          data: {
-            userId: user.id,
-            membershipId: membership.id,
-            amountGs: chargeAmountGs,
-            paymentMethod: 'bancard_test',
-            bancardShopProcessId: fakeShopProcessId,
-            bancardTicketNumber: `TEST_${Date.now()}`,
-            bancardAuthNumber: 'TEST',
-            status: 'COMPLETED',
-            description: `[TEST] ${chargeDescription}`,
-          },
-        });
-        await tx.auditLog.create({
-          data: {
-            entity: 'payment',
-            action: 'membership_charged_test',
-            entityId: payment.id,
-            userId: user.id,
-            detailsJson: { planName: plan.name, amount: chargeAmountGs, prorated: charge.prorated, fullPrice: charge.fullPrice, testMode: true },
-          },
-        });
-      });
-
-      console.log(`[TEST MODE] Membresía ${plan.name} activada para ${user.email} (cobro ₲${chargeAmountGs}${charge.prorated ? ', prorrateado' : ''})`);
-      return res.json({
-        success: true,
-        data: { membership, payment: { id: payment.id, amount: chargeAmountGs, status: 'COMPLETED' }, charge },
-        message: `¡Membresía ${plan.name} activada! (modo prueba)`,
-      });
-    }
-
-    // 4. Real Bancard flow — user must have bancardUserId
+    // 3. Real Bancard flow — user must have bancardUserId
     if (!user.bancardUserId) {
       return res.status(400).json({
         success: false,
@@ -564,7 +506,12 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     }
     const pendingPayment = await req.prisma.payment.findUnique({ where: { bancardShopProcessId: shopProcessId } });
 
-    // 6. Execute charge via Bancard
+    // 6. Execute charge via Bancard (con factura electrónica si está habilitada)
+    const billing = bancardService.buildBilling({
+      client: bancardService.billingClientFromUser(user),
+      items: [{ description: chargeDescription, amountGs: chargeAmountGs, ivaRate: 10, qty: 1 }],
+      totalGs: chargeAmountGs,
+    });
     let chargeResult;
     try {
       chargeResult = await bancardService.charge({
@@ -573,6 +520,7 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
         aliasToken,
         description,
         returnUrl,
+        billing,
       });
     } catch (bancardErr) {
       // Mark payment as failed
@@ -643,9 +591,10 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
       const freshOp = await tx.bancardOperation.findUnique({ where: { shopProcessId } });
       if (freshOp?.status === 'COMPLETED') { alreadyMaterialized = true; return; }
 
-      // Replace any existing active membership
+      // Reemplaza la membresía activa previa y consume la PENDING que el admin dejó
+      // preseleccionada al crear la cuenta (si la hay): ya quedó materializada por este cobro.
       await tx.membership.updateMany({
-        where: { userId: user.id, status: 'ACTIVE' },
+        where: { userId: user.id, status: { in: ['ACTIVE', 'PENDING'] } },
         data: { status: 'REPLACED' },
       });
 
@@ -670,6 +619,7 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
           membershipId: membership.id,
           bancardTicketNumber: bancardTicketNumber || null,
           bancardAuthNumber: bancardAuthNumber || null,
+          ...bancardService.billingToPaymentData(chargeResult.billing), // nº factura + IVA si se emitió
         },
       });
 
@@ -857,7 +807,7 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
       if (freshOp?.status === 'COMPLETED') { alreadyMaterialized = true; return; }
 
       await tx.membership.updateMany({
-        where: { userId: req.user.id, status: 'ACTIVE' },
+        where: { userId: req.user.id, status: { in: ['ACTIVE', 'PENDING'] } },
         data: { status: 'REPLACED' },
       });
 
@@ -880,6 +830,7 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
           membershipId: membership.id,
           bancardTicketNumber,
           bancardAuthNumber,
+          ...bancardService.billingToPaymentData(confirmation), // factura emitida al confirmar el 3DS
         },
       });
 
@@ -960,13 +911,12 @@ router.post('/charge-3ds-complete', authenticate, async (req, res, next) => {
  *
  * Flujo (replica charge-membership):
  *  1. Validar amountGs (entero > 0)
- *  2. Si isTestMode (y no prod) → simular acreditación sin llamar a Bancard
- *  3. Seleccionar tarjeta (cardId o primaria) + refrescar alias_token
- *  4. Crear PENDING BancardOperation(type:'charge', kind:'topup') + Payment(PENDING)
- *  5. Llamar bancardService.charge()
- *  6a. 3DS → { success:true, requires3ds:true, data:{ processId, jsLibUrl, shopProcessId } }
- *  6b. Aprobado → acreditar Credit (WALLET_TOPUP) + Payment COMPLETED en una transacción
- *  6c. Rechazado → 402 { success:false, message }
+ *  2. Seleccionar tarjeta (cardId o primaria) + refrescar alias_token
+ *  3. Crear PENDING BancardOperation(type:'charge', kind:'topup') + Payment(PENDING)
+ *  4. Llamar bancardService.charge()
+ *  5a. 3DS → { success:true, requires3ds:true, data:{ processId, jsLibUrl, shopProcessId } }
+ *  5b. Aprobado → acreditar Credit (WALLET_TOPUP) + Payment COMPLETED en una transacción
+ *  5c. Rechazado → 402 { success:false, message }
  */
 router.post('/charge-topup', authenticate, async (req, res, next) => {
   try {
@@ -987,41 +937,6 @@ router.post('/charge-topup', authenticate, async (req, res, next) => {
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
     const description = 'Recarga de billetera';
-
-    // Modo prueba — simular acreditación sin tocar Bancard (inerte en producción).
-    if (user.isTestMode && process.env.NODE_ENV !== 'production') {
-      const fakeShopProcessId = Date.now();
-      let payment;
-      await req.prisma.$transaction(async (tx) => {
-        await tx.credit.create({
-          data: { userId: user.id, amount, type: 'WALLET_TOPUP', description: `[TEST] ${description}` },
-        });
-        payment = await tx.payment.create({
-          data: {
-            userId: user.id,
-            amountGs: amount,
-            paymentMethod: 'bancard_test',
-            bancardShopProcessId: fakeShopProcessId,
-            bancardTicketNumber: `TEST_${Date.now()}`,
-            bancardAuthNumber: 'TEST',
-            status: 'COMPLETED',
-            description: `[TEST] ${description}`,
-          },
-        });
-        await tx.auditLog.create({
-          data: {
-            entity: 'payment', action: 'wallet_topup_test', entityId: payment.id, userId: user.id,
-            detailsJson: { amountGs: amount, testMode: true },
-          },
-        });
-      });
-      console.log(`[TEST MODE] Recarga de billetera ₲${amount} acreditada para ${user.email}`);
-      return res.json({
-        success: true,
-        data: { payment: { id: payment.id, status: 'COMPLETED' }, amountGs: amount },
-        message: `¡Recarga de ₲${amount.toLocaleString('es-PY')} acreditada! (modo prueba)`,
-      });
-    }
 
     // Flujo real Bancard — necesita bancardUserId
     if (!user.bancardUserId) {
@@ -1100,7 +1015,12 @@ router.post('/charge-topup', authenticate, async (req, res, next) => {
     }
     const pendingPayment = await req.prisma.payment.findUnique({ where: { bancardShopProcessId: shopProcessId } });
 
-    // Ejecutar el cobro
+    // Ejecutar el cobro (con factura electrónica si está habilitada)
+    const billing = bancardService.buildBilling({
+      client: bancardService.billingClientFromUser(user),
+      items: [{ description: 'Recarga de billetera', amountGs: amount, ivaRate: 10, qty: 1 }],
+      totalGs: amount,
+    });
     let chargeResult;
     try {
       chargeResult = await bancardService.charge({
@@ -1109,6 +1029,7 @@ router.post('/charge-topup', authenticate, async (req, res, next) => {
         aliasToken,
         description,
         returnUrl,
+        billing,
       });
     } catch (bancardErr) {
       await req.prisma.payment.update({
@@ -1175,6 +1096,7 @@ router.post('/charge-topup', authenticate, async (req, res, next) => {
           status: 'COMPLETED',
           bancardTicketNumber: bancardTicketNumber || null,
           bancardAuthNumber: bancardAuthNumber || null,
+          ...bancardService.billingToPaymentData(chargeResult.billing), // nº factura + IVA si se emitió
         },
       });
       await tx.bancardOperation.update({ where: { shopProcessId }, data: { status: 'COMPLETED' } });
@@ -1312,7 +1234,7 @@ router.post('/charge-topup-3ds-complete', authenticate, async (req, res, next) =
       });
       payment = await tx.payment.update({
         where: { bancardShopProcessId: Number(shopProcessId) },
-        data: { status: 'COMPLETED', bancardTicketNumber, bancardAuthNumber },
+        data: { status: 'COMPLETED', bancardTicketNumber, bancardAuthNumber, ...bancardService.billingToPaymentData(confirmation) },
       });
       await tx.bancardOperation.update({
         where: { shopProcessId: Number(shopProcessId) },
@@ -1545,6 +1467,48 @@ router.get('/admin/stats', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), asyn
       },
     });
   } catch (err) {
+    next(err);
+  }
+});
+
+// ─────────────────────────────────────────────────────
+//  FACTURA ELECTRÓNICA — ANULACIÓN (para reembolsos)
+// ─────────────────────────────────────────────────────
+
+/**
+ * POST /api/payments/admin/invoice/:paymentId/cancel
+ * Anula la factura electrónica de un pago vía Bancard (billing/cancel). Uso típico: reembolsos.
+ * Requisitos de Bancard: el comprobante debe estar aprobado y la cancelación se permite hasta
+ * 24 hs después de emitido. Solo admin.
+ */
+router.post('/admin/invoice/:paymentId/cancel', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+  try {
+    const { paymentId } = req.params;
+    const payment = await req.prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) return res.status(404).json({ success: false, message: 'Pago no encontrado' });
+    if (!payment.bancardInvoiceNumber || !payment.bancardShopProcessId) {
+      return res.status(400).json({ success: false, message: 'Este pago no tiene factura electrónica para cancelar.' });
+    }
+    if (payment.billingStatus === 'cancelled') {
+      return res.json({ success: true, message: 'La factura ya estaba cancelada.', data: { invoiceNumber: payment.bancardInvoiceNumber } });
+    }
+
+    const result = await bancardService.cancelInvoice(payment.bancardShopProcessId);
+    if (!result.success) {
+      return res.status(422).json({ success: false, message: result.message });
+    }
+
+    await req.prisma.payment.update({ where: { id: payment.id }, data: { billingStatus: 'cancelled' } });
+    await req.prisma.auditLog.create({
+      data: {
+        entity: 'payment', action: 'invoice_cancelled_bancard', entityId: payment.id, userId: req.user.id,
+        detailsJson: { invoiceNumber: payment.bancardInvoiceNumber, shopProcessId: payment.bancardShopProcessId, message: result.message },
+      },
+    });
+
+    res.json({ success: true, message: result.message || 'Factura cancelada', data: { invoiceNumber: payment.bancardInvoiceNumber } });
+  } catch (err) {
+    console.error('[Bancard] cancel invoice error:', err.message);
     next(err);
   }
 });

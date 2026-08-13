@@ -5,6 +5,7 @@ const arizarService = require('../services/arizarService');
 const ArizarSync = require('../services/arizarSync');
 const inventoryService = require('../services/inventoryService');
 const pushService = require('../services/pushService');
+const { getPlanUsage } = require('../services/membershipCoverage');
 
 // ── Token del carnet QR — FIRMADO con HMAC ────────────────────────────────────────────────
 // El QR del cliente lo emite SOLO el backend (GET /qr/token), firmado con QR_SECRET. Antes el
@@ -44,7 +45,7 @@ function verifyQrToken(token) {
 router.get('/profile/full', authenticate, async (req, res, next) => {
     try {
         const userId = req.user.id;
-        const [user, creditSum] = await Promise.all([
+        const [user, creditSum, cardCount, pendingMembership] = await Promise.all([
             req.prisma.user.findUnique({
                 where: { id: userId },
                 select: {
@@ -84,13 +85,31 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
             req.prisma.credit.aggregate({
                 where: { userId, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
                 _sum: { amount: true }
-            })
+            }),
+            // ── Datos del alta obligatoria ────────────────────────────────────────────────
+            // ¿Tiene al menos una tarjeta catastrada? Sin tarjeta no se puede cobrar ni renovar.
+            req.prisma.paymentCard.count({ where: { userId } }),
+            // Plan que el admin dejó preseleccionado al crear la cuenta (queda PENDING hasta
+            // que el cliente lo pague). Se usa para abrirle el alta con su plan ya elegido.
+            req.prisma.membership.findFirst({
+                where: { userId, status: 'PENDING' },
+                include: { plan: { select: { id: true, name: true, priceGs: true } } },
+                orderBy: { createdAt: 'desc' },
+            }),
         ]);
 
         if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
         const wallet_balance = creditSum._sum.amount || 0;
         const activeMembership = user.memberships[0];
+
+        // Consumo real del plan en el ciclo vigente (mismo número que usa el cobro al reservar
+        // y que ve el empleado al escanear el QR). null si no tiene membresía activa.
+        const planUsage = activeMembership ? await getPlanUsage(req.prisma, userId) : null;
+
+        // El alta es OBLIGATORIA para clientes sin membresía activa: al entrar deben cargar
+        // tarjeta, elegir plan y pagar (débito adelantado). Staff/admin nunca la ven.
+        const onboardingRequired = user.role === 'CLIENT' && !activeMembership;
 
         res.json({
             success: true,
@@ -102,6 +121,10 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
                 appointmentCount: user._count?.appointments ?? user.appointments.length,
                 membership_status: activeMembership ? 'Activa' : 'Inactiva',
                 activeMembership,
+                onboardingRequired,
+                hasPaymentCard: cardCount > 0,
+                pendingPlan: pendingMembership?.plan || null,
+                planUsage,
                 bookings: user.appointments.map(a => ({
                     ...a,
                     booking_date: a.startTime // Standard alias
@@ -202,9 +225,11 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
             employeeId,
         });
 
-        // Lavados completados del mes (para el resumen del operario).
-        const washesThisMonth = await req.prisma.appointment.count({
-            where: { userId: user.id, status: 'COMPLETED', date: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } },
+        // Consumo del plan tras completar ESTE lavado — mismo cálculo que ve el cliente en su
+        // dashboard y que usa el cobro al reservar (ciclo de membresía, no mes calendario).
+        const usage = await getPlanUsage(req.prisma, user.id);
+        const washesThisMonth = usage ? usage.used : await req.prisma.appointment.count({
+            where: { userId: user.id, status: 'COMPLETED', createdAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } },
         });
 
         // ── ARIZAR IA SYNC ──
@@ -225,12 +250,10 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
             url: '/qr',
         }).catch((e) => console.error('[push] wash-done falló:', e.message));
 
-        // Cupo restante del plan este mes (dato real de limitsJson.maxWashesPerMonth).
-        // -1 o ausente = ilimitado → remainingWashes: null (el front muestra "Ilimitado").
-        const maxWashes = activeMembership?.plan?.limitsJson?.maxWashesPerMonth;
-        const remainingWashes = (maxWashes == null || maxWashes < 0)
-            ? null
-            : Math.max(0, maxWashes - washesThisMonth);
+        // Cupo restante del plan en el ciclo vigente. null = ilimitado (el front muestra "∞").
+        // Sale del MISMO cálculo que usa la reserva para decidir si cobra, así el número que
+        // ve el operario coincide siempre con el que ve el cliente.
+        const remainingWashes = usage ? usage.remaining : null;
 
         res.json({
             success: true,

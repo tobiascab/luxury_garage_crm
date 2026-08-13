@@ -78,7 +78,7 @@ app.use(cors({
 // ── 4. HTTP Parameter Pollution ───────────────────────────────────────────
 app.use(hppProtection);
 
-// ── Prisma on request (movido arriba: el webhook de Stripe lo necesita) ───
+// ── Prisma on request (movido arriba: los webhooks de Bancard lo necesitan) ───
 app.use((req, res, next) => {
   req.prisma = prisma;
   next();

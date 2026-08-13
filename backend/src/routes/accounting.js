@@ -358,10 +358,9 @@ router.post('/credit-notes', ...adminOnly, validateBody(creditNoteSchema), async
 
     // Reembolso por Bancard (best-effort): Bancard no tiene refund general por API, solo `rollback`,
     // que normalmente funciona únicamente el mismo día del cobro. Si tiene éxito, guardamos el ref
-    // en la columna existente `stripeRefundId` (reutilizada para no migrar el schema; acá va el ref
-    // del rollback de Bancard, no de Stripe). Si no se puede, la nota queda registrada igual con ese
+    // del rollback en `bancardRollbackRef`. Si no se puede, la nota queda registrada igual con ese
     // campo en null (pendiente de conciliación manual), sin romper.
-    let stripeRefundId = null; // NOTA: reutilizado para el identificador de rollback de Bancard
+    let bancardRollbackRef = null;
     let refundPending = false;
     let refundDone = false;
     if (b.type === 'refund' && payment) {
@@ -369,7 +368,7 @@ router.post('/credit-notes', ...adminOnly, validateBody(creditNoteSchema), async
         try {
           const result = await bancardService.rollback(payment.bancardShopProcessId);
           if (result?.success) {
-            stripeRefundId = `bancard_rollback:${payment.bancardShopProcessId}`;
+            bancardRollbackRef = `bancard_rollback:${payment.bancardShopProcessId}`;
             refundDone = true;
           } else {
             refundPending = true; // el rollback no aplicó (probablemente fuera del mismo día)
@@ -390,7 +389,7 @@ router.post('/credit-notes', ...adminOnly, validateBody(creditNoteSchema), async
         amountGs: b.amountGs,
         reason: b.reason,
         type: b.type,
-        stripeRefundId, // ref del rollback de Bancard (columna reutilizada)
+        bancardRollbackRef,
         createdById: req.user.id,
       },
       include: {
@@ -406,14 +405,14 @@ router.post('/credit-notes', ...adminOnly, validateBody(creditNoteSchema), async
 
     await audit(req.prisma, {
       userId: req.user.id, action: 'CREDIT_NOTE_CREATE', entity: 'CreditNote', entityId: creditNote.id,
-      detailsJson: { type: b.type, amountGs: b.amountGs, paymentId: b.paymentId || null, bancardRollbackRef: stripeRefundId, refundPending },
+      detailsJson: { type: b.type, amountGs: b.amountGs, paymentId: b.paymentId || null, bancardRollbackRef, refundPending },
       ipAddress: req.ip,
     });
 
     res.status(201).json({
       success: true,
       data: creditNote,
-      meta: { bancardRollbackRef: stripeRefundId, refundPending },
+      meta: { bancardRollbackRef, refundPending },
       message: refundPending
         ? 'Nota de crédito registrada. El reembolso por Bancard quedó pendiente de conciliación manual.'
         : 'Nota de crédito registrada',
@@ -858,80 +857,6 @@ router.get('/reports/summary', ...adminOnly, async (req, res, next) => {
         counts: { payments: incomeMonth._count, expenses: expenseMonth._count, creditNotes: creditNotesMonth._count },
         receivables: { totalGs: receivablesGs, overdueGs, pendingPayments: pendingPaymentsAgg._count },
         creditNotesMonthGs: creditNotesMonth._sum.amountGs || 0,
-      },
-    });
-  } catch (err) { next(err); }
-});
-
-// ════════════════════════════════════════════════════════════════
-//  CONCILIACIÓN STRIPE
-// ════════════════════════════════════════════════════════════════
-
-// GET /api/accounting/reconciliation?from&to
-// Ventas registradas (Payment COMPLETED) vs StripeLedgerEntry; comisiones y diferencias.
-router.get('/reconciliation', ...adminOnly, async (req, res, next) => {
-  try {
-    const gte = parseDate(req.query.from);
-    const lte = parseDate(req.query.to);
-
-    const paymentWhere = { status: 'COMPLETED' };
-    if (gte || lte) {
-      paymentWhere.createdAt = {};
-      if (gte) paymentWhere.createdAt.gte = gte;
-      if (lte) paymentWhere.createdAt.lte = lte;
-    }
-
-    const ledgerWhere = {};
-    if (gte || lte) {
-      ledgerWhere.createdAt = {};
-      if (gte) ledgerWhere.createdAt.gte = gte;
-      if (lte) ledgerWhere.createdAt.lte = lte;
-    }
-
-    const [paymentAgg, ledgerEntries] = await Promise.all([
-      req.prisma.payment.aggregate({ where: paymentWhere, _sum: { amountGs: true, applicationFeeGs: true }, _count: true }),
-      req.prisma.stripeLedgerEntry.findMany({
-        where: ledgerWhere,
-        select: { type: true, direction: true, amountGs: true, status: true, paymentId: true },
-      }),
-    ]);
-
-    // Agregar el ledger por tipo de movimiento (charge, application_fee, transfer, payout, refund).
-    const byType = {};
-    for (const le of ledgerEntries) {
-      const k = le.type || 'unknown';
-      if (!byType[k]) byType[k] = { type: k, count: 0, amountGs: 0 };
-      byType[k].count += 1;
-      byType[k].amountGs += le.amountGs || 0;
-    }
-    const ledgerByType = Object.values(byType).sort((a, b) => b.amountGs - a.amountGs);
-
-    const registeredSalesGs = paymentAgg._sum.amountGs || 0;
-    const registeredFeesGs = paymentAgg._sum.applicationFeeGs || 0;
-    const ledgerChargesGs = byType.charge?.amountGs || 0;
-    const ledgerFeesGs = byType.application_fee?.amountGs || 0;
-    const ledgerRefundsGs = byType.refund?.amountGs || 0;
-
-    // Pagos COMPLETED sin ninguna entrada en el ledger (posible discrepancia).
-    const ledgerPaymentIds = new Set(ledgerEntries.map((l) => l.paymentId).filter(Boolean));
-    const completedPayments = await req.prisma.payment.findMany({
-      where: paymentWhere,
-      select: { id: true, amountGs: true, createdAt: true, stripePaymentIntentId: true },
-    });
-    const unmatchedPayments = completedPayments.filter((p) => !ledgerPaymentIds.has(p.id));
-
-    res.json({
-      success: true,
-      data: {
-        period: { from: gte, to: lte },
-        registered: { salesGs: registeredSalesGs, feesGs: registeredFeesGs, count: paymentAgg._count },
-        stripeLedger: { chargesGs: ledgerChargesGs, feesGs: ledgerFeesGs, refundsGs: ledgerRefundsGs, byType: ledgerByType },
-        differences: {
-          salesVsCharges: registeredSalesGs - ledgerChargesGs,
-          feesVsLedgerFees: registeredFeesGs - ledgerFeesGs,
-        },
-        unmatchedPayments: unmatchedPayments.map((p) => ({ id: p.id, amountGs: p.amountGs, createdAt: p.createdAt })),
-        reconciled: registeredSalesGs === ledgerChargesGs && unmatchedPayments.length === 0,
       },
     });
   } catch (err) { next(err); }

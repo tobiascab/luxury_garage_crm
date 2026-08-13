@@ -58,13 +58,17 @@ async function provisionClient(prisma, { email, firstName, lastName, phone, plan
       });
     }
 
-    // Plan
+    // Plan — queda PRESELECCIONADO, no activo.
+    // Todos los cobros son por adelantado: la membresía se activa recién cuando el cliente
+    // entra, registra su tarjeta y se le debita el primer mes (pantalla de alta obligatoria).
+    // Una membresía PENDING es inerte en todo el sistema: no cubre servicios, no consume cupos,
+    // no se auto-renueva y no cuenta en reportes (todo eso filtra por status ACTIVE).
     let membership = null;
     if (plan) {
       const start = new Date();
       const end = new Date(); end.setMonth(end.getMonth() + 1);
       membership = await tx.membership.create({
-        data: { userId: user.id, planId: plan.id, status: 'ACTIVE', startDate: start, endDate: end },
+        data: { userId: user.id, planId: plan.id, status: 'PENDING', startDate: start, endDate: end },
         include: { plan: true },
       });
     }

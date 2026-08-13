@@ -9,7 +9,7 @@ const adminOnly = [authenticate, authorize('SUPER_ADMIN', 'ADMIN')];
 async function setUserPlan(prisma, userId, planId) {
   const plan = await prisma.plan.findUnique({ where: { id: planId } });
   if (!plan) { const e = new Error('Plan no encontrado'); e.statusCode = 404; throw e; }
-  await prisma.membership.updateMany({ where: { userId, status: 'ACTIVE' }, data: { status: 'REPLACED' } });
+  await prisma.membership.updateMany({ where: { userId, status: { in: ['ACTIVE', 'PENDING'] } }, data: { status: 'REPLACED' } });
   const start = new Date(); const end = new Date(); end.setMonth(end.getMonth() + 1);
   return prisma.membership.create({
     data: { userId, planId, status: 'ACTIVE', startDate: start, endDate: end },

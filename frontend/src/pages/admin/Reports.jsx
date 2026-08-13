@@ -44,9 +44,6 @@ const nf = (n) => Number(n || 0).toLocaleString('es-PY');
 // Etiquetas legibles para los métodos de pago (Bancard es el proveedor actual).
 const METHOD_LABELS = {
   bancard_card: 'Tarjeta',
-  bancard_test: 'Tarjeta (prueba)',
-  stripe: 'Tarjeta (legado)',
-  stripe_card: 'Tarjeta (legado)',
   card: 'Tarjeta',
   cash: 'Efectivo',
   transfer: 'Transferencia',

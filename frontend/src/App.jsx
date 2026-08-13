@@ -126,7 +126,7 @@ const PromotionsManager = lazyWithReload(() => import('./pages/admin/PromotionsM
 const ReviewsAdmin = lazyWithReload(() => import('./pages/admin/ReviewsAdmin'));
 const InventoryManager = lazyWithReload(() => import('./pages/admin/InventoryManager'));
 const SettingsPage = lazyWithReload(() => import('./pages/admin/SettingsPage'));
-const CobrosStripe = lazyWithReload(() => import('./pages/admin/CobrosStripe'));
+const Cobros = lazyWithReload(() => import('./pages/admin/Cobros'));
 const AuditLogs = lazyWithReload(() => import('./pages/admin/AuditLogs'));
 const ArizarPanel = lazyWithReload(() => import('./pages/admin/ArizarPanel'));
 const ChatInbox = lazyWithReload(() => import('./pages/admin/ChatInbox'));
@@ -147,9 +147,19 @@ const LuxuryEmployeeDashboard = lazyWithReload(() => import('./luxury-design/pag
 const LuxuryEmployeeScanner = lazyWithReload(() => import('./luxury-design/pages/EmpleadoScanner'));
 const LuxuryEmployeeHistory = lazyWithReload(() => import('./luxury-design/pages/HistorialEmpleado'));
 const LuxuryTarjetas = lazyWithReload(() => import('./luxury-design/pages/Tarjetas'));
+// Alta obligatoria del cliente (tarjeta + plan + primer cobro). Bloquea la app hasta completarse.
+const LuxuryOnboarding = lazyWithReload(() => import('./luxury-design/pages/Onboarding'));
 
 // Landing pública (marketing) — solo la baja un visitante del navegador sin sesión.
 const Landing = lazyWithReload(() => import('./luxury-design/pages/Landing'));
+
+// Recuperación de contraseña y confirmación de correo (públicas: se llega desde el mail).
+const OlvidePassword = lazyWithReload(() =>
+  import('./luxury-design/pages/RecuperarPassword').then((m) => ({ default: m.OlvidePassword })));
+const RestablecerPassword = lazyWithReload(() =>
+  import('./luxury-design/pages/RecuperarPassword').then((m) => ({ default: m.RestablecerPassword })));
+const VerificarCorreo = lazyWithReload(() =>
+  import('./luxury-design/pages/RecuperarPassword').then((m) => ({ default: m.VerificarCorreo })));
 
 // ═══════════════════════════════════════════════════════════════════
 // Loading Fallback Component
@@ -217,11 +227,41 @@ function LuxuryShell() {
 
   return (
     <LuxuryUserProvider>
-      <LuxuryLayout>
-        <Outlet />
-      </LuxuryLayout>
+      <OnboardingGate>
+        <LuxuryLayout>
+          <Outlet />
+        </LuxuryLayout>
+      </OnboardingGate>
     </LuxuryUserProvider>
   );
+}
+
+// ─────────────────────────────────────────────────────────
+// Alta obligatoria: un CLIENTE sin membresía activa no entra a la app hasta
+// registrar su tarjeta, elegir plan y pagar el primer mes (débito adelantado).
+// `onboardingRequired` lo decide el backend (GET /luxury/profile/full) y ya viene
+// en false para empleados y admins. Única salida sin completar: cerrar sesión.
+// ─────────────────────────────────────────────────────────
+function OnboardingGate({ children }) {
+  const { fullUser, loading, refreshProfile } = useLuxuryUser();
+  const { logout } = useAuth();
+
+  // Sin datos todavía: no decidimos nada (evita el parpadeo del alta a un cliente que sí tiene plan).
+  if (loading && !fullUser) return <PageLoader />;
+
+  if (fullUser?.onboardingRequired) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <LuxuryOnboarding
+          user={fullUser}
+          onDone={() => refreshProfile(true)}
+          onLogout={logout}
+        />
+      </Suspense>
+    );
+  }
+
+  return children;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -304,6 +344,10 @@ function AppRoutes() {
       <Route path="/" element={<RootGate />} />
       <Route path="/login" element={<LuxuryLogin />} />
       <Route path="/register" element={<RegisterPage />} />
+      {/* Recuperar contraseña / confirmar correo: se entra desde el enlace del mail, sin sesión. */}
+      <Route path="/olvide-contrasena" element={<Suspense fallback={<PageLoader />}><OlvidePassword /></Suspense>} />
+      <Route path="/restablecer" element={<Suspense fallback={<PageLoader />}><RestablecerPassword /></Suspense>} />
+      <Route path="/verificar-correo" element={<Suspense fallback={<PageLoader />}><VerificarCorreo /></Suspense>} />
 
       {/* ── Luxury Shell (Client & Employee) ── */}
       <Route element={<ProtectedRoute roles={['CLIENT', 'EMPLOYEE', 'ADMIN', 'SUPER_ADMIN']}><LuxuryShell /></ProtectedRoute>}>
@@ -339,7 +383,7 @@ function AppRoutes() {
         <Route path="employees" element={<EmployeesManager />} />
         <Route path="scans" element={<WashScans />} />
         <Route path="finance" element={<FinanceDashboard />} />
-        <Route path="cobros" element={<CobrosStripe />} />
+        <Route path="cobros" element={<Cobros />} />
         <Route path="expenses" element={<ExpensesManager />} />
         <Route path="accounting" element={<AccountingReports />} />
         <Route path="reports" element={<Reports />} />

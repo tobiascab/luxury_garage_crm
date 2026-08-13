@@ -58,25 +58,22 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
         new Date(b.booking_date ?? b.startTime).getTime()
       )?.[0];
 
-    // Washes done this month
-    const now = new Date();
-    const thisMonth = now.getMonth();
-    const thisYear = now.getFullYear();
-    const washesDone = (user?.bookings ?? []).filter((b: any) => {
-      const d = new Date(b.booking_date ?? b.startTime);
-      return d.getMonth() === thisMonth && d.getFullYear() === thisYear &&
-        COMPLETED_STATUSES.includes(b.status);
-    }).length;
+    // Consumo del plan: lo calcula el BACKEND (planUsage) sobre el ciclo de la membresía y
+    // con el mismo criterio que usa el cobro al reservar. Antes se contaba acá en el navegador
+    // sobre `bookings`, que llega recortado a las últimas 5 reservas → el número quedaba corto.
+    const usage = user?.planUsage ?? null;
+    const washesDone = usage?.used ?? 0;
 
     const walletBalance = user?.wallet_balance ?? 0;
 
-    // Datos reales de la membresía activa (no del rol). Límite mensual real desde limitsJson.
     const planName = user?.activeMembership?.plan?.name || null;
-    const maxWashes = user?.activeMembership?.plan?.limitsJson?.maxWashesPerMonth;
-    const monthlyLimit = (maxWashes == null) ? '—' : (maxWashes < 0 ? '∞' : maxWashes);
+    // Tope real del plan = suma de los cupos de sus servicios (∞ si alguno es ilimitado).
+    const monthlyLimit = !usage ? '—' : (usage.unlimited ? '∞' : usage.quota);
+    // Lavados que le quedan en el ciclo (null = ilimitado).
+    const washesLeft = usage && !usage.unlimited ? usage.remaining : null;
 
-    return { nextBooking, washesDone, walletBalance, monthlyLimit, planName };
-  }, [user?.bookings, user?.wallet_balance, user?.activeMembership]);
+    return { nextBooking, washesDone, walletBalance, monthlyLimit, planName, washesLeft, usage };
+  }, [user?.bookings, user?.wallet_balance, user?.activeMembership, user?.planUsage]);
 
   return (
     <motion.div
@@ -155,7 +152,16 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
               />
               <span className="text-sm font-black text-slate-300 dark:text-slate-600 mb-1">/{stats.monthlyLimit}</span>
             </div>
-            <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">Lavados / Mes</p>
+            {/* Cuánto le queda del plan en ESTE ciclo. Al agotarse avisamos que el próximo
+                turno se cobra aparte, que es exactamente lo que hace el sistema al reservar. */}
+            <p className={`text-[9px] font-bold uppercase tracking-widest mt-1 ${stats.washesLeft === 0
+              ? 'text-amber-600 dark:text-amber-400'
+              : 'text-slate-400 dark:text-slate-500'}`}>
+              {!stats.usage ? 'Lavados del plan'
+                : stats.usage.unlimited ? 'Lavados · ilimitado'
+                  : stats.washesLeft === 0 ? 'Sin cupo · se cobra aparte'
+                    : `Te ${stats.washesLeft === 1 ? 'queda' : 'quedan'} ${stats.washesLeft}`}
+            </p>
           </div>
         </StaggerItem>
 

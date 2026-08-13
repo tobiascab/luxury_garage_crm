@@ -11,3 +11,7 @@ package-lock.json
 .playwright-mcp/
 .claude/skills/
 dev-dist/
+
+# Volcados de base de datos: nunca al repo (contienen datos de clientes y hashes)
+*.sql
+backup_*

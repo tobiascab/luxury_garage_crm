@@ -32,9 +32,6 @@ const STATUS_FILTERS = [
 
 const METHOD_LABELS = {
   bancard_card: 'Tarjeta',
-  bancard_test: 'Tarjeta (prueba)',
-  stripe: 'Tarjeta (legado)',
-  stripe_card: 'Tarjeta (legado)',
   card: 'Tarjeta',
   cash: 'Efectivo',
   transfer: 'Transferencia',

@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import {
   Users, Search, UserPlus, Mail, Phone, Calendar, X,
   Crown, Car, ChevronRight, MessageSquare, ShieldAlert, Shield,
-  Pencil, KeyRound, FlaskConical, RefreshCcw, ChevronLeft, ChevronDown,
+  Pencil, KeyRound, RefreshCcw, ChevronLeft, ChevronDown,
 } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -155,8 +155,8 @@ export default function MembersManager() {
         sendWhatsApp: createForm.sendWhatsApp,
       });
       toast.success(createForm.sendWhatsApp
-        ? 'Cliente creado y credenciales enviadas por WhatsApp'
-        : 'Cliente creado. Compartí las credenciales con el cliente.');
+        ? 'Cliente creado y credenciales enviadas. Activará su plan al entrar y pagar.'
+        : 'Cliente creado. Compartí las credenciales: activa su plan al entrar y pagar.');
       setShowCreate(false);
       setCreateForm(EMPTY_CREATE);
       setCreateErrors({});
@@ -278,7 +278,7 @@ export default function MembersManager() {
     setSavingPwd(false);
   };
 
-  // ── Status / Test mode ──
+  // ── Status ──
   const doToggleStatus = async () => {
     const member = confirmStatus;
     const newStatus = !member.isActive;
@@ -293,18 +293,6 @@ export default function MembersManager() {
       toast.error(err.response?.data?.message || 'Error al cambiar estado');
     }
     setActionLoading(false);
-  };
-
-  const toggleTestMode = async () => {
-    const newMode = !selected.isTestMode;
-    try {
-      await api.put(`/members/${selected.id}/test-mode`, { isTestMode: newMode });
-      toast.success(newMode ? 'Modo de pruebas activado' : 'Modo de pruebas desactivado');
-      setSelected(s => ({ ...s, isTestMode: newMode }));
-      setMembers(prev => prev.map(m => m.id === selected.id ? { ...m, isTestMode: newMode } : m));
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Error al cambiar el modo de pruebas');
-    }
   };
 
   const activeMembership = selected?.memberships?.find(m => m.status === 'ACTIVE');
@@ -450,11 +438,6 @@ export default function MembersManager() {
                             <span className={`w-1.5 h-1.5 rounded-full ${m.isActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                             {m.isActive ? 'Activo' : 'Suspendido'}
                           </span>
-                          {m.isTestMode && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[11px] font-medium">
-                              <FlaskConical size={11} /> Pruebas
-                            </span>
-                          )}
                         </div>
                       </td>
                       <td className="px-5 py-4 hidden sm:table-cell">
@@ -546,11 +529,6 @@ export default function MembersManager() {
                   <span className={`w-1.5 h-1.5 rounded-full ${selected.isActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                   {selected.isActive ? 'Activo' : 'Suspendido'}
                 </span>
-                {selected.isTestMode && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-medium">
-                    <FlaskConical size={12} /> Modo pruebas
-                  </span>
-                )}
               </div>
 
               {/* Contact grid */}
@@ -622,27 +600,6 @@ export default function MembersManager() {
                 </div>
               )}
 
-              {/* Test mode toggle */}
-              <div className="flex items-center justify-between rounded-xl border border-slate-200 dark:border-white/10 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="admin-itile admin-itile-amber w-9 h-9"><FlaskConical size={16} className="text-white" /></span>
-                  <div>
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">Modo de pruebas</p>
-                    <p className="text-xs text-slate-400">Activar planes sin cobrar</p>
-                  </div>
-                </div>
-                <motion.button
-                  whileTap={tapSm}
-                  onClick={toggleTestMode}
-                  className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${selected.isTestMode ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-700'}`}
-                >
-                  <motion.span
-                    layout
-                    transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 500, damping: 34 }}
-                    className={`w-4 h-4 rounded-full bg-white shadow-sm absolute top-1 ${selected.isTestMode ? 'left-6' : 'left-1'}`}
-                  />
-                </motion.button>
-              </div>
             </div>
 
             {/* Footer actions */}
@@ -701,7 +658,8 @@ export default function MembersManager() {
           <FormField label="Teléfono (WhatsApp)" name="phone" value={createForm.phone}
             onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })} placeholder="+595 9XX XXX XXX" hint="Necesario para enviar las credenciales" />
           <FormField as="select" label="Plan (opcional)" name="planId" value={createForm.planId}
-            onChange={(e) => setCreateForm({ ...createForm, planId: e.target.value })}>
+            onChange={(e) => setCreateForm({ ...createForm, planId: e.target.value })}
+            hint="Queda preseleccionado. Se activa cuando el cliente entre, cargue su tarjeta y se le debite el primer mes.">
             <option value="">Sin plan</option>
             {plans.map(p => <option key={p.id} value={p.id}>{p.name} — {formatGs(p.priceGs)}</option>)}
           </FormField>
