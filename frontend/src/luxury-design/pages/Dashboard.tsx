@@ -145,22 +145,33 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
             <Droplets size={18} />
           </div>
           <div>
+            {/* El número grande son los lavados que le QUEDAN, no los usados: es el dato que
+                el cliente busca acá. Mostrar los usados se leía como "tengo cero lavados"
+                justo después de pagar. */}
             <div className="flex items-end gap-1">
-              <AnimatedNumber
-                value={stats.washesDone}
-                className="text-3xl font-headline font-black text-slate-900 dark:text-white tracking-tighter leading-none"
-              />
-              <span className="text-sm font-black text-slate-300 dark:text-slate-600 mb-1">/{stats.monthlyLimit}</span>
+              {stats.usage?.unlimited ? (
+                <span className="text-3xl font-headline font-black text-slate-900 dark:text-white tracking-tighter leading-none">∞</span>
+              ) : (
+                <>
+                  <AnimatedNumber
+                    value={stats.washesLeft ?? 0}
+                    className={`text-3xl font-headline font-black tracking-tighter leading-none ${stats.washesLeft === 0
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-slate-900 dark:text-white'}`}
+                  />
+                  {stats.usage && (
+                    <span className="text-sm font-black text-slate-300 dark:text-slate-600 mb-1">/{stats.monthlyLimit}</span>
+                  )}
+                </>
+              )}
             </div>
-            {/* Cuánto le queda del plan en ESTE ciclo. Al agotarse avisamos que el próximo
-                turno se cobra aparte, que es exactamente lo que hace el sistema al reservar. */}
-            <p className={`text-[9px] font-bold uppercase tracking-widest mt-1 ${stats.washesLeft === 0
+            <p className={`text-[9px] font-bold uppercase tracking-widest mt-1 ${stats.washesLeft === 0 && stats.usage
               ? 'text-amber-600 dark:text-amber-400'
               : 'text-slate-400 dark:text-slate-500'}`}>
               {!stats.usage ? 'Lavados del plan'
-                : stats.usage.unlimited ? 'Lavados · ilimitado'
+                : stats.usage.unlimited ? 'Lavados ilimitados'
                   : stats.washesLeft === 0 ? 'Sin cupo · se cobra aparte'
-                    : `Te ${stats.washesLeft === 1 ? 'queda' : 'quedan'} ${stats.washesLeft}`}
+                    : stats.washesLeft === 1 ? 'Lavado disponible' : 'Lavados disponibles'}
             </p>
           </div>
         </StaggerItem>

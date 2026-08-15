@@ -41,7 +41,10 @@ export function LuxuryUserProvider({ children }: { children: React.ReactNode }) 
 
         fetchingRef.current = true;
         try {
-            const res = await api.get('/luxury/profile/full');
+            // Con force (típicamente después de pagar o cambiar de plan) se saltea también la
+            // caché de api.get, no solo la de este contexto: si no, el perfil podía volver con
+            // los datos de antes del cobro y el cliente veía su plan sin lavados.
+            const res = await api.get('/luxury/profile/full', force ? ({ _noCache: true } as any) : undefined);
             const data = res.data.data;
             setFullUser(data);
             cacheRef.current = { data, timestamp: Date.now() };
