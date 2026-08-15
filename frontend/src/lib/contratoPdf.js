@@ -22,7 +22,59 @@ const ANCHO = 210;      // A4
 const ALTO = 297;
 const UTIL = ANCHO - MARGEN * 2;
 
-const fmtGs = (n) => `₲ ${Number(n || 0).toLocaleString('es-PY')}`;
+const fmtGs = (n) => `Gs. ${Number(n || 0).toLocaleString('es-PY')}`;
+
+/**
+ * Las fuentes base de PDF (Helvetica y compañía) solo entienden latin-1. Un carácter fuera de
+ * ese rango —el símbolo ₲ es el caso típico— no solo se imprime mal: descoloca el espaciado
+ * de todo el renglón. Acá se traducen los que pueden aparecer y se descarta cualquier otro,
+ * así el documento nunca sale roto por un carácter suelto.
+ */
+const REEMPLAZOS = [
+  [/₲/g, 'Gs.'],
+  [/[""]/g, '"'],
+  [/['']/g, "'"],
+  [/…/g, '...'],
+  [/—/g, '-'],
+  [/–/g, '-'],
+  [/ /g, ' '],   // espacio duro
+  [/[•·]/g, '-'],
+];
+
+function aLatin1(texto) {
+  let t = String(texto ?? '');
+  for (const [re, rep] of REEMPLAZOS) t = t.replace(re, rep);
+  // Lo que siga fuera de latin-1 se quita antes de que rompa el renglón.
+  // Se conservan saltos y tabulaciones, que sí hacen falta.
+  return t.replace(/[^\x20-\xFF\n\r\t]/g, '');
+}
+
+/**
+ * Carga el logo y lo devuelve como dataURL para incrustarlo en el PDF.
+ * Si no cargara, devuelve null y el encabezado sale solo con el nombre: un documento sin
+ * logo es aceptable, uno que no se genera no.
+ */
+function cargarLogo() {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const corte = setTimeout(() => resolve(null), 4000);
+      img.onload = () => {
+        clearTimeout(corte);
+        try {
+          const lado = 256;
+          const canvas = document.createElement('canvas');
+          canvas.width = lado; canvas.height = lado;
+          canvas.getContext('2d').drawImage(img, 0, 0, lado, lado);
+          resolve(canvas.toDataURL('image/png'));
+        } catch { resolve(null); }
+      };
+      img.onerror = () => { clearTimeout(corte); resolve(null); };
+      img.src = '/pwa-192x192.png';
+    } catch { resolve(null); }
+  });
+}
 
 const fmtFecha = (d) => {
   if (!d) return '—';
@@ -38,8 +90,9 @@ const fmtFecha = (d) => {
  * @param {object} contrato  fila de `contracts` tal como la devuelve la API
  * @returns {jsPDF}
  */
-export function construirContratoPdf(contrato) {
+export async function construirContratoPdf(contrato) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const logo = await cargarLogo();
   const comercio = contrato.comercio_snapshot || {};
   const cliente = contrato.cliente_snapshot || {};
 
@@ -51,21 +104,27 @@ export function construirContratoPdf(contrato) {
   doc.setFillColor(...ORO);
   doc.rect(0, 26, ANCHO, 1.2, 'F');
 
+  // El escudo, si se pudo cargar. El texto se corre para dejarle lugar.
+  const xTexto = logo ? MARGEN + 18 : MARGEN;
+  if (logo) {
+    try { doc.addImage(logo, 'PNG', MARGEN, 5.5, 15, 15, undefined, 'FAST'); } catch { /* sin logo */ }
+  }
+
   doc.setTextColor(...ORO);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
-  doc.text('LUXURY GARAGE', MARGEN, 13.5);
+  doc.text('LUXURY GARAGE', xTexto, 13.5);
 
   doc.setTextColor(235, 231, 222);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  if (comercio.razonSocial) doc.text(comercio.razonSocial, MARGEN, 19.5);
-  if (comercio.ruc) doc.text(`RUC ${comercio.ruc}`, ANCHO - MARGEN, 19.5, { align: 'right' });
+  if (comercio.razonSocial) doc.text(aLatin1(comercio.razonSocial), xTexto, 19.5);
+  if (comercio.ruc) doc.text(aLatin1(`RUC ${comercio.ruc}`), ANCHO - MARGEN, 19.5, { align: 'right' });
 
   doc.setTextColor(235, 231, 222);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text(`N° ${contrato.numero || '—'}`, ANCHO - MARGEN, 13.5, { align: 'right' });
+  doc.text(aLatin1(`N° ${contrato.numero || '-'}`), ANCHO - MARGEN, 13.5, { align: 'right' });
 
   y = 38;
 
@@ -89,10 +148,10 @@ export function construirContratoPdf(contrato) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(...GRIS);
-    doc.text(k, MARGEN + 4, y);
+    doc.text(aLatin1(k), MARGEN + 4, y);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...TINTA);
-    doc.text(String(v), MARGEN + 42, y);
+    doc.text(aLatin1(String(v)), MARGEN + 42, y);
     y += 6.2;
   });
 
@@ -122,7 +181,7 @@ export function construirContratoPdf(contrato) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.setTextColor(...TINTA);
-      const lineas = doc.splitTextToSize(txt, UTIL);
+      const lineas = doc.splitTextToSize(aLatin1(txt), UTIL);
       doc.text(lineas, MARGEN, y);
       y += lineas.length * 5.6 + 3;
       return;
@@ -134,7 +193,7 @@ export function construirContratoPdf(contrato) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9.5);
       doc.setTextColor(...TINTA);
-      doc.text(txt, MARGEN, y);
+      doc.text(aLatin1(txt), MARGEN, y);
       y += 5.4;
       return;
     }
@@ -142,7 +201,7 @@ export function construirContratoPdf(contrato) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(52, 47, 40);
-    const lineas = doc.splitTextToSize(txt, UTIL);
+    const lineas = doc.splitTextToSize(aLatin1(txt), UTIL);
     lineas.forEach((l) => {
       nuevaPaginaSiHaceFalta(6);
       doc.text(l, MARGEN, y);
@@ -166,8 +225,8 @@ export function construirContratoPdf(contrato) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(...GRIS);
-    doc.text(i === 0 ? (cliente.nombre || '') : (comercio.razonSocial || ''), x, y + 9);
-    if (i === 0 && cliente.documento) doc.text(`Doc. ${cliente.documento}`, x, y + 13);
+    doc.text(aLatin1(i === 0 ? (cliente.nombre || '') : (comercio.razonSocial || '')), x, y + 9);
+    if (i === 0 && cliente.documento) doc.text(aLatin1(`Doc. ${cliente.documento}`), x, y + 13);
   });
 
   pintarPie(doc);
@@ -197,13 +256,14 @@ export function nombreArchivoContrato(contrato) {
 }
 
 /** Descarga el PDF. */
-export function descargarContratoPdf(contrato) {
-  construirContratoPdf(contrato).save(nombreArchivoContrato(contrato));
+export async function descargarContratoPdf(contrato) {
+  const doc = await construirContratoPdf(contrato);
+  doc.save(nombreArchivoContrato(contrato));
 }
 
 /** Abre el diálogo de impresión con el documento ya cargado. */
-export function imprimirContratoPdf(contrato) {
-  const doc = construirContratoPdf(contrato);
+export async function imprimirContratoPdf(contrato) {
+  const doc = await construirContratoPdf(contrato);
   const url = doc.output('bloburl');
   const win = window.open(url, '_blank');
   if (win) win.addEventListener('load', () => win.print(), { once: true });

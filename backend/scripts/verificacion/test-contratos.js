@@ -36,7 +36,8 @@ const ok = (c, l, e = '') => { c ? (pass++, console.log(`   ✅ ${l}`)) : (fail+
     ok(texto.includes(email), 'Correo del cliente');
     ok(texto.includes('LUXURY GARAGE E.A.S.'), 'Razón social del comercio');
     ok(texto.includes('80171845-7'), 'RUC del comercio');
-    ok(texto.includes('₲ 250.000'), 'Importe en números');
+    ok(texto.includes('Gs. 250.000'), 'Importe en números');
+    ok(!texto.includes('\u20B2'), 'Sin el símbolo ₲, que las fuentes de PDF no soportan');
     ok(texto.includes('doscientos cincuenta mil guaraníes'), 'Importe en letras');
     ok(!texto.includes('{{'), 'No quedan variables sin resolver');
 

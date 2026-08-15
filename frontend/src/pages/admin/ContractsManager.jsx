@@ -212,7 +212,7 @@ function Firmados() {
                   }} />
                   <Accion icono={<Printer size={16} />} titulo="Imprimir para firmar" onClick={async () => {
                     const r = await api.get(`/contracts/${c.id}`, { _noCache: true });
-                    if (!imprimirContratoPdf(r.data.data)) toast.error('El navegador bloqueó la ventana de impresión');
+                    if (!(await imprimirContratoPdf(r.data.data))) toast.error('El navegador bloqueó la ventana de impresión');
                   }} />
                 </div>
               </div>
@@ -318,7 +318,7 @@ function ModalDocumento({ contrato, cargando, onClose }) {
                 <Download size={16} /> Descargar PDF
               </button>
               <button
-                onClick={() => { if (!imprimirContratoPdf(contrato)) toast.error('El navegador bloqueó la ventana'); }}
+                onClick={async () => { if (!(await imprimirContratoPdf(contrato))) toast.error('El navegador bloqueó la ventana'); }}
                 className="flex-1 h-11 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-200 text-sm font-semibold flex items-center justify-center gap-2 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
               >
                 <Printer size={16} /> Imprimir para firmar

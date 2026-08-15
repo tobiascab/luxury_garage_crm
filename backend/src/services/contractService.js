@@ -163,7 +163,11 @@ function montoEnLetras(gs) {
   return `${partes.join(' ')}${nexo}guaraníes`.replace(/\s+/g, ' ').trim();
 }
 
-const formatGs = (gs) => `₲ ${Number(gs || 0).toLocaleString('es-PY')}`;
+// En el documento se escribe "Gs." y no "₲" a propósito: el símbolo guaraní (U+20B2) queda
+// fuera de la codificación que usan las fuentes base de PDF, así que al generarlo salía
+// convertido en basura y descolocaba el renglón entero. "Gs." es además la forma habitual
+// en documentos formales paraguayos. Vale para el texto guardado, la pantalla y el PDF.
+const formatGs = (gs) => `Gs. ${Number(gs || 0).toLocaleString('es-PY')}`;
 
 /** Fecha y hora en formato legible de Paraguay. */
 function fechaLarga(d = new Date()) {
