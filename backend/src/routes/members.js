@@ -123,9 +123,18 @@ router.post('/staff', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (re
     const strengthError = validatePasswordStrength(password);
     if (strengthError) return res.status(400).json({ success: false, message: strengthError });
 
-    const targetRole = role === 'ADMIN' ? 'ADMIN' : 'EMPLOYEE';
-    if (targetRole === 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ success: false, message: 'Solo un Super Admin puede crear administradores' });
+    // Roles que se pueden dar de alta desde el panel. Antes cualquier valor distinto de
+    // 'ADMIN' caía en 'EMPLOYEE', así que no había forma de crear un Super Admin: la única
+    // cuenta con ese rol era la original y no se podía sumar otra.
+    const ROLES_ALTA = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'];
+    const targetRole = ROLES_ALTA.includes(role) ? role : 'EMPLOYEE';
+    if (targetRole !== 'EMPLOYEE' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: targetRole === 'SUPER_ADMIN'
+          ? 'Solo un Super Admin puede crear otro Super Admin'
+          : 'Solo un Super Admin puede crear administradores',
+      });
     }
 
     const exists = await req.prisma.user.findUnique({ where: { email: cleanEmail } });

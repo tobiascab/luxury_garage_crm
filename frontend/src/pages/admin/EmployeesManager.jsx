@@ -51,12 +51,15 @@ export default function EmployeesManager() {
     setLoading(true);
     try {
       api.invalidate('/members');
-      const [empRes, admRes] = await Promise.all([
+      // Los Super Admin también se listan: antes no se pedían, así que la cuenta principal
+      // del negocio no figuraba en ningún lado del panel.
+      const [empRes, admRes, superRes] = await Promise.all([
         api.get('/members?role=EMPLOYEE&limit=100'),
         api.get('/members?role=ADMIN&limit=100'),
+        api.get('/members?role=SUPER_ADMIN&limit=100'),
       ]);
       setEmployees(empRes.data.data || []);
-      setAdmins(admRes.data.data || []);
+      setAdmins([...(superRes.data.data || []), ...(admRes.data.data || [])]);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Error al cargar el personal');
     } finally {
@@ -376,9 +379,10 @@ export default function EmployeesManager() {
             onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })} placeholder="+595 9XX XXX XXX" />
           <FormField as="select" label="Rol" name="role" value={createForm.role}
             onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
-            hint="Administrador requiere permisos de Super Admin">
+            hint="Administrador y Super Admin requieren permisos de Super Admin">
             <option value="EMPLOYEE">Empleado</option>
             <option value="ADMIN">Administrador</option>
+            <option value="SUPER_ADMIN">Super Admin</option>
           </FormField>
           <FormField label="Contraseña" name="password" type="password" required value={createForm.password} error={createErrors.password}
             onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
@@ -410,9 +414,10 @@ export default function EmployeesManager() {
               onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="+595 9XX XXX XXX" />
             <FormField as="select" label="Rol" name="e-role" value={editForm.role}
               onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-              hint="Cambiar a Administrador requiere permisos de Super Admin">
+              hint="Cambiar a Administrador o Super Admin requiere permisos de Super Admin">
               <option value="EMPLOYEE">Empleado</option>
               <option value="ADMIN">Administrador</option>
+              <option value="SUPER_ADMIN">Super Admin</option>
             </FormField>
           </form>
         )}

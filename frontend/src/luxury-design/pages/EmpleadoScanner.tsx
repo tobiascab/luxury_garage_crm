@@ -34,6 +34,11 @@ type ScanResult = {
 
 export default function EmpleadoScanner({ user }: { user: any }) {
     const [result, setResult] = useState<ScanResult | null>(null);
+    // Paso intermedio: a quién pertenece el QR y qué reservas tiene, ANTES de descontarle
+    // nada. El lavado se registra recién cuando el empleado elige cuál está atendiendo.
+    const [porConfirmar, setPorConfirmar] = useState<any>(null);
+    const [tokenEnCurso, setTokenEnCurso] = useState('');
+    const [reservaElegida, setReservaElegida] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [scannedCount, setScannedCount] = useState(0);
     const [manualToken, setManualToken] = useState('');
@@ -51,21 +56,33 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                 return;
             }
 
-            const html5QrCode = new Html5Qrcode("reader");
+            const html5QrCode = new Html5Qrcode("reader", {
+                // Detector de códigos nativo del sistema cuando existe: más rápido y tolerante
+                // que el decodificador por software, que es lo que hacía costar la lectura.
+                experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+                verbose: false,
+            } as any);
             scannerRef.current = html5QrCode;
 
             try {
                 await html5QrCode.start(
                     { facingMode: "environment" },
                     {
-                        fps: 10,
-                        qrbox: { width: 250, height: 250 },
+                        fps: 15,
+                        // El recuadro se adapta al tamaño real del video en vez de ser 250px fijos:
+                        // el carnet lleva un código de 82 caracteres, bastante denso, y con el
+                        // recuadro chico había que acertar una distancia muy justa para que entrara
+                        // entero. Se toma el 75% del lado menor, con un piso razonable.
+                        qrbox: (anchoVideo: number, altoVideo: number) => {
+                            const lado = Math.floor(Math.min(anchoVideo, altoVideo) * 0.75);
+                            return { width: Math.max(lado, 200), height: Math.max(lado, 200) };
+                        },
                     },
                     (decodedText) => {
                         processQR(decodedText);
                         stopScanner();
                     },
-                    () => { /* Ignore errors during scan */ }
+                    () => { /* fotograma sin código: es lo normal entre lectura y lectura */ }
                 );
             } catch (err: any) {
                 console.error("No se pudo iniciar la cámara", err);
@@ -77,14 +94,16 @@ export default function EmpleadoScanner({ user }: { user: any }) {
             }
         };
 
-        if (!result) {
+        // No reabrir la cámara mientras se está confirmando una reserva ni con el
+        // resultado en pantalla: si no, vuelve a leer el mismo QR y se encadenan lecturas.
+        if (!result && !porConfirmar) {
             startScanner();
         }
 
         return () => {
             stopScanner();
         };
-    }, [result]);
+    }, [result, porConfirmar]);
 
     const stopScanner = async () => {
         if (scannerRef.current && scannerRef.current.isScanning) {
@@ -96,25 +115,54 @@ export default function EmpleadoScanner({ user }: { user: any }) {
         }
     };
 
+    /** Paso 1 — leer el QR: identifica al cliente y trae sus reservas. NO descuenta nada. */
     const processQR = async (token: string) => {
         if (!token.trim()) return;
         setIsProcessing(true);
         setResult(null);
         try {
-            const { data } = await api.post("/qr/scan", {
-                token: token.trim(),
-                employeeId: user?.id
-            });
-            setResult(data);
-            if (data.success) {
-                setScannedCount(prev => prev + 1);
-            }
+            const { data } = await api.post("/luxury/qr/verify", { token: token.trim() });
+            const info = data?.data;
+            setTokenEnCurso(token.trim());
+            setPorConfirmar(info);
+            // Con una sola reserva queda preseleccionada, pero igual hay que confirmar.
+            setReservaElegida(info?.reservas?.length === 1 ? info.reservas[0].id : null);
         } catch (error: any) {
             const errorMsg = error.response?.data?.message || 'Error de conexión con el servidor.';
             setResult({ success: false, message: errorMsg });
         } finally {
             setIsProcessing(false);
         }
+    };
+
+    /** Paso 2 — registrar el lavado de la reserva elegida. Acá recién se descuenta. */
+    const confirmarLavado = async () => {
+        if (!reservaElegida || !tokenEnCurso) return;
+        setIsProcessing(true);
+        try {
+            const { data } = await api.post("/luxury/qr/scan", {
+                token: tokenEnCurso,
+                appointmentId: reservaElegida,
+                employeeId: user?.id,
+            });
+            // El backend responde { success, message, data: { client, service, covered } };
+            // la vista lee result.client, así que se aplana acá.
+            setResult({ ...data, ...(data?.data || {}) });
+            if (data.success) setScannedCount(prev => prev + 1);
+        } catch (error: any) {
+            setResult({ success: false, message: error.response?.data?.message || 'No se pudo registrar el lavado.' });
+        } finally {
+            setIsProcessing(false);
+            setPorConfirmar(null);
+            setTokenEnCurso('');
+            setReservaElegida(null);
+        }
+    };
+
+    const cancelarConfirmacion = () => {
+        setPorConfirmar(null);
+        setTokenEnCurso('');
+        setReservaElegida(null);
     };
 
     const handleManualSubmit = () => {
@@ -125,6 +173,9 @@ export default function EmpleadoScanner({ user }: { user: any }) {
     const reset = () => {
         setResult(null);
         setManualToken('');
+        setPorConfirmar(null);
+        setTokenEnCurso('');
+        setReservaElegida(null);
     };
 
     return (
@@ -145,7 +196,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
             <div className="w-full max-w-sm sm:max-w-md lg:max-w-lg space-y-4">
                 {/* Scanner Frame */}
                 <AnimatePresence mode="wait">
-                    {!result && (
+                    {!result && !porConfirmar && (
                         <motion.div
                             key="scanner-frame"
                             variants={useVariants(scaleIn)}
@@ -224,6 +275,110 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                 >
                                     {isProcessing ? <RefreshCw size={16} className="animate-spin" /> : <><KeyRound size={16} /> VALIDAR CÓDIGO</>}
                                 </Pressable>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+
+                {/* ── Elegir qué reserva se está atendiendo ── */}
+                <AnimatePresence>
+                    {porConfirmar && (
+                        <motion.div
+                            key="por-confirmar"
+                            initial={{ opacity: 0, y: 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 16 }}
+                            className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-2xl overflow-hidden"
+                        >
+                            {/* Quién es */}
+                            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-primary/10 dark:bg-blue-500/20 text-primary dark:text-blue-400 flex items-center justify-center font-black text-lg shrink-0">
+                                        {porConfirmar.client?.name?.[0] || '?'}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="font-black text-slate-900 dark:text-white truncate">{porConfirmar.client?.name}</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                                            {porConfirmar.client?.plan || 'Sin plan'}
+                                        </p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Le quedan</p>
+                                        <p className="text-xl font-black text-primary dark:text-blue-400 leading-none mt-0.5">
+                                            {porConfirmar.client?.remainingWashes === null ? '∞' : porConfirmar.client?.remainingWashes}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-5 space-y-3">
+                                {porConfirmar.reservas?.length === 0 ? (
+                                    <div className="text-center py-6">
+                                        <XCircle size={30} className="mx-auto text-amber-500 mb-3" />
+                                        <p className="font-black text-slate-900 dark:text-white text-sm">Sin reservas pendientes</p>
+                                        <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                                            Este cliente no tiene ningún turno reservado. Pedile que lo reserve desde su app.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 text-center">
+                                            ¿Qué reserva estás atendiendo?
+                                        </p>
+                                        {porConfirmar.reservas.map((r: any) => {
+                                            const elegida = reservaElegida === r.id;
+                                            return (
+                                                <button
+                                                    key={r.id}
+                                                    onClick={() => setReservaElegida(r.id)}
+                                                    className={`w-full text-left rounded-2xl border-2 p-4 transition-all ${elegida
+                                                        ? 'border-primary dark:border-blue-500 bg-primary/5 dark:bg-blue-500/10'
+                                                        : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'}`}
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-9 h-9 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                                                            <Droplets size={16} className="text-primary dark:text-blue-400" />
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="font-bold text-sm text-slate-900 dark:text-white truncate">{r.servicio}</p>
+                                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                                                {new Date(r.cuando).toLocaleString('es-PY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                                                {r.vehiculo ? ` · ${r.vehiculo}` : ''}
+                                                            </p>
+                                                            <p className={`text-[10px] font-bold uppercase tracking-wider mt-0.5 ${r.cubierto ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                                                                {r.cubierto ? 'Cubierto por su plan' : 'Ya abonado aparte'}
+                                                            </p>
+                                                        </div>
+                                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${elegida
+                                                            ? 'border-primary dark:border-blue-500 bg-primary dark:bg-blue-500'
+                                                            : 'border-slate-300 dark:border-slate-600'}`}>
+                                                            {elegida && <CheckCircle2 size={11} className="text-white" />}
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </>
+                                )}
+
+                                <div className="flex gap-2 pt-1">
+                                    <Pressable
+                                        onClick={cancelarConfirmacion}
+                                        className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-black uppercase tracking-widest text-xs"
+                                    >
+                                        Cancelar
+                                    </Pressable>
+                                    {porConfirmar.reservas?.length > 0 && (
+                                        <Pressable
+                                            onClick={confirmarLavado}
+                                            disabled={!reservaElegida || isProcessing}
+                                            className="flex-[2] py-4 bg-emerald-600 text-white rounded-xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-40 shadow-lg shadow-emerald-600/20"
+                                        >
+                                            {isProcessing ? <RefreshCw size={16} className="animate-spin" /> : <><CheckCircle2 size={16} /> Registrar lavado</>}
+                                        </Pressable>
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
                     )}

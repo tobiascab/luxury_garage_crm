@@ -56,7 +56,9 @@ const ok = (c, l, e = '') => { c ? (pass++, console.log(`   ✅ ${l}`)) : (fail+
     }
 
     console.log('\n── 3. El empleado escanea el QR real ──');
-    const scan = await axios.post(`${API}/luxury/qr/scan`, { token }, authEmpleado);
+    const ver = await axios.post(`${API}/luxury/qr/verify`, { token }, authEmpleado);
+    ok(ver.data.data?.reservas?.length === 1, 'Primero lista la reserva del cliente, sin consumirla');
+    const scan = await axios.post(`${API}/luxury/qr/scan`, { token, appointmentId: ver.data.data.reservas[0].id }, authEmpleado);
     const d = scan.data.data;
     ok(scan.data.success === true, `Escaneo OK: "${scan.data.message}"`);
     ok(d.client?.name === 'Qr Test', `Identifica al cliente: ${d.client?.name}`);
@@ -83,7 +85,9 @@ const ok = (c, l, e = '') => { c ? (pass++, console.log(`   ✅ ${l}`)) : (fail+
     console.log('\n── 6. Escanear de nuevo sin reserva ──');
     try {
       const qr2 = await axios.get(`${API}/luxury/qr/token`, authCliente);
-      await axios.post(`${API}/luxury/qr/scan`, { token: qr2.data.token }, authEmpleado);
+      const v2 = await axios.post(`${API}/luxury/qr/verify`, { token: qr2.data.token }, authEmpleado);
+      if (!v2.data.data?.reservas?.length) throw { response: { status: 400, data: { code: 'NO_RESERVATION', message: 'El cliente no tiene reservas pendientes para registrar.' } } };
+      await axios.post(`${API}/luxury/qr/scan`, { token: qr2.data.token, appointmentId: v2.data.data.reservas[0].id }, authEmpleado);
       ok(false, 'DEBERÍA bloquear el escaneo sin reserva pendiente');
     } catch (e) {
       ok(e.response?.data?.code === 'NO_RESERVATION', `Bloquea el doble uso: "${e.response?.data?.message}"`);

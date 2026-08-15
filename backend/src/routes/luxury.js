@@ -147,6 +147,71 @@ router.get('/qr/token', authenticate, (req, res) => {
 });
 
 /**
+ * POST /api/luxury/qr/verify
+ * Primer paso del escaneo: valida el QR y devuelve a QUIÉN pertenece y qué reservas tiene
+ * pendientes, SIN consumir nada. El empleado elige cuál está atendiendo y recién entonces
+ * se llama a /qr/scan.
+ *
+ * Existe para que escanear no descuente por sí solo: antes el primer escaneo completaba la
+ * reserva más próxima de una, así que un escaneo de más —o un cliente con varios turnos
+ * reservados— gastaba lavados sin que nadie lo aprobara.
+ */
+router.post('/qr/verify', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMIN'), async (req, res, next) => {
+    try {
+        const v = verifyQrToken(req.body?.token);
+        if (!v.ok) {
+            const msg = v.reason === 'expired' ? 'El código venció. Pedile al cliente que lo actualice.'
+                : v.reason === 'signature' ? 'Código inválido o adulterado'
+                    : 'Código inválido';
+            return res.status(400).json({ success: false, message: msg });
+        }
+
+        const user = await req.prisma.user.findUnique({
+            where: { id: v.userId },
+            include: {
+                memberships: { where: { status: 'ACTIVE' }, include: { plan: true } },
+                vehicles: { where: { isPrimary: true }, take: 1 },
+            },
+        });
+        if (!user) return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+
+        const activeMembership = user.memberships[0];
+        const reservas = await req.prisma.appointment.findMany({
+            where: { userId: user.id, status: { in: ['CONFIRMED', 'IN_PROGRESS'] } },
+            include: { service: { select: { name: true } }, vehicle: { select: { brand: true, model: true, licensePlate: true } } },
+            orderBy: { startTime: 'asc' },
+        });
+
+        const usage = await getPlanUsage(req.prisma, user.id);
+
+        res.json({
+            success: true,
+            data: {
+                client: {
+                    id: user.id,
+                    name: `${user.firstName} ${user.lastName}`.trim(),
+                    plan: activeMembership?.plan?.name || null,
+                    vehicle: user.vehicles[0]
+                        ? { ...user.vehicles[0], plate: user.vehicles[0].licensePlate }
+                        : null,
+                    remainingWashes: usage ? usage.remaining : null, // null = ilimitado o sin plan
+                    hasPlan: !!activeMembership,
+                },
+                reservas: reservas.map((r) => ({
+                    id: r.id,
+                    servicio: r.service?.name || 'Servicio',
+                    cuando: r.startTime,
+                    estado: r.status,
+                    cubierto: r.coveredByMembership,
+                    vehiculo: r.vehicle ? `${r.vehicle.brand} ${r.vehicle.model}`.trim() : null,
+                    patente: r.vehicle?.licensePlate || null,
+                })),
+            },
+        });
+    } catch (err) { next(err); }
+});
+
+/**
  * POST /api/luxury/qr/scan
  * Employee scans a client QR
  */
@@ -179,14 +244,26 @@ router.post('/qr/scan', authenticate, authorize('EMPLOYEE', 'ADMIN', 'SUPER_ADMI
 
         const activeMembership = user.memberships[0];
 
-        // ── Fase 2: el QR redime la RESERVA real del cliente (no crea un lavado por defecto). ──
-        // Buscar la reserva redimible: una cita CONFIRMED (reservada, aún no completada) o
-        // IN_PROGRESS (turno que el empleado ya inició desde el panel) → el QR también lo cierra.
-        // Si no hay → bloquear (cubre el caso "usó todo el cupo y no reservó/pagó").
+        // ── El QR redime la RESERVA real del cliente (no crea un lavado por defecto). ──
+        // El empleado ELIGE cuál está atendiendo (appointmentId) tras ver la lista en
+        // /qr/verify. Sin ese id no se completa nada: antes se tomaba la más próxima
+        // automáticamente y un escaneo de más consumía un lavado sin que nadie lo aprobara.
+        // Solo se aceptan CONFIRMED (reservada) o IN_PROGRESS (ya iniciada desde el panel).
+        const { appointmentId } = req.body;
+        if (!appointmentId) {
+            return res.status(400).json({
+                success: false,
+                code: 'APPOINTMENT_REQUIRED',
+                message: 'Elegí qué reserva del cliente estás atendiendo.',
+            });
+        }
         const reservation = await req.prisma.appointment.findFirst({
-            where: { userId: user.id, status: { in: ['CONFIRMED', 'IN_PROGRESS'] } },
+            where: {
+                id: String(appointmentId),
+                userId: user.id, // la reserva TIENE que ser de quien muestra el QR
+                status: { in: ['CONFIRMED', 'IN_PROGRESS'] },
+            },
             include: { service: true, vehicle: true },
-            orderBy: { startTime: 'asc' },
         });
         if (!reservation) {
             return res.status(400).json({
