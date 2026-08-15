@@ -9,7 +9,7 @@ import {
   Tag, Box, Car, Star, Bell, Settings, ScrollText,
   LogOut, Menu, ScanLine, CreditCard,
   Moon, Sun, Wallet, Calculator, MessageSquare,
-  ChevronDown, PanelLeftClose, PanelLeftOpen, Search, X
+  ChevronDown, PanelLeftClose, PanelLeftOpen, Search, X, FileSignature
 } from 'lucide-react';
 
 // Cada entrada es un MÓDULO grande (padre) que se abre en submódulos (acordeón).
@@ -38,6 +38,7 @@ const adminMenu = [
     items: [
       { to: '/admin/finance', icon: <CircleDollarSign size={17} />, label: 'Finanzas' },
       { to: '/admin/cobros', icon: <CreditCard size={17} />, label: 'Cobros' },
+      { to: '/admin/contratos', icon: <FileSignature size={17} />, label: 'Contratos' },
       { to: '/admin/expenses', icon: <Wallet size={17} />, label: 'Egresos' },
       { to: '/admin/accounting', icon: <Calculator size={17} />, label: 'Contabilidad' },
       { to: '/admin/reports', icon: <BarChart3 size={17} />, label: 'Reportes' },

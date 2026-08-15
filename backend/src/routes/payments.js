@@ -3,6 +3,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 const bancardService = require('../services/bancardService');
 const { postPaymentCompleted } = require('../services/journalService');
 const { evaluatePlanChange, computeMembershipCharge, DOWNGRADE_MSG } = require('../services/membershipRules');
+const contractService = require('../services/contractService');
 
 /**
  * Bancard Payment Routes
@@ -354,8 +355,17 @@ router.post('/card/set-primary', authenticate, async (req, res, next) => {
  */
 router.post('/charge-membership', authenticate, async (req, res, next) => {
   try {
-    const { planId, cardId, expectedAmountGs } = req.body;
+    const { planId, cardId, expectedAmountGs, mandateAccepted } = req.body;
     if (!planId) return res.status(400).json({ success: false, message: 'planId requerido' });
+
+    // Sin autorización expresa de débito no se cobra: es el respaldo del cobro recurrente.
+    if (mandateAccepted !== true) {
+      return res.status(400).json({
+        success: false,
+        code: 'MANDATE_REQUIRED',
+        message: 'Tenés que leer y aceptar la autorización de débito automático para continuar.',
+      });
+    }
 
     // 1. Get plan
     const plan = await req.prisma.plan.findUnique({ where: { id: planId } });
@@ -582,6 +592,23 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     const start = new Date();
     const end = nextEndDate(); // conserva el ciclo vigente si fue un upgrade prorrateado
 
+    // Datos para la constancia de autorización de débito, resueltos ANTES de abrir la
+    // transacción (leen settings y numeración; no conviene tenerlos dentro del lock).
+    const [mandateConfig, datosComercioSnapshot, numeroContrato] = await Promise.all([
+      contractService.obtenerConfig(req.prisma),
+      contractService.datosComercio(req.prisma),
+      contractService.siguienteNumero(req.prisma),
+    ]);
+    const datosCliente = {
+      nombre: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+      documento: user.documentNumber || '',
+      email: user.email || '',
+      telefono: user.phone || '',
+    };
+    const aceptadoEn = new Date();
+    const ipCliente = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim().slice(0, 60) || null;
+    const userAgentCliente = String(req.headers['user-agent'] || '').slice(0, 300) || null;
+
     let membership, payment, alreadyMaterialized = false;
     await req.prisma.$transaction(async (tx) => {
       // Lock + re-check anti doble-materialización: el camino DIRECTO (sin 3DS) también debe
@@ -654,6 +681,51 @@ router.post('/charge-membership', authenticate, async (req, res, next) => {
     if (alreadyMaterialized) {
       const activeM = await req.prisma.membership.findFirst({ where: { userId: user.id, status: 'ACTIVE' }, include: { plan: true } });
       return res.json({ success: true, message: 'El pago ya fue procesado.', data: { membership: activeM, alreadyCompleted: true } });
+    }
+
+    // Constancia de la autorización de débito, POST-COMMIT y a prueba de fallos.
+    //
+    // Va FUERA de la transacción a propósito: cuando se llega acá la tarjeta YA fue cobrada.
+    // Si el guardado del documento fallara dentro de la transacción, se revertiría la membresía
+    // y el cliente quedaría pagado y sin plan, que es mucho peor que quedarse sin la constancia.
+    // Si falla, se loguea fuerte para regenerarla a mano.
+    //
+    // Se guarda el TEXTO COMPLETO que el cliente aceptó, no una referencia: si mañana se editan
+    // las condiciones desde el panel, este documento sigue diciendo lo que esta persona firmó.
+    if (membership?.id) {
+      try {
+        const textoMandato = contractService.componerTexto({
+          plantilla: mandateConfig.plantilla,
+          numero: numeroContrato,
+          cliente: datosCliente,
+          comercio: datosComercioSnapshot,
+          plan: plan.name,
+          montoGs: chargeAmountGs,
+          tarjeta: {
+            marca: selectedCard.brand || 'Tarjeta',
+            ultimos4: (selectedCard.maskedNumber || '').replace(/\D/g, '').slice(-4) || '····',
+          },
+          fecha: aceptadoEn,
+          ip: ipCliente,
+          userAgent: userAgentCliente,
+        });
+        await req.prisma.$executeRaw`
+          INSERT INTO contracts (id, numero, user_id, membership_id, payment_id, plan_nombre, monto_gs,
+            periodicidad, tarjeta_marca, tarjeta_ultimos4, texto_version, texto_completo,
+            cliente_snapshot, comercio_snapshot, aceptado_en, aceptado_ip, aceptado_user_agent, estado, created_at)
+          VALUES (gen_random_uuid()::text, ${numeroContrato}, ${user.id}, ${membership.id}, ${payment?.id || null},
+            ${plan.name}, ${chargeAmountGs}, 'mensual',
+            ${selectedCard.brand || null}, ${(selectedCard.maskedNumber || '').replace(/\D/g, '').slice(-4) || null},
+            ${mandateConfig.version}, ${textoMandato},
+            ${JSON.stringify(datosCliente)}::jsonb, ${JSON.stringify(datosComercioSnapshot)}::jsonb,
+            ${aceptadoEn}, ${ipCliente}, ${userAgentCliente}, 'VIGENTE', now())`;
+        console.log(`📄 Autorización de débito ${numeroContrato} registrada para ${user.email}`);
+      } catch (e) {
+        console.error(
+          `🚨 El cobro se aplicó pero NO se pudo guardar la autorización de débito. ` +
+          `userId=${user.id} membershipId=${membership.id} numero=${numeroContrato}: ${e.message}`
+        );
+      }
     }
 
     // Asiento contable (best-effort, POST-COMMIT, no bloqueante).

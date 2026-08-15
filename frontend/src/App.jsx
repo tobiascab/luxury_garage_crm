@@ -127,6 +127,7 @@ const ReviewsAdmin = lazyWithReload(() => import('./pages/admin/ReviewsAdmin'));
 const InventoryManager = lazyWithReload(() => import('./pages/admin/InventoryManager'));
 const SettingsPage = lazyWithReload(() => import('./pages/admin/SettingsPage'));
 const Cobros = lazyWithReload(() => import('./pages/admin/Cobros'));
+const ContractsManager = lazyWithReload(() => import('./pages/admin/ContractsManager'));
 const AuditLogs = lazyWithReload(() => import('./pages/admin/AuditLogs'));
 const ArizarPanel = lazyWithReload(() => import('./pages/admin/ArizarPanel'));
 const ChatInbox = lazyWithReload(() => import('./pages/admin/ChatInbox'));
@@ -384,6 +385,7 @@ function AppRoutes() {
         <Route path="scans" element={<WashScans />} />
         <Route path="finance" element={<FinanceDashboard />} />
         <Route path="cobros" element={<Cobros />} />
+        <Route path="contratos" element={<ContractsManager />} />
         <Route path="expenses" element={<ExpensesManager />} />
         <Route path="accounting" element={<AccountingReports />} />
         <Route path="reports" element={<Reports />} />

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   CreditCard, Check, Shield, Crown, Zap, ArrowRight, Loader2, Lock,
   LogOut, Plus, X, ShieldCheck, CheckCircle2, Calendar, RefreshCw,
+  FileText, ChevronDown,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../../services/api';
@@ -55,6 +56,13 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
   const [payMsg, setPayMsg] = useState('');
   const { handlers: bancard3ds, modal: bancard3dsModal } = useBancard3ds();
 
+  // Autorización de débito: sin leerla y aceptarla no se puede pagar.
+  const [mandato, setMandato] = useState<any>(null);
+  const [mandatoAbierto, setMandatoAbierto] = useState(false);
+  const [mandatoLeido, setMandatoLeido] = useState(false);   // llegó al final del texto
+  const [mandatoAceptado, setMandatoAceptado] = useState(false);
+  const [cargandoMandato, setCargandoMandato] = useState(false);
+
   const hasCard = cards.length > 0;
   const selectedPlan = plans.find((p) => p.id === selectedPlanId) || null;
 
@@ -77,6 +85,27 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
   }, [user?.pendingPlan?.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // El documento se pide para el plan elegido: el importe y el plan van dentro del texto.
+  // Si cambia de plan, la aceptación anterior deja de valer y hay que volver a aceptar.
+  useEffect(() => {
+    if (!selectedPlanId) { setMandato(null); return; }
+    let cancelado = false;
+    setCargandoMandato(true);
+    setMandatoAceptado(false);
+    setMandatoLeido(false);
+    api.get(`/contracts/preview?planId=${selectedPlanId}`, { _noCache: true } as any)
+      .then((r) => { if (!cancelado) setMandato(r.data?.data || null); })
+      .catch(() => { if (!cancelado) setMandato(null); })
+      .finally(() => { if (!cancelado) setCargandoMandato(false); });
+    return () => { cancelado = true; };
+  }, [selectedPlanId]);
+
+  // Marca el texto como leído cuando el usuario llega al final del panel.
+  const alScrollearMandato = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) setMandatoLeido(true);
+  };
 
   // ── Paso 1: catastro de tarjeta con el iframe de Bancard ──
   const openCardForm = async () => {
@@ -122,11 +151,11 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
 
   // ── Paso 3: cobro inmediato del primer mes ──
   const handlePay = async () => {
-    if (!selectedPlan || !hasCard) return;
+    if (!selectedPlan || !hasCard || !mandatoAceptado) return;
     setPayPhase('processing');
     const r = await runBancardPayment(
       '/payments/charge-membership',
-      { planId: selectedPlan.id, expectedAmountGs: selectedPlan.priceGs },
+      { planId: selectedPlan.id, expectedAmountGs: selectedPlan.priceGs, mandateAccepted: true },
       '/payments/charge-3ds-complete',
       bancard3ds,
     );
@@ -306,15 +335,96 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
               </div>
             )}
 
+            {/* ── Autorización de débito automático ── */}
+            {selectedPlan && (
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setMandatoAbierto((v) => !v)}
+                  className="w-full flex items-center gap-3 p-4 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                >
+                  <FileText size={18} className="text-slate-400 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">
+                      {mandato?.titulo || 'Autorización de débito automático'}
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mt-0.5">
+                      {mandatoAbierto ? 'Leelo completo y aceptá abajo' : 'Tocá para leer el documento'}
+                    </p>
+                  </div>
+                  {mandatoAceptado
+                    ? <Check size={18} className="text-emerald-500 shrink-0" />
+                    : <ChevronDown size={18} className={`text-slate-400 shrink-0 transition-transform ${mandatoAbierto ? 'rotate-180' : ''}`} />}
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {mandatoAbierto && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.22 }}
+                      className="overflow-hidden"
+                    >
+                      <div
+                        onScroll={alScrollearMandato}
+                        className="max-h-72 overflow-y-auto overscroll-contain px-4 pb-3 border-t border-slate-100 dark:border-slate-800"
+                      >
+                        {cargandoMandato ? (
+                          <div className="py-8 flex justify-center"><Loader2 size={20} className="animate-spin text-primary" /></div>
+                        ) : (
+                          <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-relaxed text-slate-600 dark:text-slate-300 pt-3">
+                            {mandato?.texto || 'No se pudo cargar el documento. Reintentá en un momento.'}
+                          </pre>
+                        )}
+                      </div>
+                      {!mandatoLeido && mandato?.texto && (
+                        <p className="px-4 pb-2 text-[11px] text-slate-400 text-center">Seguí bajando para leerlo completo</p>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <label className={`flex items-start gap-3 p-4 border-t border-slate-100 dark:border-slate-800 cursor-pointer select-none transition-colors ${mandatoAceptado ? 'bg-emerald-50 dark:bg-emerald-500/10' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={mandatoAceptado}
+                    disabled={!mandato?.texto}
+                    onChange={(e) => {
+                      // Para aceptar hay que haber abierto y recorrido el documento.
+                      if (e.target.checked && !mandatoLeido) {
+                        setMandatoAbierto(true);
+                        toast('Leé el documento hasta el final para poder aceptarlo', { icon: '📄' });
+                        return;
+                      }
+                      setMandatoAceptado(e.target.checked);
+                    }}
+                    className="mt-0.5 w-5 h-5 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-primary/30 shrink-0 disabled:opacity-40"
+                  />
+                  <span className="text-[12.5px] text-slate-700 dark:text-slate-200 leading-relaxed">
+                    Leí y <strong>autorizo</strong> el débito automático de{' '}
+                    <strong>{formatGs(selectedPlan.priceGs)}</strong> por mes a mi tarjeta, con renovación
+                    automática, y sé que puedo cancelarlo cuando quiera.
+                  </span>
+                </label>
+              </div>
+            )}
+
             <button
               onClick={handlePay}
-              disabled={!hasCard || !selectedPlan || payPhase === 'processing'}
+              disabled={!hasCard || !selectedPlan || !mandatoAceptado || payPhase === 'processing'}
               className="w-full h-14 rounded-2xl bg-primary dark:bg-blue-500 text-white text-sm font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-primary/20 active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none"
             >
               {payPhase === 'processing'
                 ? <><Loader2 size={18} className="animate-spin" /> Procesando…</>
                 : <><CreditCard size={18} /> Pagar {selectedPlan ? formatGs(selectedPlan.priceGs) : ''} y activar</>}
             </button>
+
+            {!mandatoAceptado && selectedPlan && hasCard && (
+              <p className="text-[11px] text-center text-slate-400 dark:text-slate-500 -mt-1">
+                Aceptá la autorización para poder continuar
+              </p>
+            )}
 
             <p className="text-center text-[10px] text-slate-400 dark:text-slate-600 flex items-center justify-center gap-1">
               <Shield size={10} /> Pago seguro procesado por Bancard

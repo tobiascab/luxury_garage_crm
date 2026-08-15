@@ -134,6 +134,7 @@ app.use('/api/arizar/oauth', require('./routes/arizar-oauth'));
 app.use('/api/arizar', require('./routes/arizar-admin'));
 app.use('/api/bancard', require('./routes/bancard-webhooks'));
 app.use('/api/invoices-crm', require('./routes/invoices-arizar'));
+app.use('/api/contracts', require('./routes/contracts'));
 app.use('/api/luxury', require('./routes/luxury'));
 app.use('/', require('./routes/luxury'));
 app.use('/api', require('./routes/luxury'));
