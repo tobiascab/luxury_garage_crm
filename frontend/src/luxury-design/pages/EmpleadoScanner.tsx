@@ -45,6 +45,10 @@ export default function EmpleadoScanner({ user }: { user: any }) {
     const [cameraError, setCameraError] = useState<string | null>(null);
     const scannerRef = useRef<Html5Qrcode | null>(null);
     const reduce = useReduce();
+    // Resueltas acá arriba a propósito: son hooks, y adentro de un bloque condicional del
+    // JSX su cantidad cambia entre renders y React descarta la pantalla.
+    const vScaleIn = useVariants(scaleIn);
+    const vPopIn = useVariants(popIn);
 
     useEffect(() => {
         const startScanner = async () => {
@@ -69,14 +73,10 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                     { facingMode: "environment" },
                     {
                         fps: 15,
-                        // El recuadro se adapta al tamaño real del video en vez de ser 250px fijos:
-                        // el carnet lleva un código de 82 caracteres, bastante denso, y con el
-                        // recuadro chico había que acertar una distancia muy justa para que entrara
-                        // entero. Se toma el 75% del lado menor, con un piso razonable.
-                        qrbox: (anchoVideo: number, altoVideo: number) => {
-                            const lado = Math.floor(Math.min(anchoVideo, altoVideo) * 0.75);
-                            return { width: Math.max(lado, 200), height: Math.max(lado, 200) };
-                        },
+                        // Sin qrbox a propósito: con recuadro, la librería recorta la imagen a esa
+                        // región y hay que acertar una distancia justa para que el código entre
+                        // entero. Analizando el cuadro completo lee desde cualquier posición.
+                        aspectRatio: 1.0,
                     },
                     (decodedText) => {
                         processQR(decodedText);
@@ -199,7 +199,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                     {!result && !porConfirmar && (
                         <motion.div
                             key="scanner-frame"
-                            variants={useVariants(scaleIn)}
+                            variants={vScaleIn}
                             initial="hidden"
                             animate="show"
                             exit="exit"
@@ -218,7 +218,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                             className="absolute inset-0 z-20 flex flex-col items-center justify-center p-8 text-center bg-slate-950/80 backdrop-blur-sm"
                                         >
                                             <motion.div
-                                                variants={useVariants(popIn)}
+                                                variants={vPopIn}
                                                 initial="hidden"
                                                 animate="show"
                                                 transition={springPop}
@@ -313,7 +313,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                             </div>
 
                             <div className="p-5 space-y-3">
-                                {porConfirmar.reservas?.length === 0 ? (
+                                {!porConfirmar.reservas?.length ? (
                                     <div className="text-center py-6">
                                         <XCircle size={30} className="mx-auto text-amber-500 mb-3" />
                                         <p className="font-black text-slate-900 dark:text-white text-sm">Sin reservas pendientes</p>
@@ -326,7 +326,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 text-center">
                                             ¿Qué reserva estás atendiendo?
                                         </p>
-                                        {porConfirmar.reservas.map((r: any) => {
+                                        {(porConfirmar.reservas || []).map((r: any) => {
                                             const elegida = reservaElegida === r.id;
                                             return (
                                                 <button
@@ -388,7 +388,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                 <AnimatePresence>
                     {result && (
                         <motion.div
-                            variants={useVariants(scaleIn)}
+                            variants={vScaleIn}
                             initial="hidden"
                             animate="show"
                             exit="exit"
@@ -399,7 +399,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                         >
                             <div className="flex items-center gap-4 mb-6">
                                 <motion.div
-                                    variants={useVariants(popIn)}
+                                    variants={vPopIn}
                                     initial="hidden"
                                     animate="show"
                                     transition={springPop}
@@ -453,7 +453,7 @@ export default function EmpleadoScanner({ user }: { user: any }) {
                                     <AnimatePresence>
                                         {result.success && scannedCount > 0 && (
                                             <motion.div
-                                                variants={useVariants(popIn)}
+                                                variants={vPopIn}
                                                 initial="hidden"
                                                 animate="show"
                                                 exit="exit"

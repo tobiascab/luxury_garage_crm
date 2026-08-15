@@ -408,13 +408,19 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
                                             transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
                                         />
                                     )}
+                                    {/* El código lleva un token de 82 caracteres. Con corrección "H"
+                                        (la máxima) necesitaba 49x49 cuadraditos en 190px: menos de 4
+                                        píxeles cada uno, y las cámaras no lo enganchaban. Con "M" son
+                                        37x37 en 240px — 6,5 px por cuadradito, casi el doble — y sigue
+                                        tolerando de sobra el logo del medio, que tapa apenas el 1,8%. */}
                                     <QRCodeSVG
                                         value={qrToken}
-                                        size={190}
+                                        size={240}
                                         bgColor="#ffffff"
                                         fgColor="#0f172a"
-                                        level="H"
-                                        imageSettings={{ src: '/logo.png', height: 38, width: 38, excavate: true }}
+                                        level="M"
+                                        marginSize={2}
+                                        imageSettings={{ src: '/logo.png', height: 32, width: 32, excavate: true }}
                                     />
                                     {/* Scanning indicator */}
                                     <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-primary dark:bg-blue-500 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.1em] flex items-center gap-2 shadow-xl whitespace-nowrap">

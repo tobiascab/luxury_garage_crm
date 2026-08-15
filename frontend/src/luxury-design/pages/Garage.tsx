@@ -15,6 +15,9 @@ import {
 import { PlusCircle, MoreVertical, Gauge, Zap, ArrowRight, Droplets } from 'lucide-react';
 
 export default function Garage() {
+  // Variante resuelta acá: useVariants es un hook y dentro del JSX condicional su cantidad
+  // cambia entre renders, lo que hace que React descarte la pantalla.
+  const v_popIn = useVariants(popIn);
   return (
     <motion.div
       initial={false}
@@ -55,7 +58,7 @@ export default function Garage() {
 
           <div className="absolute top-6 left-6 flex gap-2">
             <motion.span
-              variants={useVariants(popIn)}
+              variants={v_popIn}
               initial="hidden"
               animate="show"
               className="bg-primary/80 backdrop-blur-md text-white px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/10 shadow-lg"

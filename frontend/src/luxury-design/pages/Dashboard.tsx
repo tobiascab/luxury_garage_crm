@@ -37,6 +37,11 @@ interface DashboardProps {
 
 const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
   const [showQR, setShowQR] = useState(false);
+  // Variantes resueltas una sola vez: useVariants es un hook (llama a useReduce),
+  // y dentro de un bloque condicional del JSX su cantidad cambia entre renders,
+  // lo que hace que React descarte la pantalla entera.
+  const v_popIn = useVariants(popIn);
+  const v_scaleIn = useVariants(scaleIn);
   const navigate = useNavigate();
 
   // Scroll-lock mientras el modal del QR (Luxury Pass) está abierto.
@@ -90,7 +95,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
           <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1">Estatus de Membresía</p>
         </div>
         <motion.div
-          variants={useVariants(popIn)}
+          variants={v_popIn}
           initial="hidden"
           animate="show"
           className="px-3 py-1 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 border border-emerald-500/10 shadow-sm"
@@ -226,7 +231,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
             <div className="flex-1 px-5 py-5 min-w-0">
               {/* Confirmed badge */}
               <motion.div
-                variants={useVariants(popIn)}
+                variants={v_popIn}
                 initial="hidden"
                 animate="show"
                 className="flex items-center gap-1.5 mb-3"
@@ -265,7 +270,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
       ) : (
         <Reveal variant={scaleIn} className="bg-white/90 dark:bg-slate-900/60 backdrop-blur-md rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-8 text-center shadow-sm">
           <motion.div
-            variants={useVariants(popIn)}
+            variants={v_popIn}
             initial="hidden"
             animate="show"
             className="w-14 h-14 bg-blue-50 dark:bg-blue-500/10 rounded-[1.2rem] flex items-center justify-center mx-auto mb-4 border border-blue-100 dark:border-blue-500/10"
@@ -310,7 +315,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
               className="absolute inset-0 bg-slate-900/90 backdrop-blur-lg"
             />
             <motion.div
-              variants={useVariants(scaleIn)}
+              variants={v_scaleIn}
               initial="hidden"
               animate="show"
               exit="exit"
@@ -331,7 +336,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
                 <p className="text-white/30 text-[9px] font-black uppercase tracking-[0.3em] mb-8">{user?.name}</p>
 
                 <motion.div
-                  variants={useVariants(popIn)}
+                  variants={v_popIn}
                   initial="hidden"
                   animate="show"
                   className="bg-white p-5 rounded-[2.5rem] shadow-[0_0_50px_rgba(0,123,255,0.2)] mb-8 inline-block relative group transition-transform hover:scale-105"
