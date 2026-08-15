@@ -1,7 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { useEffect, lazy, Suspense, Component } from 'react';
+import { useEffect, useRef, lazy, Suspense, Component } from 'react';
 
 import './index.css';
 
@@ -415,6 +415,26 @@ function PreloadOnAuth() {
 }
 
 // ─────────────────────────────────────────────────────────
+// Si mientras el usuario tenía la app abierta se publicó una versión nueva, el service
+// worker la deja preparada (ver main.jsx) y acá se aplica al cambiar de módulo: es el
+// único momento donde recargar no interrumpe nada. Sin esto, la app seguía pidiendo
+// archivos de la versión anterior —que ya no existen— y el módulo quedaba en blanco.
+// ─────────────────────────────────────────────────────────
+function AplicarActualizacionPendiente() {
+  const location = useLocation();
+  const primeraRuta = useRef(location.pathname);
+
+  useEffect(() => {
+    if (!window.__actualizacionPendiente) return;
+    if (location.pathname === primeraRuta.current) return; // todavía no navegó
+    window.__actualizacionPendiente = false;
+    window.location.reload();
+  }, [location.pathname]);
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────
 // Root
 // ─────────────────────────────────────────────────────────
 export default function App() {
@@ -422,6 +442,7 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <PreloadOnAuth />
+        <AplicarActualizacionPendiente />
         <Toaster
           position="top-center"
           toastOptions={{

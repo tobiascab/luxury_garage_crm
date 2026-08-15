@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import {
     Home, Calendar, QrCode, CreditCard, User,
     Bell, BellRing, ArrowLeft, X, Moon, Sun, History,
@@ -101,6 +101,14 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const NAV_ITEMS = isEmployee ? NAV_EMPLOYEE : NAV_CLIENT;
     const currentIdx = TABS.indexOf(location.pathname);
     const isTabRoute = currentIdx !== -1;
+
+    // Al cambiar de módulo hay que volver arriba. React Router conserva la posición del
+    // scroll entre rutas: si venías del fondo de una pantalla larga y entrabas a una más
+    // corta, quedabas mirando el final vacío y parecía que el módulo no había cargado.
+    // Va en useLayoutEffect para que ocurra antes de pintar y no se vea el salto.
+    useLayoutEffect(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }, [location.pathname]);
 
     // ── Dark mode ─────────────────────────────────────────────────────────────
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
@@ -425,7 +433,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
             >
-                <AnimatePresence mode="wait" initial={false}>
+                {/* popLayout en vez de "wait": ese modo desmontaba la vista anterior y ESPERABA
+                    a que terminara su animación de salida antes de montar la nueva, dejando un
+                    hueco con la pantalla vacía — y si el módulo entrante todavía estaba bajando
+                    su código, el hueco se estiraba y parecía que no había cargado nada.
+                    Con popLayout la entrante se monta de una y la saliente sale del flujo
+                    mientras se desvanece, así que no se apilan ni saltan. */}
+                <AnimatePresence initial={false} mode="popLayout">
                     <motion.div
                         key={location.pathname}
                         className="lg:max-w-3xl lg:mx-auto"
