@@ -32,25 +32,26 @@ export default function ContractsManager() {
   const [tab, setTab] = useState('firmados');
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-            <FileSignature size={20} />
+    // page-content = el contenedor estándar del panel (ancho máximo y respiración laterales).
+    <div className="page-content space-y-8 pb-16">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+            <FileSignature size={22} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Contratos</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Contratos</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
               Autorizaciones de débito automático firmadas por los clientes
             </p>
           </div>
         </div>
-        <div className="flex rounded-xl bg-slate-100 dark:bg-white/5 p-1">
+        <div className="flex rounded-xl bg-slate-100 dark:bg-white/5 p-1 shrink-0 self-start md:self-auto">
           {[['firmados', 'Firmados'], ['condiciones', 'Condiciones']].map(([k, label]) => (
             <button
               key={k}
               onClick={() => setTab(k)}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${tab === k
+              className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${tab === k
                 ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
             >
@@ -113,28 +114,34 @@ function Firmados() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {stats?.faltanDatosComercio?.length > 0 && (
-        <div className="rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 p-4 flex items-start gap-3">
-          <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-              Faltan datos del negocio en los contratos
+        <div className="rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 p-5 flex items-start gap-3.5">
+          <AlertTriangle size={19} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            {/* Se nombra EXACTAMENTE lo que falta: un aviso genérico da a entender que no hay
+                ningún dato cargado, cuando la razón social y el RUC ya están. */}
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              {stats.faltanDatosComercio.length === 1
+                ? `Falta cargar: ${stats.faltanDatosComercio[0].toLowerCase()}`
+                : `Faltan cargar: ${stats.faltanDatosComercio.join(', ').toLowerCase()}`}
             </p>
-            <p className="text-xs text-amber-700 dark:text-amber-400/80 mt-1 leading-relaxed">
-              Sin {stats.faltanDatosComercio.join(', ').toLowerCase()} los documentos salen incompletos y pierden
-              respaldo legal. Se cargan en <strong>Ajustes › Datos del negocio</strong>.
+            <p className="text-[13px] text-amber-800/90 dark:text-amber-300/80 mt-1.5 leading-relaxed">
+              {!stats.faltanDatosComercio.some((d) => /raz[oó]n|ruc/i.test(d))
+                ? <>La razón social y el RUC ya están cargados; con esto el contrato queda completo. </>
+                : <>Sin estos datos el documento sale incompleto y pierde respaldo. </>}
+              Se completa en <strong>Ajustes › Datos del negocio</strong>.
             </p>
           </div>
         </div>
       )}
 
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Tarjeta label="Firmados" valor={stats.total} />
-          <Tarjeta label="Vigentes" valor={stats.vigentes} tono="ok" />
-          <Tarjeta label="Cancelados" valor={stats.cancelados} tono="off" />
-          <Tarjeta label="Comprometido por mes" valor={fmtGs(stats.comprometido_mensual)} />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <Tarjeta label="Firmados" valor={stats.total} icono={<FileSignature size={13} />} />
+          <Tarjeta label="Vigentes" valor={stats.vigentes} tono="ok" icono={<ShieldCheck size={13} />} />
+          <Tarjeta label="Cancelados" valor={stats.cancelados} tono="off" icono={<X size={13} />} />
+          <Tarjeta label="Comprometido por mes" valor={fmtGs(stats.comprometido_mensual)} icono={<CreditCard size={13} />} />
         </div>
       )}
 
@@ -145,13 +152,13 @@ function Firmados() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por cliente, documento, correo o N° de contrato"
-            className="w-full h-11 pl-10 pr-4 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40 outline-none transition-all"
+            className="w-full h-12 pl-11 pr-4 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40 outline-none transition-all"
           />
         </div>
         <select
           value={estado}
           onChange={(e) => setEstado(e.target.value)}
-          className="h-11 px-4 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white outline-none cursor-pointer"
+          className="h-12 px-4 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white outline-none cursor-pointer sm:min-w-[150px]"
         >
           <option value="">Todos</option>
           <option value="VIGENTE">Vigentes</option>
@@ -178,7 +185,7 @@ function Firmados() {
           {rows.map((c) => (
             <div
               key={c.id}
-              className="group rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4 hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-colors"
+              className="group rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 p-5 hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-colors"
             >
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <div className="min-w-0 flex-1">
@@ -225,14 +232,17 @@ function Firmados() {
   );
 }
 
-function Tarjeta({ label, valor, tono }) {
+function Tarjeta({ label, valor, tono, icono }) {
   const color = tono === 'ok' ? 'text-emerald-600 dark:text-emerald-400'
-    : tono === 'off' ? 'text-slate-400'
+    : tono === 'off' ? 'text-slate-400 dark:text-slate-500'
       : 'text-slate-900 dark:text-white';
   return (
-    <div className="rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
-      <p className={`text-xl font-bold mt-1 tabular-nums ${color}`}>{valor}</p>
+    <div className="rounded-2xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 p-5 flex flex-col justify-between min-h-[112px]">
+      <div className="flex items-center gap-2 text-slate-400">
+        {icono}
+        <p className="text-[11px] font-semibold uppercase tracking-wider">{label}</p>
+      </div>
+      <p className={`text-[26px] leading-none font-bold tabular-nums mt-3 ${color}`}>{valor}</p>
     </div>
   );
 }
@@ -391,8 +401,8 @@ function Condiciones() {
   if (loading) return <div className="h-96 rounded-2xl bg-slate-100 dark:bg-white/5 animate-pulse" />;
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-4">
+    <div className="space-y-6">
+      <div className="rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-5">
         <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
           Este es el texto que el cliente lee y acepta antes del primer cobro. Los contratos
           <strong> ya firmados no cambian</strong>: cada uno guarda su propia copia de lo que esa persona aceptó.
@@ -522,7 +532,7 @@ function Campo({ label, value, onChange, placeholder, hint }) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full h-11 px-3.5 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40 transition-all"
+        className="w-full h-12 px-4 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40 transition-all"
       />
       {hint && <p className="text-xs text-slate-400 mt-1.5">{hint}</p>}
     </div>
