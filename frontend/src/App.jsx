@@ -7,7 +7,7 @@ import './index.css';
 
 // Auth - Eager loaded (necesario para login)
 import LuxuryLogin from './luxury-design/pages/Login';
-import RegisterPage from './pages/RegisterPage';
+
 
 // Luxury Context - Eager loaded (necesario para shell)
 import { LuxuryUserProvider, useLuxuryUser } from './luxury-design/context/LuxuryUserContext';
@@ -153,6 +153,7 @@ const LuxuryOnboarding = lazyWithReload(() => import('./luxury-design/pages/Onbo
 
 // Landing pública (marketing) — solo la baja un visitante del navegador sin sesión.
 const Landing = lazyWithReload(() => import('./luxury-design/pages/Landing'));
+const Registro = lazyWithReload(() => import('./luxury-design/pages/Registro'));
 
 // Recuperación de contraseña y confirmación de correo (públicas: se llega desde el mail).
 const OlvidePassword = lazyWithReload(() =>
@@ -344,7 +345,7 @@ function AppRoutes() {
       {/* ── Public ── */}
       <Route path="/" element={<RootGate />} />
       <Route path="/login" element={<LuxuryLogin />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/register" element={<Suspense fallback={<PageLoader />}><Registro /></Suspense>} />
       {/* Recuperar contraseña / confirmar correo: se entra desde el enlace del mail, sin sesión. */}
       <Route path="/olvide-contrasena" element={<Suspense fallback={<PageLoader />}><OlvidePassword /></Suspense>} />
       <Route path="/restablecer" element={<Suspense fallback={<PageLoader />}><RestablecerPassword /></Suspense>} />
