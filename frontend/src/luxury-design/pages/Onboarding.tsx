@@ -76,7 +76,11 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
         const list = (plansRes.data.data || []).filter((p: any) => p.isActive !== false);
         setPlans(list);
         // Preselección: el plan que el admin dejó asignado al crear la cuenta.
-        setSelectedPlanId((prev) => prev ?? user?.pendingPlan?.id ?? null);
+        // Prioridad: lo que ya eligió acá > el plan que traía de la landing (?plan=slug)
+        // > el que el admin dejó asignado.
+        const slugDeLaUrl = new URLSearchParams(window.location.search).get('plan');
+        const desdeLanding = slugDeLaUrl ? list.find((p: any) => p.slug === slugDeLaUrl || p.id === slugDeLaUrl) : null;
+        setSelectedPlanId((prev) => prev ?? desdeLanding?.id ?? user?.pendingPlan?.id ?? null);
       }
       if (cardsRes?.data?.success) setCards(cardsRes.data.data || []);
     } finally {

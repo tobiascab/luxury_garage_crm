@@ -7,6 +7,8 @@ import api from '../services/api';
 export default function RegisterPage() {
   const [searchParams] = useSearchParams();
   const referralCode = searchParams.get('ref') || '';
+  // Plan que venía mirando en la landing: se arrastra al alta para dejarlo elegido.
+  const planPreseleccionado = searchParams.get('plan') || '';
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -36,7 +38,8 @@ export default function RegisterPage() {
         localStorage.setItem('luxury_token', res.data.data.token);
         localStorage.setItem('luxury_user', JSON.stringify(res.data.data.user));
         toast.success('¡Cuenta creada exitosamente! 🎉');
-        setTimeout(() => navigate('/client'), 1000);
+        // Va directo al alta: ahí carga su tarjeta, confirma el plan y paga.
+        setTimeout(() => navigate(planPreseleccionado ? `/inicio?plan=${encodeURIComponent(planPreseleccionado)}` : '/inicio', { replace: true }), 900);
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Error al registrar');

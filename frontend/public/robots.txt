@@ -1,0 +1,22 @@
+# Luxury Garage
+User-agent: *
+Allow: /
+
+# Zonas privadas: no aportan nada en buscadores y no deben indexarse.
+Disallow: /admin
+Disallow: /inicio
+Disallow: /perfil
+Disallow: /billetera
+Disallow: /qr
+Disallow: /tarjetas
+Disallow: /booking
+Disallow: /servicios-extra
+Disallow: /referidos
+Disallow: /employee
+Disallow: /scan
+Disallow: /historial
+Disallow: /restablecer
+Disallow: /verificar-correo
+Disallow: /api/
+
+Sitemap: https://luxurygarage.arizar-ia.cloud/sitemap.xml

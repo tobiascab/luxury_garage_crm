@@ -47,6 +47,13 @@ export default function Landing() {
   const [formOpen, setFormOpen] = useState(false);
   const [formPlan, setFormPlan] = useState<string | undefined>(undefined);
 
+  // Alta directa: la persona se registra, elige plan y paga sin intervención de nadie.
+  // El plan que venía mirando viaja en la URL para llegar ya seleccionado.
+  const irARegistro = (plan?: string) => {
+    navigate(plan ? `/register?plan=${encodeURIComponent(plan)}` : '/register');
+  };
+
+  // Formulario de contacto: queda para quien prefiere que lo llamen antes de contratar.
   const openMembershipForm = (plan?: string) => {
     setFormPlan(plan);
     setFormOpen(true);
@@ -95,8 +102,8 @@ export default function Landing() {
               <button onClick={scrollToPlans} className="hidden md:inline-flex text-xs font-bold uppercase tracking-widest text-slate-300 hover:text-white transition-colors px-3 py-2">
                 Ver planes
               </button>
-              <Pressable onClick={() => openMembershipForm()} className={`hidden lg:inline-flex ${cls.btnGold} text-xs px-5 py-2.5`}>
-                <Crown size={15} /> Solicitar membresía
+              <Pressable onClick={() => irARegistro()} className={`hidden lg:inline-flex ${cls.btnGold} text-xs px-5 py-2.5`}>
+                <Crown size={15} /> Crear mi cuenta
               </Pressable>
               <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} text-[11px] sm:text-xs px-3 sm:px-5 py-2 sm:py-2.5 whitespace-nowrap`}>
                 <LogIn size={14} /> <span className="hidden sm:inline">Iniciar sesión</span><span className="sm:hidden">Entrar</span>
@@ -107,7 +114,7 @@ export default function Landing() {
 
         {/* ── SECCIONES ── */}
         <main>
-          <Hero onRequestMembership={() => openMembershipForm()} />
+          <Hero onRequestMembership={() => irARegistro()} />
           <TrustMarquee />
           <ServiciosSection />
           <ProcesoSection />
@@ -117,7 +124,7 @@ export default function Landing() {
           <BenefitsSection />
           <ConfianzaBand />
           <HowItWorksSection />
-          <PlanesSection onRequestMembership={openMembershipForm} />
+          <PlanesSection onRequestMembership={irARegistro} />
           <TestimoniosSection />
           <FaqSection />
           <AppPwaSection />
@@ -133,7 +140,7 @@ export default function Landing() {
               Sumate a Luxury Garage y viví el cuidado automotor premium desde tu celular.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Pressable onClick={() => openMembershipForm()} className={`${cls.btnGold} w-full sm:w-auto text-sm px-10 py-5`}>
+              <Pressable onClick={() => irARegistro()} className={`${cls.btnGold} w-full sm:w-auto text-sm px-10 py-5`}>
                 <Crown size={18} /> Solicitar membresía
               </Pressable>
               <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} w-full sm:w-auto text-sm px-10 py-5`}>
