@@ -50,7 +50,7 @@ export default function GallerySection() {
   return (
     <section
       ref={ref}
-      className="relative overflow-hidden bg-[#070708] px-5 py-28 sm:py-36"
+      className="relative overflow-hidden bg-[#070708] px-5 py-16 sm:py-28 lg:py-36"
     >
       <SectionHeading
         eyebrow="Galería"

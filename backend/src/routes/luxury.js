@@ -143,7 +143,15 @@ router.get('/profile/full', authenticate, async (req, res, next) => {
  * El frontend lo usa como contenido del QR — ya NO genera el token por su cuenta.
  */
 router.get('/qr/token', authenticate, (req, res) => {
-    res.json({ success: true, token: buildQrToken(req.user.id), validityMs: QR_VALIDITY_MS });
+    // `serverNow` es el reloj del SERVIDOR: el cliente lo usa como `since` al preguntar si ya
+    // le registraron el lavado (GET /latest-wash). Antes mandaba su propio Date.now() y un
+    // celular con la hora corrida dejaba la consulta comparando contra un instante equivocado.
+    res.json({
+        success: true,
+        token: buildQrToken(req.user.id),
+        validityMs: QR_VALIDITY_MS,
+        serverNow: Date.now(),
+    });
 });
 
 /**
@@ -529,23 +537,35 @@ router.get('/notifications', authenticate, async (req, res, next) => {
 router.get('/latest-wash', authenticate, async (req, res, next) => {
     try {
         const userId = req.user.id;
-        const { since } = req.query; // ms timestamp
-        if (!since) return res.status(400).json({ success: false, message: 'since required' });
+        const { since } = req.query; // ms timestamp (viene del `serverNow` que devuelve /qr/token)
+        const sinceMs = parseInt(since, 10);
+        if (!Number.isFinite(sinceMs)) return res.status(400).json({ success: false, message: 'since required' });
 
-        // ms timestamp - subtract 15 mins to account for clock drift between client and server
-        const driftToleratedSince = new Date(parseInt(since) - 15 * 60 * 1000);
+        // Se compara contra CUÁNDO SE REGISTRÓ el lavado, no contra la fecha del turno.
+        // `date` guarda el día reservado a medianoche UTC (el front manda "2026-08-15"), o sea
+        // las 20:00 del día anterior en Paraguay: un QR generado a cualquier hora del día nunca
+        // era >= ese instante, así que esto devolvía found=false SIEMPRE y el cliente jamás veía
+        // la pantalla de "lavado registrado". El momento real está en updatedAt (el update a
+        // COMPLETED) y en serviceRecord.completedAt.
+        const sinceDate = new Date(sinceMs - 2 * 60 * 1000); // 2 min de colchón por desfase de reloj
         const wash = await req.prisma.appointment.findFirst({
             where: {
                 userId,
                 status: 'COMPLETED',
-                date: { gte: driftToleratedSince }
+                OR: [
+                    { updatedAt: { gte: sinceDate } },
+                    { serviceRecord: { completedAt: { gte: sinceDate } } },
+                ],
             },
-            orderBy: { createdAt: 'desc' } // Changed from date to createdAt to be absolutely sure we get the latest created record
+            include: { service: { select: { name: true } } },
+            orderBy: { updatedAt: 'desc' },
         });
 
-        console.log(`[LATEST_WASH] polled by ${userId}. since=${since}. driftTolerated=${driftToleratedSince.toISOString()}. found=${!!wash}. washDate=${wash ? wash.date : 'N/A'}`);
-
-        res.json({ success: true, found: !!wash, data: wash });
+        res.json({
+            success: true,
+            found: !!wash,
+            data: wash ? { ...wash, serviceName: wash.service?.name || null } : null,
+        });
     } catch (err) {
         next(err);
     }

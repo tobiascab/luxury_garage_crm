@@ -25,6 +25,9 @@ interface QRPassProps {
 }
 
 const QR_EXPIRY_SECONDS = 300;
+// Se sigue preguntando por el lavado un rato DESPUÉS de que el QR vence en pantalla: el
+// backend acepta el código 15 minutos y el operario puede confirmar sobre la hora.
+const LISTEN_WINDOW_MS = (QR_EXPIRY_SECONDS + 180) * 1000;
 
 const FUN_PHRASES = [
     '¡Tu carrazo queda impecable! 🚗✨',
@@ -57,6 +60,7 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
     const [secondsLeft, setSecondsLeft] = useState(QR_EXPIRY_SECONDS);
     const [isExpired, setIsExpired] = useState(false);
     const [washProcessed, setWashProcessed] = useState(false);
+    const [washInfo, setWashInfo] = useState<any | null>(null);
     const [showParticles, setShowParticles] = useState(false);
     const [funPhrase] = useState(() => FUN_PHRASES[Math.floor(Math.random() * FUN_PHRASES.length)]);
     const [nextReservation, setNextReservation] = useState<any | null>(null);
@@ -105,14 +109,19 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
         try {
             // El token del QR lo EMITE y FIRMA el backend (HMAC). El frontend ya NO lo arma:
             // así un empleado no puede fabricar el carnet de otro cliente.
-            const res = await api.get('/luxury/qr/token');
+            // Sin caché: el GET de api guarda 45 s y devolvía el mismo token con el mismo
+            // `serverNow`, así que regenerar el QR podía revivir el lavado anterior.
+            const res = await api.get('/luxury/qr/token', { _noCache: true } as any);
             const token = res.data?.token;
             if (!token) throw new Error('Token no recibido');
             setQrToken(token);
-            setGeneratedAt(Date.now());
+            // Reloj del SERVIDOR, no el del celular: es el instante desde el que se busca el
+            // lavado registrado. Con la hora local, un teléfono desfasado nunca lo encontraba.
+            setGeneratedAt(res.data?.serverNow ?? Date.now());
             setSecondsLeft(QR_EXPIRY_SECONDS);
             setIsExpired(false);
             setWashProcessed(false);
+            setWashInfo(null);
             setShowParticles(false);
         } catch (e) {
             console.error('No se pudo generar el carnet QR', e);
@@ -131,42 +140,64 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
         return () => clearInterval(interval);
     }, [qrToken, isExpired, washProcessed]);
 
-    // Poll backend every 3s to detect if employee scanned the QR
+    // ── ¿El operario ya confirmó el lavado? ──────────────────────────────────────────
+    // Se le pregunta al backend cada 2,5 s y también apenas la app vuelve al frente: en el
+    // celular los timers se congelan con la pantalla apagada o al cambiar de app, y el
+    // cliente volvía sin ver nunca el aviso. Sigue escuchando después de que el QR vence
+    // (LISTEN_WINDOW_MS) porque el backend acepta el código 15 minutos.
     useEffect(() => {
-        if (!qrToken || isExpired || !generatedAt) return;
+        if (!qrToken || !generatedAt) return;
 
         // Clear any previous interval before starting a new one
         if (pollRef.current) clearInterval(pollRef.current);
         processedRef.current = false;
+        const startedAt = Date.now();
 
-        pollRef.current = setInterval(async () => {
-            // Use ref to avoid stale closure
-            if (processedRef.current) return;
-            try {
-                const res = await api.get(`/luxury/latest-wash?since=${generatedAt}&_t=${Date.now()}`);
-                // Backend returns: { success: true, found: bool, data: wash|null }
-                // IMPORTANT: read .found from res.data, NOT from res.data.data (that's the wash object)
-                const { found } = res.data;
-                if (found) {
-                    processedRef.current = true; // block re-entry immediately
-                    clearInterval(pollRef.current!);
-                    pollRef.current = null;
-                    setShowParticles(true);
-                    setTimeout(() => setWashProcessed(true), 200);
-                    onUpdate?.();
-                }
-            } catch (_) { }
-        }, 3000);
-
-        return () => {
+        const stopPolling = () => {
             if (pollRef.current) {
                 clearInterval(pollRef.current);
                 pollRef.current = null;
             }
         };
+
+        const check = async () => {
+            // Use ref to avoid stale closure
+            if (processedRef.current) return;
+            if (Date.now() - startedAt > LISTEN_WINDOW_MS) { stopPolling(); return; }
+            try {
+                // `_noCache` en lugar de un `_t` variable: cada URL distinta dejaba una entrada
+                // nueva en el caché en memoria que nadie limpiaba.
+                const res = await api.get(`/luxury/latest-wash?since=${generatedAt}`, { _noCache: true } as any);
+                // Backend returns: { success: true, found: bool, data: wash|null }
+                // IMPORTANT: read .found from res.data, NOT from res.data.data (that's the wash object)
+                const { found, data } = res.data;
+                if (found && !processedRef.current) {
+                    processedRef.current = true; // block re-entry immediately
+                    stopPolling();
+                    setWashInfo(data || null);
+                    setShowParticles(true);
+                    setTimeout(() => setWashProcessed(true), 200);
+                    onUpdate?.();
+                    // La reserva que se acaba de redimir ya no está pendiente: se refresca para
+                    // que al cerrar el aviso no ofrezca generar otro QR sin turno.
+                    api.get('/appointments', { params: { status: 'CONFIRMED' }, _noCache: true } as any)
+                        .then((r) => setNextReservation(r.data?.data?.[0] || null))
+                        .catch(() => { });
+                }
+            } catch (_) { }
+        };
+
+        pollRef.current = setInterval(check, 2500);
+        const onVisible = () => { if (document.visibilityState === 'visible') check(); };
+        document.addEventListener('visibilitychange', onVisible);
+
+        return () => {
+            stopPolling();
+            document.removeEventListener('visibilitychange', onVisible);
+        };
         // NOTE: intentionally omit washProcessed from deps — we use processedRef instead
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [qrToken, isExpired, generatedAt, user.id]);
+    }, [qrToken, generatedAt, user.id]);
 
     const minutesLeft = Math.floor(secondsLeft / 60);
     const secs = secondsLeft % 60;
@@ -202,8 +233,10 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
                         <RefreshCw size={28} className="text-slate-300 dark:text-slate-700 animate-spin" />
                     </div>
                 </Reveal>
-            ) : !nextReservation ? (
-                /* ── NO RESERVATION — blocked state, no QR ── */
+            ) : !nextReservation && !washProcessed ? (
+                /* ── NO RESERVATION — blocked state, no QR ──
+                   (`washProcessed` manda: al registrarse el lavado la reserva deja de estar
+                   pendiente, y sin esta guarda el aviso de éxito lo tapaba este cartel.) */
                 <Reveal delay={0.06} variant={scaleIn} className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm p-8 text-center transition-colors">
                     <div className="w-20 h-20 bg-amber-50 dark:bg-amber-500/10 rounded-3xl flex items-center justify-center mx-auto mb-5">
                         <CalendarX size={36} className="text-amber-400 dark:text-amber-300" />
@@ -222,6 +255,7 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
             ) : (
               <>
             {/* Reservation to redeem */}
+            {nextReservation && (
             <Reveal delay={0.06} className="flex items-center gap-3 p-4 rounded-2xl border bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20 transition-colors">
                 <ShieldCheck size={20} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -245,6 +279,7 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
                     <Star size={15} className="text-secondary" fill="currentColor" />
                 </motion.span>
             </Reveal>
+            )}
 
             {/* QR Area */}
             <Reveal delay={0.12} variant={scaleIn} className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden transition-colors relative">
@@ -319,8 +354,13 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
                                 >
                                     <p className="text-white/70 text-[10px] font-black uppercase tracking-[0.25em] mb-1">Servicio registrado</p>
                                     <h2 className="text-white font-black text-2xl uppercase italic tracking-tighter leading-tight mb-2">
-                                        ¡Tu QR fue<br />procesado!
+                                        ¡Lavado<br />confirmado!
                                     </h2>
+                                    {washInfo?.serviceName && (
+                                        <p className="inline-flex items-center gap-1.5 bg-white/20 border border-white/25 rounded-full px-3.5 py-1.5 text-white text-xs font-black mb-3">
+                                            <Droplets size={12} /> {washInfo.serviceName}
+                                        </p>
+                                    )}
                                     <p className="text-white/80 text-sm font-medium mb-6 leading-relaxed">{funPhrase}</p>
                                 </motion.div>
 
@@ -341,7 +381,7 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
                                     transition={reduce ? { duration: 0 } : { delay: 0.45 }}
                                 >
                                     <Pressable
-                                        onClick={() => { setQrToken(null); setWashProcessed(false); setGeneratedAt(null); setShowParticles(false); }}
+                                        onClick={() => { setQrToken(null); setWashProcessed(false); setWashInfo(null); setGeneratedAt(null); setShowParticles(false); }}
                                         className="w-full py-4 bg-white text-emerald-600 font-black uppercase tracking-widest text-xs rounded-2xl shadow-xl transition-colors flex items-center justify-center gap-2"
                                     >
                                         <CheckCircle2 size={15} /> Entendido

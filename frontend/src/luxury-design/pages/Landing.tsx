@@ -83,20 +83,23 @@ export default function Landing() {
         />
         {/* ── NAV ── */}
         <header className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${scrolled ? 'bg-[#070708]/85 backdrop-blur-xl border-b border-white/10 py-3' : 'bg-transparent py-5'}`}>
-          <div className="max-w-6xl mx-auto px-5 sm:px-6 lg:px-8 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <img src="/logo.png" alt="Luxury Garage" className="w-8 h-8 object-contain" />
-              <span className="brand-wordmark text-lg sm:text-xl">LUXURY GARAGE</span>
+          {/* El bloque de marca se comprime (min-w-0) y los botones no (shrink-0): sin eso el
+              nombre no cedía ancho y los botones se le montaban encima en pantallas angostas.
+              El botón dorado recién aparece en lg, que es donde entra sin apretar nada. */}
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+              <img src="/logo.png" alt="Luxury Garage" className="w-7 h-7 sm:w-8 sm:h-8 object-contain shrink-0" />
+              <span className="brand-wordmark text-sm sm:text-lg lg:text-xl truncate">LUXURY GARAGE</span>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <button onClick={scrollToPlans} className="hidden sm:inline-flex text-xs font-bold uppercase tracking-widest text-slate-300 hover:text-white transition-colors px-3 py-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-3 shrink-0">
+              <button onClick={scrollToPlans} className="hidden md:inline-flex text-xs font-bold uppercase tracking-widest text-slate-300 hover:text-white transition-colors px-3 py-2">
                 Ver planes
               </button>
-              <Pressable onClick={() => openMembershipForm()} className={`hidden sm:inline-flex ${cls.btnGold} text-[11px] sm:text-xs px-4 sm:px-5 py-2.5`}>
+              <Pressable onClick={() => openMembershipForm()} className={`hidden lg:inline-flex ${cls.btnGold} text-xs px-5 py-2.5`}>
                 <Crown size={15} /> Solicitar membresía
               </Pressable>
-              <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} text-[11px] sm:text-xs px-4 sm:px-5 py-2.5`}>
-                <LogIn size={15} /> Iniciar sesión
+              <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} text-[11px] sm:text-xs px-3 sm:px-5 py-2 sm:py-2.5 whitespace-nowrap`}>
+                <LogIn size={14} /> <span className="hidden sm:inline">Iniciar sesión</span><span className="sm:hidden">Entrar</span>
               </Pressable>
             </div>
           </div>
@@ -120,7 +123,7 @@ export default function Landing() {
           <AppPwaSection />
 
           {/* Franja CTA final — abre el cuestionario de membresía */}
-          <section className="relative isolate py-28 lg:py-32 px-5 sm:px-6 text-center overflow-hidden">
+          <section className="relative isolate py-16 sm:py-24 lg:py-32 px-5 sm:px-6 text-center overflow-hidden">
             <div className="absolute inset-0 -z-10 bg-[radial-gradient(60%_60%_at_50%_50%,rgba(254,183,0,0.10),transparent_70%)]" />
             <img src="/logo.png" alt="" className="w-16 h-16 lg:w-20 lg:h-20 object-contain mx-auto mb-6 drop-shadow-2xl" />
             <h2 className="font-headline text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-tight mb-5 lg:max-w-3xl lg:mx-auto">

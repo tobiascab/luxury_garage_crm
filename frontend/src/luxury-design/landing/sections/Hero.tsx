@@ -40,39 +40,39 @@ export default function Hero({ onRequestMembership }: { onRequestMembership?: ()
         <div className="absolute inset-0 bg-[radial-gradient(55%_45%_at_85%_95%,rgba(15,43,128,0.4),transparent_60%)]" />
       </motion.div>
 
-      <motion.div style={{ opacity: fade }} className="relative z-10 max-w-4xl mx-auto px-5 text-center pt-24 pb-32">
+      <motion.div style={{ opacity: fade }} className="relative z-10 max-w-4xl mx-auto px-5 text-center pt-20 sm:pt-24 pb-24 sm:pb-32">
         <StaggerList>
           <StaggerItem>
-            <span className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-white/5 backdrop-blur-md border border-white/15 text-[11px] font-bold uppercase tracking-[0.25em] text-secondary mb-7">
+            <span className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-white/5 backdrop-blur-md border border-white/15 text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] sm:tracking-[0.25em] text-secondary mb-5 sm:mb-7">
               <Sparkles size={14} /> Club de detailing premium
             </span>
           </StaggerItem>
           <StaggerItem>
-            <h1 className="brand-wordmark text-5xl sm:text-7xl md:text-8xl leading-[0.95] mb-4">LUXURY GARAGE</h1>
+            <h1 className="brand-wordmark text-[2.75rem] sm:text-7xl md:text-8xl leading-[0.92] mb-3 sm:mb-4">LUXURY GARAGE</h1>
           </StaggerItem>
           <StaggerItem>
-            <p className="font-headline text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight mb-5">
+            <p className="font-headline text-xl sm:text-3xl md:text-4xl font-black text-white tracking-tight mb-4 sm:mb-5">
               Tu auto, siempre impecable.
             </p>
           </StaggerItem>
           <StaggerItem>
-            <p className="text-slate-200/90 text-base sm:text-lg max-w-xl mx-auto font-light leading-relaxed mb-9">
+            <p className="text-slate-200/90 text-[15px] sm:text-lg max-w-xl mx-auto font-light leading-relaxed mb-7 sm:mb-9">
               Membresías de lavado y detailing con reservas, pagos y tu garage digital en una sola app.
               La experiencia de cuidado automotor que tu vehículo merece.
             </p>
           </StaggerItem>
           <StaggerItem>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 sm:gap-3">
               <Pressable
                 onClick={onRequestMembership ?? scrollToPlans}
-                className={`${cls.btnGold} w-full sm:w-auto text-sm px-8 py-4`}
+                className={`${cls.btnGold} w-full sm:w-auto text-sm px-7 sm:px-8 py-3.5 sm:py-4`}
               >
                 <Crown size={18} /> Solicitar membresía
               </Pressable>
-              <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} w-full sm:w-auto text-sm px-8 py-4`}>
+              <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} w-full sm:w-auto text-sm px-7 sm:px-8 py-3.5 sm:py-4`}>
                 <LogIn size={18} /> Iniciar sesión
               </Pressable>
-              <Pressable onClick={scrollToPlans} className={`${cls.btnGhost} w-full sm:w-auto text-sm px-8 py-4`}>
+              <Pressable onClick={scrollToPlans} className={`${cls.btnGhost} w-full sm:w-auto text-sm px-7 sm:px-8 py-3.5 sm:py-4`}>
                 Ver planes <ArrowRight size={18} />
               </Pressable>
             </div>

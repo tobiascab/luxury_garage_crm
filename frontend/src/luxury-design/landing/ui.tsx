@@ -48,14 +48,14 @@ export function SectionHeading({
   eyebrow, title, subtitle, center = true,
 }: { eyebrow: string; title: React.ReactNode; subtitle?: string; center?: boolean }) {
   return (
-    <div className={`max-w-2xl ${center ? 'mx-auto text-center' : ''} mb-14`}>
+    <div className={`max-w-2xl ${center ? 'mx-auto text-center' : ''} mb-9 sm:mb-14`}>
       <Reveal onView><Eyebrow>{eyebrow}</Eyebrow></Reveal>
       <Reveal onView delay={0.05}>
-        <h2 className={`${cls.h2} text-3xl sm:text-4xl md:text-5xl mt-4`}>{title}</h2>
+        <h2 className={`${cls.h2} text-[1.75rem] sm:text-4xl md:text-5xl mt-3 sm:mt-4`}>{title}</h2>
       </Reveal>
       {subtitle && (
         <Reveal onView delay={0.1}>
-          <p className="text-slate-400 text-base sm:text-lg mt-4 leading-relaxed font-light">{subtitle}</p>
+          <p className="text-slate-400 text-[15px] sm:text-lg mt-3 sm:mt-4 leading-relaxed font-light">{subtitle}</p>
         </Reveal>
       )}
     </div>
