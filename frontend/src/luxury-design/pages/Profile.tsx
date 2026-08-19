@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 
 import api from '../../services/api';
+import SelectorVehiculo from '../components/SelectorVehiculo';
 import BottomSheet from '../components/BottomSheet';
 import ConfirmDialog from '../components/ConfirmDialog';
 import BancardCardManager from '../components/BancardCardManager';
@@ -783,15 +784,14 @@ function MyVehicles({ userId, initialVehicles, onUpdate }: { userId: string; ini
           </button>
         </div>
         <form onSubmit={handleSave} className="px-5 pb-8 pt-3 space-y-3">
+          {/* Marca y modelo se eligen de la lista con buscador, no se escriben: así el
+              historial del vehículo queda agrupable y sin variantes mal tipeadas. */}
+          <SelectorVehiculo
+            marca={form.brand}
+            modelo={form.model}
+            onChange={({ marca, modelo }) => setForm({ ...form, brand: marca, model: modelo })}
+          />
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Marca *</label>
-              <input required className={inputCls} placeholder="Toyota" value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />
-            </div>
-            <div>
-              <label className={labelCls}>Modelo *</label>
-              <input required className={inputCls} placeholder="Hilux" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
-            </div>
             <div>
               <label className={labelCls}>Año</label>
               <input type="number" min={1980} max={2030} className={inputCls} placeholder="2023" value={form.year} onChange={e => setForm({ ...form, year: parseInt(e.target.value) })} />

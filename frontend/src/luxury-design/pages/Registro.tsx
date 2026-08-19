@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import api from '../../services/api';
+import SelectorVehiculo from '../components/SelectorVehiculo';
 import { motion, AnimatePresence } from '../lib/motion';
 
 /**
@@ -215,19 +216,16 @@ export default function Registro() {
 
               {paso === 3 && (
                 <Paso titulo="¿Qué auto tenés?" bajada="Sirve para tu historial de lavados. Si preferís, lo cargás después.">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Campo label="Marca" icono={<Car size={17} />}>
-                      <input ref={primerCampo} value={form.vehicleBrand} onChange={set('vehicleBrand')}
-                        placeholder="Toyota" className={inputCls} />
-                    </Campo>
-                    <Campo label="Modelo" icono={<Car size={17} />}>
-                      <input value={form.vehicleModel} onChange={set('vehicleModel')}
-                        placeholder="Corolla" className={inputCls} />
-                    </Campo>
-                  </div>
+                  {/* Se elige de una lista con buscador en vez de escribirlo: escrito a mano
+                      entraban datos sucios ("toyot", "COROLA") que no sirven para agrupar. */}
+                  <SelectorVehiculo
+                    marca={form.vehicleBrand}
+                    modelo={form.vehicleModel}
+                    onChange={({ marca, modelo }) => setForm((f) => ({ ...f, vehicleBrand: marca, vehicleModel: modelo }))}
+                  />
                   <Campo label="Chapa" opcional icono={<Car size={17} />}>
                     <input value={form.vehiclePlate} onChange={set('vehiclePlate')}
-                      placeholder="ABC 123" className={inputCls} />
+                      placeholder="ABC 123" className={inputCls} autoCapitalize="characters" />
                   </Campo>
                 </Paso>
               )}
