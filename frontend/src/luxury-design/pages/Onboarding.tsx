@@ -182,7 +182,7 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
   return (
     <div className="fixed inset-0 z-[300] overflow-y-auto overscroll-contain bg-slate-50 dark:bg-slate-950">
       <div className="min-h-full flex flex-col items-center px-4 py-8 sm:py-12">
-        <div className="w-full max-w-lg space-y-6">
+        <div className="w-full max-w-lg lg:max-w-2xl space-y-6">
 
           {/* Encabezado — distinto para el alta inicial y para quien vuelve sin plan vigente. */}
           <div className="text-center space-y-2">
@@ -279,18 +279,18 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
                 <p className="text-xs text-slate-400 mt-1">Contactá al administrador para que los configure.</p>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-2.5 lg:space-y-0 lg:grid lg:grid-cols-3 lg:gap-3">
                 {plans.map((p) => {
                   const active = p.id === selectedPlanId;
                   return (
                     <button
                       key={p.id}
                       onClick={() => setSelectedPlanId(p.id)}
-                      className={`w-full text-left rounded-2xl border-2 p-4 transition-all ${active
+                      className={`w-full text-left rounded-2xl border-2 p-4 transition-all lg:h-full ${active
                         ? 'border-primary dark:border-blue-500 bg-primary/5 dark:bg-blue-500/10'
                         : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'}`}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 lg:flex-col lg:items-start lg:gap-2">
                         <div className="w-9 h-9 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center shrink-0">
                           <PlanIcon name={p.name} />
                         </div>

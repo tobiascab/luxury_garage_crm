@@ -120,12 +120,15 @@ export default function Registro() {
   const esUltimo = paso === PASOS.length - 1;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
+    // En el celular el paso ocupa toda la pantalla con el botón fijo abajo. En escritorio
+    // eso dejaba un vacío enorme en el medio: ahí pasa a ser una tarjeta centrada y compacta.
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col lg:items-center lg:justify-center lg:py-10">
+      <div className="w-full lg:max-w-lg lg:bg-white lg:dark:bg-slate-900 lg:rounded-[2rem] lg:border lg:border-slate-100 lg:dark:border-slate-800 lg:shadow-xl lg:overflow-hidden flex flex-col lg:flex-none">
       <Toaster position="top-center" />
 
       {/* Cabecera fija: marca + avance */}
-      <header className="px-5 pt-6 pb-4 shrink-0">
-        <div className="max-w-md mx-auto">
+      <header className="px-5 lg:px-8 pt-6 lg:pt-8 pb-4 shrink-0">
+        <div className="max-w-md mx-auto lg:max-w-none">
           <div className="flex items-center gap-3 mb-5">
             <button onClick={atras} aria-label="Volver"
               className="p-2 -ml-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0">
@@ -148,8 +151,8 @@ export default function Registro() {
       </header>
 
       {/* Contenido del paso */}
-      <main className="flex-1 px-5 pb-6">
-        <div className="max-w-md mx-auto">
+      <main className="flex-1 lg:flex-none px-5 lg:px-8 pb-6 lg:pb-2">
+        <div className="max-w-md mx-auto lg:max-w-none">
           <form onSubmit={(e) => { e.preventDefault(); siguiente(); }}>
           <AnimatePresence mode="wait">
             <motion.div
@@ -238,8 +241,8 @@ export default function Registro() {
       </main>
 
       {/* Acción fija abajo: siempre al alcance del pulgar */}
-      <footer className="sticky bottom-0 px-5 pb-6 pt-3 bg-gradient-to-t from-slate-50 dark:from-slate-950 via-slate-50/95 dark:via-slate-950/95 to-transparent">
-        <div className="max-w-md mx-auto space-y-3">
+      <footer className="sticky lg:static bottom-0 px-5 lg:px-8 pb-6 lg:pb-8 pt-3 bg-gradient-to-t from-slate-50 dark:from-slate-950 via-slate-50/95 dark:via-slate-950/95 to-transparent lg:bg-none">
+        <div className="max-w-md mx-auto lg:max-w-none space-y-3">
           <button
             onClick={siguiente}
             disabled={enviando}
@@ -271,6 +274,7 @@ export default function Registro() {
           </p>
         </div>
       </footer>
+      </div>
     </div>
   );
 }

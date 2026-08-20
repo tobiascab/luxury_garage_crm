@@ -46,6 +46,7 @@ import {
 
 import api from '../../services/api';
 import SelectorVehiculo from '../components/SelectorVehiculo';
+import ImagenVehiculo from '../components/ImagenVehiculo';
 import BottomSheet from '../components/BottomSheet';
 import ConfirmDialog from '../components/ConfirmDialog';
 import BancardCardManager from '../components/BancardCardManager';
@@ -704,12 +705,17 @@ function MyVehicles({ userId, initialVehicles, onUpdate }: { userId: string; ini
               className={`md:flex md:flex-col bg-white dark:bg-slate-900/40 rounded-[1.5rem] border transition-colors overflow-hidden ${v.isPrimary ? 'border-primary/30 dark:border-blue-500/30' : 'border-slate-100 dark:border-slate-800'
                 }`}
             >
+              {/* El auto, arriba y en grande: es lo que el cliente reconoce de un vistazo.
+                  Sale su propia foto si la tiene; si no, la del catálogo; si tampoco,
+                  una silueta según el tipo de carrocería. */}
+              <div className={`px-4 pt-4 ${v.isPrimary ? 'bg-primary/5 dark:bg-blue-500/5' : ''}`}>
+                <div className="h-28 flex items-center justify-center">
+                  <ImagenVehiculo marca={v.brand} modelo={v.model} fotoUrl={v.photoUrl} className="max-h-28 w-auto" />
+                </div>
+              </div>
+
               {/* Card Header */}
               <div className={`flex items-start gap-4 p-4 ${v.isPrimary ? 'bg-primary/5 dark:bg-blue-500/5' : ''}`}>
-                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${v.isPrimary ? 'bg-primary dark:bg-blue-500 text-white shadow-lg shadow-primary/25' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
-                  }`}>
-                  <Car size={20} />
-                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="font-black text-sm text-slate-900 dark:text-white truncate">
