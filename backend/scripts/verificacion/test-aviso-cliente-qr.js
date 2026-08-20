@@ -84,6 +84,30 @@ const ok = (c, l, e = '') => { c ? (pass++, console.log(`   ✅ ${l}`)) : (fail+
     const nuevo = (await axios.get(`${API}/luxury/latest-wash?since=${emision2.serverNow}`, authCli)).data;
     ok(nuevo.found === false, 'found=false: arranca limpio');
 
+    console.log('\n── 6. El carnet vence mientras el operario elige la reserva ──');
+    // El caso real que dejaba al cliente sin aviso: ahora que el escaneo es en dos pasos,
+    // el operario tarda más. Si el cliente regenera el carnet en el medio, la pantalla
+    // conserva el instante de la PRIMERA emisión de la visita, así que el lavado que se
+    // confirma después sigue cayendo dentro de la ventana y el aviso aparece igual.
+    const res2 = await prisma.appointment.create({
+      data: {
+        userId, vehicleId: reserva.vehicleId, serviceId: reserva.serviceId,
+        date: new Date(hoy.toISOString().slice(0, 10)),
+        startTime: inicio, endTime: new Date(inicio.getTime() + 36e5),
+        status: 'CONFIRMED', totalPriceGs: 0, coveredByMembership: true, billingMode: 'covered',
+      },
+    });
+    const referencia = (await axios.get(`${API}/luxury/qr/token`, authCli)).data;   // 1ª emisión
+    await axios.get(`${API}/luxury/qr/token`, authCli);                             // el cliente regenera
+    const tokenTardio = (await axios.get(`${API}/luxury/qr/token`, authCli)).data.token;
+    const ver2 = (await axios.post(`${API}/luxury/qr/verify`, { token: tokenTardio }, authEmp)).data;
+    ok(ver2.data?.reservas?.some((r) => r.id === res2.id), 'El carnet regenerado sigue siendo válido para el operario');
+    await axios.post(`${API}/luxury/qr/scan`, { token: tokenTardio, appointmentId: res2.id }, authEmp);
+
+    const aviso2 = (await axios.get(`${API}/luxury/latest-wash?since=${referencia.serverNow}`, authCli)).data;
+    ok(aviso2.found === true, 'El aviso llega aunque el carnet se haya regenerado en el medio');
+    ok(aviso2.data?.id === res2.id, 'Y es el lavado recién confirmado, no el anterior');
+
   } catch (e) {
     console.error('\n💥', e.response?.status || '', e.response?.data ? JSON.stringify(e.response.data).slice(0, 250) : e.message);
     fail++;

@@ -24,7 +24,9 @@ interface QRPassProps {
     onUpdate?: () => void;
 }
 
-const QR_EXPIRY_SECONDS = 300;
+// Igual a QR_VALIDITY_MS del backend: si la pantalla venciera antes, el cliente
+// regenera el carnet mientras el operario está confirmando y se pierde el aviso.
+const QR_EXPIRY_SECONDS = 900;
 // Se sigue preguntando por el lavado un rato DESPUÉS de que el QR vence en pantalla: el
 // backend acepta el código 15 minutos y el operario puede confirmar sobre la hora.
 const LISTEN_WINDOW_MS = (QR_EXPIRY_SECONDS + 180) * 1000;
@@ -60,6 +62,8 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
     const [secondsLeft, setSecondsLeft] = useState(QR_EXPIRY_SECONDS);
     const [isExpired, setIsExpired] = useState(false);
     const [washProcessed, setWashProcessed] = useState(false);
+    // Instante de referencia de ESTA visita a la pantalla (no de cada carnet emitido).
+    const referenciaRef = useRef<number | null>(null);
     const [washInfo, setWashInfo] = useState<any | null>(null);
     const [showParticles, setShowParticles] = useState(false);
     const [funPhrase] = useState(() => FUN_PHRASES[Math.floor(Math.random() * FUN_PHRASES.length)]);
@@ -117,7 +121,15 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
             setQrToken(token);
             // Reloj del SERVIDOR, no el del celular: es el instante desde el que se busca el
             // lavado registrado. Con la hora local, un teléfono desfasado nunca lo encontraba.
-            setGeneratedAt(res.data?.serverNow ?? Date.now());
+            // Se fija UNA vez por visita a la pantalla: si se reiniciara en cada regeneración,
+            // un lavado confirmado mientras el cliente renovaba su carnet quedaría antes del
+            // nuevo punto de partida y el aviso no aparecería nunca.
+            // Avanza en dos casos: al entrar a la pantalla (null) y después de haber
+            // mostrado un aviso, para que el lavado ya avisado no vuelva a aparecer. Si el
+            // carnet solo venció sin usarse, se conserva: ahí es donde estaba la pérdida.
+            const desde = res.data?.serverNow ?? Date.now();
+            if (referenciaRef.current === null || washProcessed) referenciaRef.current = desde;
+            setGeneratedAt(referenciaRef.current);
             setSecondsLeft(QR_EXPIRY_SECONDS);
             setIsExpired(false);
             setWashProcessed(false);
@@ -381,7 +393,7 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
                                     transition={reduce ? { duration: 0 } : { delay: 0.45 }}
                                 >
                                     <Pressable
-                                        onClick={() => { setQrToken(null); setWashProcessed(false); setWashInfo(null); setGeneratedAt(null); setShowParticles(false); }}
+                                        onClick={() => { referenciaRef.current = null; setQrToken(null); setWashProcessed(false); setWashInfo(null); setGeneratedAt(null); setShowParticles(false); }}
                                         className="w-full py-4 bg-white text-emerald-600 font-black uppercase tracking-widest text-xs rounded-2xl shadow-xl transition-colors flex items-center justify-center gap-2"
                                     >
                                         <CheckCircle2 size={15} /> Entendido
@@ -398,7 +410,7 @@ export default function QRPass({ user, onUpdate }: QRPassProps) {
                                     <QrCode size={36} className="text-slate-300 dark:text-slate-700" />
                                 </div>
                                 <p className="text-sm text-slate-400 dark:text-slate-500 mb-6 font-medium leading-relaxed">
-                                    Tu código QR aparecerá aquí.<br />Validez: <span className="font-black text-primary dark:text-blue-400">5 minutos</span>.
+                                    Tu código QR aparecerá aquí.<br />Validez: <span className="font-black text-primary dark:text-blue-400">{QR_EXPIRY_SECONDS / 60} minutos</span>.
                                 </p>
                                 <Pressable
                                     onClick={generateToken}

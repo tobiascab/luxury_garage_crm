@@ -547,7 +547,11 @@ router.get('/latest-wash', authenticate, async (req, res, next) => {
         // era >= ese instante, así que esto devolvía found=false SIEMPRE y el cliente jamás veía
         // la pantalla de "lavado registrado". El momento real está en updatedAt (el update a
         // COMPLETED) y en serviceRecord.completedAt.
-        const sinceDate = new Date(sinceMs - 2 * 60 * 1000); // 2 min de colchón por desfase de reloj
+        // Sin colchón a propósito: `since` es el `serverNow` que devolvió /qr/token, o sea el
+        // reloj de ESTE servidor, así que no hay desfase que compensar. Los 2 minutos de
+        // margen que había hacían que al generar un carnet nuevo se volviera a mostrar el
+        // aviso del lavado anterior, como si alguien lo hubiera escaneado recién.
+        const sinceDate = new Date(sinceMs);
         const wash = await req.prisma.appointment.findFirst({
             where: {
                 userId,
