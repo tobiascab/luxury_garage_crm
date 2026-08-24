@@ -447,7 +447,7 @@ async function main() {
   console.log('\n📋 Próximos pasos manuales (en ARIZAR UI):');
   console.log('  1. Crear Pipeline "Membresías Luxury Garage" con 5 stages');
   console.log('  2. Crear Calendario "Turnos Luxury Garage"');
-  console.log('  3. Crear los 4 Workflows (ver PLAN_INTEGRACION_ARIZAR_IA.md)');
+  console.log('  3. Crear los 4 Workflows (ver docs/integraciones/arizar/PLAN_INTEGRACION_ARIZAR_IA.md)');
   console.log('  4. Copiar IDs generados al archivo .env del backend');
   console.log('');
 }

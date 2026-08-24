@@ -2,7 +2,7 @@
 
 > **Fecha:** 25 de Marzo 2026  
 > **Objetivo:** Integrar la pasarela de pagos MasFazzil para cobros automáticos y manuales  
-> **API Docs:** `/docs/masfazzil/api-doc.pdf` + `masfazzil-api-catastros.pdf`
+> **API Docs:** `api-doc.pdf` + `masfazzil-api-catastros.pdf` (en esta misma carpeta)
 
 ---
 
