@@ -22,7 +22,6 @@ import {
     springSoft,
     springSnappy,
 } from '../lib/motion';
-import MembershipRequestForm from '../components/MembershipRequestForm';
 
 export default function Login() {
     const [email, setEmail] = useState('');
@@ -31,7 +30,6 @@ export default function Login() {
     const [isLoading, setIsLoading] = useState(false);
     const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
     const [errorShake, setErrorShake] = useState(0); // contador: ++ en cada login fallido → retriggerea el shake
-    const [showRequest, setShowRequest] = useState(false);
     const { login, user, loading } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
@@ -229,18 +227,12 @@ export default function Login() {
 
                         <StaggerItem>
                             <div className="mt-12 pt-8 border-t border-slate-100 dark:border-slate-800 text-center transition-colors">
-                                <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">¿Aún no eres miembro? <button type="button" onClick={() => setShowRequest(true)} className="text-primary dark:text-blue-400 font-black hover:underline tracking-tight">Solicitar Membresía</button></p>
+                                <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">¿Todavía no tenés cuenta? <button type="button" onClick={() => navigate('/register')} className="text-primary dark:text-blue-400 font-black hover:underline tracking-tight">Crear mi cuenta</button></p>
                             </div>
                         </StaggerItem>
                     </StaggerList>
                 </motion.div>
             </div>
-
-            <MembershipRequestForm
-                open={showRequest}
-                onClose={() => setShowRequest(false)}
-                source="login"
-            />
         </div>
     );
 }

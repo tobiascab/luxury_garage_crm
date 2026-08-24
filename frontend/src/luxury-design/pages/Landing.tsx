@@ -13,7 +13,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, Crown } from 'lucide-react';
+import { LogIn, UserPlus } from 'lucide-react';
 import { Pressable } from '../lib/motion';
 import { cls } from '../landing/ui';
 import SmoothScroll from '../landing/SmoothScroll';
@@ -34,29 +34,16 @@ import FaqSection from '../landing/sections/FaqSection';
 import AppPwaSection from '../landing/sections/AppPwaSection';
 import FooterSection from '../landing/sections/FooterSection';
 
-// Cuestionario de solicitud de membresía (lo crea otro agente en components/).
-import MembershipRequestForm from '../components/MembershipRequestForm';
-
 // Widget de chat (GHL) — se autoposiciona en la landing.
 import GhlChatWidget from '../landing/sections/GhlChatWidget';
 
 export default function Landing() {
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
-  // Cuestionario "Solicitar membresía": abierto/cerrado + plan pre-seleccionado opcional.
-  const [formOpen, setFormOpen] = useState(false);
-  const [formPlan, setFormPlan] = useState<string | undefined>(undefined);
-
   // Alta directa: la persona se registra, elige plan y paga sin intervención de nadie.
   // El plan que venía mirando viaja en la URL para llegar ya seleccionado.
   const irARegistro = (plan?: string) => {
     navigate(plan ? `/register?plan=${encodeURIComponent(plan)}` : '/register');
-  };
-
-  // Formulario de contacto: queda para quien prefiere que lo llamen antes de contratar.
-  const openMembershipForm = (plan?: string) => {
-    setFormPlan(plan);
-    setFormOpen(true);
   };
 
   // Fondo oscuro a nivel <body> (evita flash blanco en overscroll). Se restaura al salir.
@@ -103,7 +90,7 @@ export default function Landing() {
                 Ver planes
               </button>
               <Pressable onClick={() => irARegistro()} className={`hidden lg:inline-flex ${cls.btnGold} text-xs px-5 py-2.5`}>
-                <Crown size={15} /> Crear mi cuenta
+                <UserPlus size={15} /> Crear mi cuenta
               </Pressable>
               <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} text-[11px] sm:text-xs px-3 sm:px-5 py-2 sm:py-2.5 whitespace-nowrap`}>
                 <LogIn size={14} /> <span className="hidden sm:inline">Iniciar sesión</span><span className="sm:hidden">Entrar</span>
@@ -114,7 +101,7 @@ export default function Landing() {
 
         {/* ── SECCIONES ── */}
         <main>
-          <Hero onRequestMembership={() => irARegistro()} />
+          <Hero onCrearCuenta={() => irARegistro()} />
           <TrustMarquee />
           <ServiciosSection />
           <ProcesoSection />
@@ -124,12 +111,12 @@ export default function Landing() {
           <BenefitsSection />
           <ConfianzaBand />
           <HowItWorksSection />
-          <PlanesSection onRequestMembership={irARegistro} />
+          <PlanesSection onCrearCuenta={irARegistro} />
           <TestimoniosSection />
           <FaqSection />
           <AppPwaSection />
 
-          {/* Franja CTA final — abre el cuestionario de membresía */}
+          {/* Franja CTA final — alta directa o entrada de quien ya es cliente */}
           <section className="relative isolate py-16 sm:py-24 lg:py-32 px-5 sm:px-6 text-center overflow-hidden">
             <div className="absolute inset-0 -z-10 bg-[radial-gradient(60%_60%_at_50%_50%,rgba(254,183,0,0.10),transparent_70%)]" />
             <img src="/logo.png" alt="" className="w-16 h-16 lg:w-20 lg:h-20 object-contain mx-auto mb-6 drop-shadow-2xl" />
@@ -141,7 +128,7 @@ export default function Landing() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <Pressable onClick={() => irARegistro()} className={`${cls.btnGold} w-full sm:w-auto text-sm px-10 py-5`}>
-                <Crown size={18} /> Solicitar membresía
+                <UserPlus size={18} /> Crear mi cuenta
               </Pressable>
               <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} w-full sm:w-auto text-sm px-10 py-5`}>
                 <LogIn size={18} /> Iniciar sesión
@@ -151,14 +138,6 @@ export default function Landing() {
 
           <FooterSection />
         </main>
-
-        {/* Cuestionario de solicitud de membresía (montado por otro agente) */}
-        <MembershipRequestForm
-          open={formOpen}
-          onClose={() => setFormOpen(false)}
-          source="landing"
-          defaultPlan={formPlan}
-        />
 
         {/* Widget de chat (se autoposiciona) */}
         <GhlChatWidget />

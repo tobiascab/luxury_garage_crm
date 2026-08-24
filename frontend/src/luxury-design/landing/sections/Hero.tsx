@@ -6,13 +6,13 @@
 import React, { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useScroll, useTransform } from 'framer-motion';
-import { LogIn, ArrowRight, Sparkles, ChevronDown, Crown } from 'lucide-react';
+import { LogIn, ArrowRight, Sparkles, ChevronDown, UserPlus } from 'lucide-react';
 import { motion, StaggerList, StaggerItem, Pressable, useReduce } from '../../lib/motion';
 import { cls } from '../ui';
 import { VIDEO, IMG } from '../assets';
 import AutoVideo from '../AutoVideo';
 
-export default function Hero({ onRequestMembership }: { onRequestMembership?: () => void }) {
+export default function Hero({ onCrearCuenta }: { onCrearCuenta?: () => void }) {
   const navigate = useNavigate();
   const reduce = useReduce();
   const ref = useRef<HTMLElement>(null);
@@ -64,10 +64,10 @@ export default function Hero({ onRequestMembership }: { onRequestMembership?: ()
           <StaggerItem>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 sm:gap-3">
               <Pressable
-                onClick={onRequestMembership ?? scrollToPlans}
+                onClick={onCrearCuenta ?? scrollToPlans}
                 className={`${cls.btnGold} w-full sm:w-auto text-sm px-7 sm:px-8 py-3.5 sm:py-4`}
               >
-                <Crown size={18} /> Solicitar membresía
+                <UserPlus size={18} /> Crear mi cuenta
               </Pressable>
               <Pressable onClick={() => navigate('/login')} className={`${cls.btnGhost} w-full sm:w-auto text-sm px-7 sm:px-8 py-3.5 sm:py-4`}>
                 <LogIn size={18} /> Iniciar sesión

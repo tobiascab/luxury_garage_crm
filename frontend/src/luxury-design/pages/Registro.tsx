@@ -68,6 +68,11 @@ export default function Registro() {
       if (!reglas.every((r) => r.ok)) e.password = 'Falta cumplir los requisitos';
       else if (form.password !== form.confirm) e.confirm = 'No coinciden';
     }
+    // El vehículo es opcional, pero a medias no se guarda: sin este aviso la marca
+    // elegida se descartaba en silencio y la cuenta quedaba sin auto.
+    if (paso === 3 && form.vehicleBrand.trim() && !form.vehicleModel.trim()) {
+      e.vehicleModel = 'Elegí el modelo, o tocá «Cargar mi auto después»';
+    }
     setErrores(e);
     return Object.keys(e).length === 0;
   };
@@ -130,7 +135,7 @@ export default function Registro() {
       <header className="px-5 lg:px-8 pt-6 lg:pt-8 pb-4 shrink-0">
         <div className="max-w-md mx-auto lg:max-w-none">
           <div className="flex items-center gap-3 mb-5">
-            <button onClick={atras} aria-label="Volver"
+            <button type="button" onClick={atras} aria-label="Volver"
               className="p-2 -ml-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0">
               <ArrowLeft size={20} />
             </button>
@@ -224,8 +229,14 @@ export default function Registro() {
                   <SelectorVehiculo
                     marca={form.vehicleBrand}
                     modelo={form.vehicleModel}
-                    onChange={({ marca, modelo }) => setForm((f) => ({ ...f, vehicleBrand: marca, vehicleModel: modelo }))}
+                    onChange={({ marca, modelo }) => {
+                      setForm((f) => ({ ...f, vehicleBrand: marca, vehicleModel: modelo }));
+                      if (errores.vehicleModel) setErrores((x) => ({ ...x, vehicleModel: '' }));
+                    }}
                   />
+                  {errores.vehicleModel && (
+                    <p className="text-[11px] font-semibold text-rose-500 -mt-2 px-1">{errores.vehicleModel}</p>
+                  )}
                   <Campo label="Chapa" opcional icono={<Car size={17} />}>
                     <input value={form.vehiclePlate} onChange={set('vehiclePlate')}
                       placeholder="ABC 123" className={inputCls} autoCapitalize="characters" />
@@ -244,6 +255,7 @@ export default function Registro() {
       <footer className="sticky lg:static bottom-0 px-5 lg:px-8 pb-6 lg:pb-8 pt-3 bg-gradient-to-t from-slate-50 dark:from-slate-950 via-slate-50/95 dark:via-slate-950/95 to-transparent lg:bg-none">
         <div className="max-w-md mx-auto lg:max-w-none space-y-3">
           <button
+            type="button"
             onClick={siguiente}
             disabled={enviando}
             className="w-full h-14 rounded-2xl bg-primary dark:bg-blue-500 text-white text-sm font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-primary/20 active:scale-95 transition-all disabled:opacity-60"
@@ -254,7 +266,7 @@ export default function Registro() {
           </button>
 
           {esUltimo && !enviando && (
-            <button onClick={crearCuenta}
+            <button type="button" onClick={crearCuenta}
               className="w-full text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors py-1">
               Cargar mi auto después
             </button>
@@ -263,7 +275,7 @@ export default function Registro() {
           {paso === 0 && (
             <p className="text-center text-xs text-slate-400">
               ¿Ya tenés cuenta?{' '}
-              <button onClick={() => navigate('/login')} className="font-bold text-primary dark:text-blue-400 hover:underline">
+              <button type="button" onClick={() => navigate('/login')} className="font-bold text-primary dark:text-blue-400 hover:underline">
                 Iniciá sesión
               </button>
             </p>

@@ -94,7 +94,7 @@ export default function SelectorVehiculo({ marca, modelo, onChange }: Props) {
                   <p className="font-black text-slate-900 dark:text-white">
                     {abierto === 'marca' ? 'Elegí la marca' : `Modelo de ${marca}`}
                   </p>
-                  <button onClick={() => setAbierto(null)} aria-label="Cerrar"
+                  <button type="button" onClick={() => setAbierto(null)} aria-label="Cerrar"
                     className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
                     <X size={18} />
                   </button>
@@ -117,6 +117,7 @@ export default function SelectorVehiculo({ marca, modelo, onChange }: Props) {
                   <div className="p-6 text-center">
                     <p className="text-sm text-slate-500 dark:text-slate-400">No encontramos «{busqueda}»</p>
                     <button
+                      type="button"
                       onClick={usarLoEscrito}
                       className="mt-3 px-4 h-11 rounded-xl bg-primary dark:bg-blue-500 text-white text-sm font-bold"
                     >
@@ -128,6 +129,7 @@ export default function SelectorVehiculo({ marca, modelo, onChange }: Props) {
                     const elegido = abierto === 'marca' ? o === marca : o === modelo;
                     return (
                       <button
+                        type="button"
                         key={o}
                         onClick={() => elegir(o)}
                         className={`w-full flex items-center justify-between gap-3 px-4 py-3.5 rounded-xl text-left transition-colors ${elegido

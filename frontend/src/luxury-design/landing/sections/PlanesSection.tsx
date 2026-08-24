@@ -25,7 +25,7 @@ const iconFor = (name: string) => {
 const isPopular = (name: string) => /(prima|premium)/i.test(name || '');
 const periodLabel = (bp?: string) => (bp === 'yearly' ? '/año' : bp === 'quarterly' ? '/trimestre' : '/mes');
 
-export default function PlanesSection({ onRequestMembership }: { onRequestMembership?: (slug?: string) => void }) {
+export default function PlanesSection({ onCrearCuenta }: { onCrearCuenta?: (slug?: string) => void }) {
   const navigate = useNavigate();
   const reduce = useReduce();
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -46,10 +46,10 @@ export default function PlanesSection({ onRequestMembership }: { onRequestMember
 
   const subscribe = (p: Plan) => {
     const slug = p.slug || p.id;
-    // Si la landing pasó el handler del cuestionario, lo abrimos con el plan
-    // pre-seleccionado. Si no, mantenemos el flujo original (login → suscripción).
-    if (onRequestMembership) {
-      onRequestMembership(slug);
+    // La landing manda al alta con el plan ya elegido. Sin ese handler (otra
+    // pantalla reusando la sección), cae al camino de quien ya tiene cuenta.
+    if (onCrearCuenta) {
+      onCrearCuenta(slug);
       return;
     }
     navigate(`/login?next=${encodeURIComponent(`/planes?plan=${slug}`)}`);
@@ -79,8 +79,8 @@ export default function PlanesSection({ onRequestMembership }: { onRequestMember
         <Reveal onView className={`${cls.card} text-center max-w-md mx-auto p-12`}>
           <CreditCard size={40} className="text-secondary/60 mx-auto mb-4" />
           <p className="font-headline text-xl font-black text-white mb-2">Planes en camino</p>
-          <p className="text-slate-400 text-sm mb-6">Estamos preparando las membresías. Iniciá sesión para conocer las opciones disponibles.</p>
-          <Pressable onClick={() => navigate('/login')} className={`${cls.btnGold} text-xs px-6 py-3`}>Iniciar sesión</Pressable>
+          <p className="text-slate-400 text-sm mb-6">Estamos preparando las membresías. Creá tu cuenta y te avisamos apenas estén disponibles.</p>
+          <Pressable onClick={() => navigate('/register')} className={`${cls.btnGold} text-xs px-6 py-3`}>Crear mi cuenta</Pressable>
         </Reveal>
       ) : (
         <StaggerList onView className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
