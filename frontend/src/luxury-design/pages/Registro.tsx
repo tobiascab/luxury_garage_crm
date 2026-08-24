@@ -8,6 +8,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import api from '../../services/api';
 import SelectorVehiculo from '../components/SelectorVehiculo';
 import { motion, AnimatePresence } from '../lib/motion';
+import { useModoClaro } from '../lib/modoClaro';
 
 /**
  * Alta pública, en pasos.
@@ -25,6 +26,7 @@ import { motion, AnimatePresence } from '../lib/motion';
 const PASOS = ['Tus datos', 'Contacto', 'Contraseña', 'Tu vehículo'] as const;
 
 export default function Registro() {
+  useModoClaro();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const referralCode = params.get('ref') || '';

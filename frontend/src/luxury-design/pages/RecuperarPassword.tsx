@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 import api from '../../services/api';
 import { motion } from '../lib/motion';
+import { useModoClaro } from '../lib/modoClaro';
 
 /**
  * Recuperación de contraseña, en dos pantallas que comparten el mismo marco:
@@ -19,6 +20,7 @@ const inputCls =
   'w-full bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl pl-11 pr-4 h-13 py-3.5 text-sm font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all outline-none';
 
 function Marco({ children }: { children: React.ReactNode }) {
+  useModoClaro();
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-slate-50 dark:bg-slate-950">
       <Toaster position="top-center" />

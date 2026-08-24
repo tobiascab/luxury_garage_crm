@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from '../lib/motion';
 import { loadBancardScript, runBancardPayment } from '../lib/bancardPayment';
 import { useBancard3ds } from '../components/Bancard3dsModal';
 import PaymentResultOverlay, { PayPhase } from '../components/PaymentResultOverlay';
+import { useModoClaro } from '../lib/modoClaro';
 
 /**
  * ALTA OBLIGATORIA DEL CLIENTE.
@@ -43,6 +44,7 @@ interface OnboardingProps {
 }
 
 export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) {
+  useModoClaro();
   const [plans, setPlans] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
