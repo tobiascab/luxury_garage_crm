@@ -125,6 +125,8 @@ const VehiclesAdmin = lazyWithReload(() => import('./pages/admin/VehiclesAdmin')
 const PromotionsManager = lazyWithReload(() => import('./pages/admin/PromotionsManager'));
 const ReviewsAdmin = lazyWithReload(() => import('./pages/admin/ReviewsAdmin'));
 const InventoryManager = lazyWithReload(() => import('./pages/admin/InventoryManager'));
+const Catalogo = lazyWithReload(() => import('./pages/admin/Catalogo'));
+const CajaDia = lazyWithReload(() => import('./pages/admin/CajaDia'));
 const SettingsPage = lazyWithReload(() => import('./pages/admin/SettingsPage'));
 const Cobros = lazyWithReload(() => import('./pages/admin/Cobros'));
 const ContractsManager = lazyWithReload(() => import('./pages/admin/ContractsManager'));
@@ -138,6 +140,7 @@ const Notifications = lazyWithReload(() => import('./pages/admin/Notifications')
 // Luxury Client & Employee Pages - Lazy
 const LuxuryDashboard = lazyWithReload(() => import('./luxury-design/pages/Dashboard'));
 const LuxuryQRPass = lazyWithReload(() => import('./luxury-design/pages/QRPass'));
+const LuxuryTienda = lazyWithReload(() => import('./luxury-design/pages/Tienda'));
 const LuxuryBooking = lazyWithReload(() => import('./luxury-design/pages/Booking'));
 const LuxuryPlanes = lazyWithReload(() => import('./luxury-design/pages/Planes'));
 const LuxuryProfile = lazyWithReload(() => import('./luxury-design/pages/Profile'));
@@ -146,6 +149,7 @@ const LuxuryReferrals = lazyWithReload(() => import('./luxury-design/pages/Refer
 const LuxuryExtraServices = lazyWithReload(() => import('./luxury-design/pages/ServiciosExtra'));
 const LuxuryEmployeeDashboard = lazyWithReload(() => import('./luxury-design/pages/DashboardEmpleado'));
 const LuxuryEmployeeScanner = lazyWithReload(() => import('./luxury-design/pages/EmpleadoScanner'));
+const LuxuryEmployeeVentas = lazyWithReload(() => import('./luxury-design/pages/EmpleadoVentas'));
 const LuxuryEmployeeHistory = lazyWithReload(() => import('./luxury-design/pages/HistorialEmpleado'));
 const LuxuryTarjetas = lazyWithReload(() => import('./luxury-design/pages/Tarjetas'));
 // Alta obligatoria del cliente (tarjeta + plan + primer cobro). Bloquea la app hasta completarse.
@@ -206,6 +210,7 @@ const withLuxury = (Component) => {
 
 const LDashboard = withLuxury(LuxuryDashboard);
 const LQRPass = withLuxury(LuxuryQRPass);
+const LTienda = withLuxury(LuxuryTienda);
 const LBooking = withLuxury(LuxuryBooking);
 const LPlanes = withLuxury(LuxuryPlanes);
 const LProfile = withLuxury(LuxuryProfile);
@@ -214,6 +219,7 @@ const LReferrals = withLuxury(LuxuryReferrals);
 const LExtraServices = withLuxury(LuxuryExtraServices);
 const LEmployeeDash = withLuxury(LuxuryEmployeeDashboard);
 const LEmployeeScan = withLuxury(LuxuryEmployeeScanner);
+const LEmployeeVentas = withLuxury(LuxuryEmployeeVentas);
 const LEmployeeHistory = withLuxury(LuxuryEmployeeHistory);
 const LTarjetas = withLuxury(LuxuryTarjetas);
 
@@ -359,6 +365,8 @@ function AppRoutes() {
         <Route path="/inicio" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LDashboard /></ProtectedRoute>} />
         <Route path="/booking" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LBooking /></ProtectedRoute>} />
         <Route path="/qr" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LQRPass /></ProtectedRoute>} />
+        {/* Tienda de mostrador: el cliente arma su pedido y muestra el QR de compra */}
+        <Route path="/tienda" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LTienda /></ProtectedRoute>} />
         <Route path="/planes" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LPlanes /></ProtectedRoute>} />
         <Route path="/billetera" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LWallet /></ProtectedRoute>} />
         <Route path="/referidos" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LReferrals /></ProtectedRoute>} />
@@ -369,6 +377,8 @@ function AppRoutes() {
         {/* Employee Routes — EXACT paths as in LUXURY/src */}
         <Route path="/employee" element={<ProtectedRoute roles={['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN']}><LEmployeeDash /></ProtectedRoute>} />
         <Route path="/scan" element={<ProtectedRoute roles={['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN']}><LEmployeeScan /></ProtectedRoute>} />
+        {/* Módulo Ventas: el operario escanea el QR de compra y cobra */}
+        <Route path="/ventas" element={<ProtectedRoute roles={['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN']}><LEmployeeVentas /></ProtectedRoute>} />
         <Route path="/historial" element={<ProtectedRoute roles={['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN']}><LEmployeeHistory /></ProtectedRoute>} />
       </Route>
 
@@ -394,6 +404,8 @@ function AppRoutes() {
         <Route path="promotions" element={<PromotionsManager />} />
         <Route path="reviews" element={<ReviewsAdmin />} />
         <Route path="inventory" element={<InventoryManager />} />
+        <Route path="catalogo" element={<Catalogo />} />
+        <Route path="caja" element={<CajaDia />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="notifications" element={<Notifications />} />
         <Route path="logs" element={<AuditLogs />} />

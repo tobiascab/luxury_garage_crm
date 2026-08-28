@@ -128,6 +128,10 @@ app.use('/api/credits', require('./routes/credits'));
 app.use('/api/membership-requests', require('./routes/membership-requests')); // Solicitudes de membresía (lead público + admin + ARIZAR)
 app.use('/api/push', require('./routes/push'));
 app.use('/api/inventory', require('./routes/inventory'));
+// Venta de productos de mostrador: tienda del cliente, módulo Ventas del operario y caja del día
+app.use('/api/shop', require('./routes/shop'));
+app.use('/api/sales', require('./routes/sales'));
+app.use('/api/cash', require('./routes/cash'));
 app.use('/api/accounting', require('./routes/accounting'));
 app.use('/api/scans', require('./routes/scans'));
 app.use('/api/arizar/oauth', require('./routes/arizar-oauth'));

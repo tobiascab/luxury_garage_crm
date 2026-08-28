@@ -25,7 +25,8 @@ import {
   Sparkles,
   Wallet,
   Zap,
-  CreditCard
+  CreditCard,
+  ShoppingBag,
 } from 'lucide-react';
 
 import { useNavigate } from 'react-router-dom';
@@ -300,6 +301,7 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
           <ActionButton icon={<QrCode size={22} className="text-blue-500" />} label="Pase Digital" onClick={() => navigate('/qr')} />
           <ActionButton icon={<CreditCard size={22} className="text-sky-500" />} label="Tarjetas" onClick={() => navigate('/tarjetas')} />
           <ActionButton icon={<Sparkles size={22} className="text-purple-500" />} label="Premium" onClick={() => navigate('/servicios-extra')} />
+          <ActionButton icon={<ShoppingBag size={22} className="text-orange-500" />} label="Tienda" onClick={() => navigate('/tienda')} />
         </StaggerList>
       </Reveal>
 

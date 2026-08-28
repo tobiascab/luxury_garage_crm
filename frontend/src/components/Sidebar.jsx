@@ -9,8 +9,7 @@ import {
   Tag, Box, Car, Star, Bell, Settings, ScrollText,
   LogOut, Menu, ScanLine, CreditCard,
   Moon, Sun, Wallet, Calculator, MessageSquare,
-  ChevronDown, PanelLeftClose, PanelLeftOpen, Search, X, FileSignature
-} from 'lucide-react';
+  ChevronDown, PanelLeftClose, PanelLeftOpen, Search, X, FileSignature, ShoppingBag, Receipt } from 'lucide-react';
 
 // Cada entrada es un MÓDULO grande (padre) que se abre en submódulos (acordeón).
 const adminMenu = [
@@ -44,6 +43,8 @@ const adminMenu = [
       { to: '/admin/reports', icon: <BarChart3 size={17} />, label: 'Reportes' },
       { to: '/admin/promotions', icon: <Tag size={17} />, label: 'Promociones' },
       { to: '/admin/inventory', icon: <Box size={17} />, label: 'Inventario' },
+      { to: '/admin/catalogo', icon: <ShoppingBag size={17} />, label: 'Catálogo tienda' },
+      { to: '/admin/caja', icon: <Receipt size={17} />, label: 'Caja del día' },
     ]
   },
   {

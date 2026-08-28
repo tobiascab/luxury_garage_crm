@@ -1,5 +1,6 @@
 const bancardService = require('./bancardService');
 const { postPaymentCompleted } = require('./journalService');
+const orderService = require('./orderService');
 
 /**
  * Convierte un "startTime" local de Paraguay (UTC-4) en {start, end} (Date UTC).
@@ -56,6 +57,14 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
     await prisma.$transaction(async (tx) => {
       await tx.bancardOperation.updateMany({ where: { shopProcessId: sp, status: { not: 'COMPLETED' } }, data: { status: 'FAILED' } });
       await tx.payment.updateMany({ where: { bancardShopProcessId: sp, status: { not: 'COMPLETED' } }, data: { status: 'FAILED' } });
+      // Venta de mostrador: que el cliente y el operario vean el rechazo en pantalla, no un
+      // pedido colgado en "autorizando" para siempre.
+      if (meta.kind === 'order' && meta.orderId) {
+        await tx.order.updateMany({
+          where: { id: meta.orderId, status: { notIn: ['PAID', 'VOIDED'] } },
+          data: { status: 'DECLINED', declineReason: 'El banco rechazó el cobro' },
+        });
+      }
     });
     return { status: 'failed', reason: 'declined' };
   }
@@ -101,7 +110,8 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
     const existingPayment = await tx.payment.findUnique({ where: { bancardShopProcessId: sp } });
     const isTopup = meta.kind === 'topup';
     const isAppointment = meta.kind === 'appointment';
-    const isMembership = !!meta.planId && !isTopup && !isAppointment;
+    const isOrder = meta.kind === 'order' && !!meta.orderId;
+    const isMembership = !!meta.planId && !isTopup && !isAppointment && !isOrder;
     let kind = 'unknown';
 
     if (isMembership) {
@@ -169,6 +179,23 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
         await tx.payment.create({ data: { userId: op.userId, amountGs: d.totalPriceGs, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: `appointment:${service?.slug || ''}`, ...billingData } });
       }
       meta.appointmentId = appointment.id;
+    } else if (isOrder) {
+      kind = 'order';
+      // Venta de mostrador cobrada con tarjeta que pasó por 3DS: acá se cierra igual que si
+      // hubiera sido aprobada en el acto — mismo descuento de stock y misma caja del día.
+      const amt = Number(meta.amountGs ?? op.amountGs);
+      if (existingPayment) {
+        await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, ...billingData } });
+      } else {
+        await tx.payment.create({ data: { userId: op.userId, amountGs: amt, paymentMethod: 'bancard_card', bancardShopProcessId: sp, status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber, description: 'Compra en Luxury Garage', ...billingData } });
+      }
+      const pago = existingPayment || await tx.payment.findUnique({ where: { bancardShopProcessId: sp } });
+      await orderService.finalizarPagada(tx, meta.orderId, {
+        employeeId: meta.employeeId || null,
+        paymentMethod: 'card',
+        paymentId: pago?.id || null,
+        shopProcessId: sp,
+      });
     } else if (existingPayment) {
       // Tipo desconocido: completar el pago pero NO entregar valor que no sabemos materializar.
       await tx.payment.update({ where: { id: existingPayment.id }, data: { status: 'COMPLETED', bancardTicketNumber: ticketNumber, bancardAuthNumber: authNumber } });

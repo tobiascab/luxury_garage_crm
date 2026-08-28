@@ -7,46 +7,50 @@ datasource db {
 }
 
 model User {
-  id                String          @id @default(uuid())
-  email             String          @unique
-  passwordHash      String          @map("password_hash")
-  role              Role            @default(CLIENT)
-  firstName         String          @map("first_name")
-  lastName          String          @map("last_name")
-  phone             String?
-  avatarUrl         String?         @map("avatar_url")
-  documentNumber    String?         @map("document_number")
-  documentType      String?         @default("CI") @map("document_type")
-  ruc               String?         // RUC para factura electrónica (opcional; sin RUC = factura innominada)
-  razonSocial       String?         @map("razon_social") // nombre/razón social a facturar (default: nombre del cliente)
-  arizarContactId   String?         @unique @map("arizar_contact_id")
-  masfazzilCustomerUuid String?     @unique @map("masfazzil_customer_uuid") // deprecated: reemplazado por bancardUserId
-  bancardUserId     Int?            @unique @map("bancard_user_id")
-  isActive          Boolean         @default(true) @map("is_active")
+  id                    String             @id @default(uuid())
+  email                 String             @unique
+  passwordHash          String             @map("password_hash")
+  role                  Role               @default(CLIENT)
+  firstName             String             @map("first_name")
+  lastName              String             @map("last_name")
+  phone                 String?
+  avatarUrl             String?            @map("avatar_url")
+  documentNumber        String?            @map("document_number")
+  documentType          String?            @default("CI") @map("document_type")
+  ruc                   String? // RUC para factura electrónica (opcional; sin RUC = factura innominada)
+  razonSocial           String?            @map("razon_social") // nombre/razón social a facturar (default: nombre del cliente)
+  arizarContactId       String?            @unique @map("arizar_contact_id")
+  masfazzilCustomerUuid String?            @unique @map("masfazzil_customer_uuid") // deprecated: reemplazado por bancardUserId
+  bancardUserId         Int?               @unique @map("bancard_user_id")
+  isActive              Boolean            @default(true) @map("is_active")
   // Confirmación del correo (enlace enviado por Resend). null = sin confirmar.
-  emailVerifiedAt   DateTime?       @map("email_verified_at")
-  lastLoginAt       DateTime?       @map("last_login_at")
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
-  appointments      Appointment[]
-  auditLogs         AuditLog[]
-  credits           Credit[]
-  memberships       Membership[]
-  notifications     Notification[]
-  pushSubscriptions PushSubscription[]
-  payments          Payment[]
-  paymentCards      PaymentCard[]
-  referralsReceived Referral[]      @relation("referred")
-  referralsMade     Referral[]      @relation("referrer")
-  reviews           Review[]
-  serviceRecords    ServiceRecord[] @relation("employee_records")
-  vehicles          Vehicle[]
-  bancardOperations BancardOperation[]
-  stockMovements    StockMovement[]
-  expenses          Expense[]           @relation("expense_creator")
-  creditNotes       CreditNote[]        @relation("credit_note_user")
-  creditNotesCreated CreditNote[]       @relation("credit_note_creator")
-  journalEntries    JournalEntry[]      @relation("journal_creator")
+  emailVerifiedAt       DateTime?          @map("email_verified_at")
+  lastLoginAt           DateTime?          @map("last_login_at")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  appointments          Appointment[]
+  auditLogs             AuditLog[]
+  credits               Credit[]
+  memberships           Membership[]
+  notifications         Notification[]
+  pushSubscriptions     PushSubscription[]
+  payments              Payment[]
+  paymentCards          PaymentCard[]
+  referralsReceived     Referral[]         @relation("referred")
+  referralsMade         Referral[]         @relation("referrer")
+  reviews               Review[]
+  serviceRecords        ServiceRecord[]    @relation("employee_records")
+  vehicles              Vehicle[]
+  bancardOperations     BancardOperation[]
+  stockMovements        StockMovement[]
+  expenses              Expense[]          @relation("expense_creator")
+  creditNotes           CreditNote[]       @relation("credit_note_user")
+  creditNotesCreated    CreditNote[]       @relation("credit_note_creator")
+  journalEntries        JournalEntry[]     @relation("journal_creator")
+  orders                Order[]            @relation("order_client")
+  ordersCharged         Order[]            @relation("order_employee")
+  cashSessionsOpened    CashSession[]      @relation("cash_opener")
+  cashSessionsClosed    CashSession[]      @relation("cash_closer")
 
   @@index([role])
   @@map("users")
@@ -104,7 +108,7 @@ model Vehicle {
   model        String
   year         Int?
   color        String?
-  size         String?       // small|suv|truck|pickup — categoría de tamaño para el precio del servicio
+  size         String? // small|suv|truck|pickup — categoría de tamaño para el precio del servicio
   licensePlate String        @map("license_plate")
   photoUrl     String?       @map("photo_url")
   isPrimary    Boolean       @default(false) @map("is_primary")
@@ -119,22 +123,22 @@ model Vehicle {
 }
 
 model Service {
-  id              String        @id @default(uuid())
+  id              String               @id @default(uuid())
   name            String
-  slug            String        @unique
+  slug            String               @unique
   description     String?
-  category        String        @default("standard")
-  durationMinutes Int           @map("duration_minutes")
-  basePriceGs     Int           @map("base_price_gs")            // fallback / precio del tamaño más chico
-  pricingBySize   Json?         @map("pricing_by_size")          // { small, suv, truck, pickup } en Gs; null = usar basePriceGs
-  addons          Json?                                          // [{ key, name, priceGs }] adicionales opcionales del servicio
-  isAddon         Boolean       @default(false) @map("is_addon")
-  includedInPlans Json?         @map("included_in_plans")
-  isActive        Boolean       @default(true) @map("is_active")
-  sortOrder       Int           @default(0) @map("sort_order")
+  category        String               @default("standard")
+  durationMinutes Int                  @map("duration_minutes")
+  basePriceGs     Int                  @map("base_price_gs") // fallback / precio del tamaño más chico
+  pricingBySize   Json?                @map("pricing_by_size") // { small, suv, truck, pickup } en Gs; null = usar basePriceGs
+  addons          Json? // [{ key, name, priceGs }] adicionales opcionales del servicio
+  isAddon         Boolean              @default(false) @map("is_addon")
+  includedInPlans Json?                @map("included_in_plans")
+  isActive        Boolean              @default(true) @map("is_active")
+  sortOrder       Int                  @default(0) @map("sort_order")
   icon            String?
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
   appointments    Appointment[]
   consumptions    ServiceConsumption[]
 
@@ -145,8 +149,8 @@ model Service {
 // `key` es estable y se usa como clave en Service.pricingBySize y Appointment.vehicleSize.
 model VehicleSize {
   id        String   @id @default(uuid())
-  key       String   @unique          // small|suv|truck|pickup
-  label     String                    // "Auto pequeño", "Camioneta", ...
+  key       String   @unique // small|suv|truck|pickup
+  label     String // "Auto pequeño", "Camioneta", ...
   sortOrder Int      @default(0) @map("sort_order")
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
@@ -166,11 +170,11 @@ model Appointment {
   endTime             DateTime          @map("end_time")
   status              AppointmentStatus @default(PENDING)
   notes               String?
-  vehicleSize         String?           @map("vehicle_size")      // tamaño elegido al reservar (small|suv|truck|pickup)
-  selectedAddons      Json?             @map("selected_addons")   // [keys] de adicionales elegidos
-  totalPriceGs        Int?              @map("total_price_gs")     // precio calculado al reservar (snapshot)
+  vehicleSize         String?           @map("vehicle_size") // tamaño elegido al reservar (small|suv|truck|pickup)
+  selectedAddons      Json?             @map("selected_addons") // [keys] de adicionales elegidos
+  totalPriceGs        Int?              @map("total_price_gs") // precio calculado al reservar (snapshot)
   coveredByMembership Boolean           @default(false) @map("covered_by_membership") // true = descontado del cupo del plan
-  billingMode         String?           @map("billing_mode")      // covered | paid | overage_next_cycle
+  billingMode         String?           @map("billing_mode") // covered | paid | overage_next_cycle
   arizarAppointmentId String?           @unique @map("arizar_appointment_id")
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
@@ -246,12 +250,12 @@ model MembershipRequest {
   lastName            String?  @map("last_name")
   email               String?
   phone               String
-  vehicleInfo         String?  @map("vehicle_info")   // marca / modelo
-  vehicleSize         String?  @map("vehicle_size")   // chico / mediano / grande / suv
-  planInterest        String?  @map("plan_interest")  // slug del plan de interés
+  vehicleInfo         String?  @map("vehicle_info") // marca / modelo
+  vehicleSize         String?  @map("vehicle_size") // chico / mediano / grande / suv
+  planInterest        String?  @map("plan_interest") // slug del plan de interés
   message             String?
-  source              String   @default("landing")    // landing | login
-  status              String   @default("NEW")        // NEW | CONTACTED | CONVERTED | DISCARDED
+  source              String   @default("landing") // landing | login
+  status              String   @default("NEW") // NEW | CONTACTED | CONVERTED | DISCARDED
   arizarContactId     String?  @map("arizar_contact_id")
   arizarOpportunityId String?  @map("arizar_opportunity_id")
   createdAt           DateTime @default(now()) @map("created_at")
@@ -270,9 +274,9 @@ model Credit {
   referenceId String?   @map("reference_id")
   expiresAt   DateTime? @map("expires_at")
   // ── Cuentas por cobrar (opcionales, nullable para no romper créditos existentes) ──
-  dueDate     DateTime? @map("due_date")     // vencimiento del saldo a cobrar
-  settledGs   Int?      @map("settled_gs")   // monto ya cobrado/aplicado del crédito (saldo = amount - settledGs)
-  status      String?   @default("open")     // open | settled | written_off (null = legacy)
+  dueDate     DateTime? @map("due_date") // vencimiento del saldo a cobrar
+  settledGs   Int?      @map("settled_gs") // monto ya cobrado/aplicado del crédito (saldo = amount - settledGs)
+  status      String?   @default("open") // open | settled | written_off (null = legacy)
   createdAt   DateTime  @default(now()) @map("created_at")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -283,34 +287,34 @@ model Credit {
 }
 
 model Payment {
-  id                  String        @id @default(uuid())
-  userId              String        @map("user_id")
-  membershipId        String?       @map("membership_id")
-  amountGs            Int           @map("amount_gs")
-  paymentMethod       String?       @map("payment_method")
-  arizarTransactionId String?       @map("arizar_transaction_id")
-  arizarInvoiceId     String?       @map("arizar_invoice_id")
+  id                     String        @id @default(uuid())
+  userId                 String        @map("user_id")
+  membershipId           String?       @map("membership_id")
+  amountGs               Int           @map("amount_gs")
+  paymentMethod          String?       @map("payment_method")
+  arizarTransactionId    String?       @map("arizar_transaction_id")
+  arizarInvoiceId        String?       @map("arizar_invoice_id")
   // ⚠️ EN LA DB ESTA COLUMNA ES bigint (guarda Date.now(), 13 dígitos). Acá se declara Int
   // a propósito porque el código usa Number, no BigInt. NO correr `prisma db push`: revierte
   // la columna a integer y ROMPE TODOS los cobros con tarjeta (value out of range for integer).
   // Si alguna vez pasa: ALTER TABLE payments ALTER COLUMN bancard_shop_process_id TYPE bigint;
-  bancardShopProcessId Int?         @unique @map("bancard_shop_process_id")
-  bancardTicketNumber String?       @map("bancard_ticket_number")
-  bancardAuthNumber   String?       @map("bancard_auth_number")
+  bancardShopProcessId   Int?          @unique @map("bancard_shop_process_id")
+  bancardTicketNumber    String?       @map("bancard_ticket_number")
+  bancardAuthNumber      String?       @map("bancard_auth_number")
   // Factura electrónica Bancard/SIFEN (poblados solo si el cobro emitió factura)
-  bancardInvoiceNumber   String?    @map("bancard_invoice_number")     // ej "001-001-0002563"
-  ivaAmountGs            Int?       @map("iva_amount_gs")              // IVA desglosado por Bancard
-  bancardIvaTicketNumber String?    @map("bancard_iva_ticket_number")
-  billingStatus          String?    @map("billing_status")            // success | error | null (sin factura)
-  applicationFeeGs       Int?       @map("application_fee_gs")          // comisión de la plataforma
-  currency               String     @default("PYG")                    // PYG es zero-decimal (sin centavos)
-  status              PaymentStatus @default(PENDING)
-  description         String?
-  createdAt           DateTime      @default(now()) @map("created_at")
-  updatedAt           DateTime      @default(now()) @updatedAt @map("updated_at")
-  membership          Membership?   @relation(fields: [membershipId], references: [id])
-  user                User          @relation(fields: [userId], references: [id], onDelete: Restrict)
-  creditNotes         CreditNote[]
+  bancardInvoiceNumber   String?       @map("bancard_invoice_number") // ej "001-001-0002563"
+  ivaAmountGs            Int?          @map("iva_amount_gs") // IVA desglosado por Bancard
+  bancardIvaTicketNumber String?       @map("bancard_iva_ticket_number")
+  billingStatus          String?       @map("billing_status") // success | error | null (sin factura)
+  applicationFeeGs       Int?          @map("application_fee_gs") // comisión de la plataforma
+  currency               String        @default("PYG") // PYG es zero-decimal (sin centavos)
+  status                 PaymentStatus @default(PENDING)
+  description            String?
+  createdAt              DateTime      @default(now()) @map("created_at")
+  updatedAt              DateTime      @default(now()) @updatedAt @map("updated_at")
+  membership             Membership?   @relation(fields: [membershipId], references: [id])
+  user                   User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  creditNotes            CreditNote[]
 
   @@index([userId])
   @@index([membershipId])
@@ -320,21 +324,21 @@ model Payment {
 }
 
 model PaymentCard {
-  id                  String   @id @default(uuid())
-  userId              String   @map("user_id")
-  masfazzilCardId     String?  @map("masfazzil_card_id")
-  bancardCardId       Int?     @unique @map("bancard_card_id")
-  bancardAliasToken   String?  @map("bancard_alias_token")
-  fingerprint         String?  // detectar tarjetas duplicadas
-  expirationDate      String?  @map("expiration_date")
-  alias               String?
-  maskedNumber        String   @map("masked_number")
-  brand               String
-  issuer              String?
-  cardType            String?  @map("card_type")
-  isPrimary           Boolean  @default(false) @map("is_primary")
-  createdAt           DateTime @default(now()) @map("created_at")
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  masfazzilCardId   String?  @map("masfazzil_card_id")
+  bancardCardId     Int?     @unique @map("bancard_card_id")
+  bancardAliasToken String?  @map("bancard_alias_token")
+  fingerprint       String? // detectar tarjetas duplicadas
+  expirationDate    String?  @map("expiration_date")
+  alias             String?
+  maskedNumber      String   @map("masked_number")
+  brand             String
+  issuer            String?
+  cardType          String?  @map("card_type")
+  isPrimary         Boolean  @default(false) @map("is_primary")
+  createdAt         DateTime @default(now()) @map("created_at")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("payment_cards")
@@ -357,41 +361,51 @@ model Promotion {
 }
 
 model InventoryItem {
-  id            String   @id @default(uuid())
+  id            String               @id @default(uuid())
   name          String
-  sku           String?  @unique                          // código interno
+  sku           String?              @unique // código interno
   brand         String?
   category      String?
-  unit          String   @default("unidad")               // unidad | ml | l | g | kg
-  currentStock  Int      @default(0) @map("current_stock") // en la unidad base del item
-  minStockAlert Int      @default(5) @map("min_stock_alert")
-  maxStock      Int?     @map("max_stock")                 // stock óptimo (para sugerir reposición)
-  location      String?                                    // depósito/estante
-  costPerUnit   Int?     @map("cost_per_unit")             // costo Gs por unidad base
-  supplier      String?                                    // legacy texto libre (fallback)
-  supplierId    String?  @map("supplier_id")
-  expiresAt     DateTime? @map("expires_at")
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  unit          String               @default("unidad") // unidad | ml | l | g | kg
+  currentStock  Int                  @default(0) @map("current_stock") // en la unidad base del item
+  minStockAlert Int                  @default(5) @map("min_stock_alert")
+  maxStock      Int?                 @map("max_stock") // stock óptimo (para sugerir reposición)
+  location      String? // depósito/estante
+  costPerUnit   Int?                 @map("cost_per_unit") // costo Gs por unidad base
+  supplier      String? // legacy texto libre (fallback)
+  supplierId    String?              @map("supplier_id")
+  expiresAt     DateTime?            @map("expires_at")
+  isActive      Boolean              @default(true) @map("is_active")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+  // ── Cara comercial: sólo para lo que se vende al cliente (bebidas, snacks, accesorios).
+  // Vive acá y no en una tabla aparte para que exista UNA sola verdad de stock: vender
+  // descuenta del mismo lugar del que descuenta un servicio.
+  isForSale     Boolean              @default(false) @map("is_for_sale") // aparece en la tienda del cliente
+  salePriceGs   Int?                 @map("sale_price_gs") // precio final al cliente (IVA incluido)
+  imageUrl      String?              @map("image_url") // foto que ve el cliente y el operario
+  saleCategory  String?              @map("sale_category") // bebidas | snacks | accesorios | ...
+  saleOrder     Int?                 @map("sale_order") // orden manual dentro de su categoría
   supplierRel   Supplier?            @relation(fields: [supplierId], references: [id])
   movements     StockMovement[]
   consumptions  ServiceConsumption[]
+  orderItems    OrderItem[]
 
+  @@index([isForSale, saleCategory])
   @@map("inventory_items")
 }
 
 // Proveedor de insumos.
 model Supplier {
-  id        String   @id @default(uuid())
+  id        String          @id @default(uuid())
   name      String
   contact   String?
   phone     String?
   email     String?
   notes     String?
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  isActive  Boolean         @default(true) @map("is_active")
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
   items     InventoryItem[]
 
   @@map("suppliers")
@@ -400,36 +414,38 @@ model Supplier {
 // Ledger INMUTABLE de movimientos de stock (entradas, consumo, ajustes, mermas).
 // Nunca se edita ni borra; los errores se corrigen con un movimiento de compensación.
 model StockMovement {
-  id              String   @id @default(uuid())
-  itemId          String   @map("item_id")
-  type            String   // IN | CONSUMPTION | ADJUSTMENT | WASTE | RETURN
-  quantity        Int      // siempre positivo; el signo efectivo lo da el type
-  quantityBefore  Int      @map("quantity_before")
-  quantityAfter   Int      @map("quantity_after")
+  id              String        @id @default(uuid())
+  itemId          String        @map("item_id")
+  type            String // IN | CONSUMPTION | ADJUSTMENT | WASTE | RETURN | SALE
+  quantity        Int // siempre positivo; el signo efectivo lo da el type
+  quantityBefore  Int           @map("quantity_before")
+  quantityAfter   Int           @map("quantity_after")
   reason          String?
-  unitCostGs      Int?     @map("unit_cost_gs")
-  userId          String?  @map("user_id")
-  serviceRecordId String?  @map("service_record_id")   // si vino del consumo de un servicio
-  supplierId      String?  @map("supplier_id")          // si fue una compra/entrada
-  createdAt       DateTime @default(now()) @map("created_at")
+  unitCostGs      Int?          @map("unit_cost_gs")
+  userId          String?       @map("user_id")
+  serviceRecordId String?       @map("service_record_id") // si vino del consumo de un servicio
+  supplierId      String?       @map("supplier_id") // si fue una compra/entrada
+  orderId         String?       @map("order_id") // si salió de una venta de mostrador
+  createdAt       DateTime      @default(now()) @map("created_at")
   item            InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([itemId, createdAt])
   @@index([type])
   @@index([serviceRecordId])
+  @@index([orderId])
   @@map("stock_movements")
 }
 
 // Receta / BOM: cuánto de cada insumo consume un servicio (opcionalmente por tamaño).
 // vehicleSize null = aplica a cualquier tamaño.
 model ServiceConsumption {
-  id          String   @id @default(uuid())
-  serviceId   String   @map("service_id")
-  itemId      String   @map("item_id")
-  vehicleSize String?  @map("vehicle_size")
+  id          String        @id @default(uuid())
+  serviceId   String        @map("service_id")
+  itemId      String        @map("item_id")
+  vehicleSize String?       @map("vehicle_size")
   quantity    Int
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
   service     Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
@@ -504,7 +520,7 @@ model BancardOperation {
   // ALTER TABLE bancard_operations ALTER COLUMN shop_process_id TYPE bigint;
   shopProcessId Int      @unique @map("shop_process_id")
   userId        String   @map("user_id")
-  type          String   // "single_buy", "charge", "card_registration"
+  type          String // "single_buy", "charge", "card_registration"
   status        String   @default("PENDING") // PENDING, COMPLETED, FAILED, ROLLED_BACK
   amountGs      Int?     @map("amount_gs")
   processId     String?  @map("process_id")
@@ -529,7 +545,7 @@ model BancardOperation {
 model ExpenseCategory {
   id        String    @id @default(uuid())
   name      String    @unique
-  color     String?                                  // color hex para UI/charts
+  color     String? // color hex para UI/charts
   createdAt DateTime  @default(now()) @map("created_at")
   expenses  Expense[]
 
@@ -539,13 +555,13 @@ model ExpenseCategory {
 // Egreso / gasto operativo.
 model Expense {
   id            String          @id @default(uuid())
-  date          DateTime                                       // fecha del gasto
-  amountGs      Int             @map("amount_gs")              // monto total en PYG (entero)
+  date          DateTime // fecha del gasto
+  amountGs      Int             @map("amount_gs") // monto total en PYG (entero)
   description   String
   categoryId    String          @map("category_id")
-  supplier      String?                                        // proveedor (texto libre)
-  paymentMethod String?         @map("payment_method")         // efectivo | transferencia | tarjeta | ...
-  ivaGs         Int?            @map("iva_gs")                  // IVA incluido en amountGs (PYG)
+  supplier      String? // proveedor (texto libre)
+  paymentMethod String?         @map("payment_method") // efectivo | transferencia | tarjeta | ...
+  ivaGs         Int?            @map("iva_gs") // IVA incluido en amountGs (PYG)
   notes         String?
   createdById   String          @map("created_by_id")
   createdAt     DateTime        @default(now()) @map("created_at")
@@ -561,18 +577,18 @@ model Expense {
 
 // Nota de crédito / reembolso / ajuste sobre un pago o cuenta del cliente.
 model CreditNote {
-  id             String   @id @default(uuid())
-  paymentId      String?  @map("payment_id")                  // pago original (opcional)
-  userId         String   @map("user_id")                     // cliente afectado
-  amountGs       Int      @map("amount_gs")                   // monto de la nota en PYG (entero)
-  reason         String
-  type           String                                       // refund | cancellation | adjustment
-  bancardRollbackRef String? @map("bancard_rollback_ref")     // ref del rollback de Bancard (bancard_rollback:<shop_process_id>)
-  createdById    String   @map("created_by_id")
-  createdAt      DateTime @default(now()) @map("created_at")
-  payment        Payment? @relation(fields: [paymentId], references: [id])
-  user           User     @relation("credit_note_user", fields: [userId], references: [id], onDelete: Cascade)
-  createdBy      User     @relation("credit_note_creator", fields: [createdById], references: [id])
+  id                 String   @id @default(uuid())
+  paymentId          String?  @map("payment_id") // pago original (opcional)
+  userId             String   @map("user_id") // cliente afectado
+  amountGs           Int      @map("amount_gs") // monto de la nota en PYG (entero)
+  reason             String
+  type               String // refund | cancellation | adjustment
+  bancardRollbackRef String?  @map("bancard_rollback_ref") // ref del rollback de Bancard (bancard_rollback:<shop_process_id>)
+  createdById        String   @map("created_by_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  payment            Payment? @relation(fields: [paymentId], references: [id])
+  user               User     @relation("credit_note_user", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy          User     @relation("credit_note_creator", fields: [createdById], references: [id])
 
   @@index([userId])
   @@index([paymentId])
@@ -584,9 +600,9 @@ model CreditNote {
 // Plan de cuentas contable.
 model Account {
   id        String        @id @default(uuid())
-  code      String        @unique                             // código contable (ej. "1.1.01")
+  code      String        @unique // código contable (ej. "1.1.01")
   name      String
-  type      String                                            // asset | liability | income | expense | equity
+  type      String // asset | liability | income | expense | equity
   createdAt DateTime      @default(now()) @map("created_at")
   lines     JournalLine[]
 
@@ -599,7 +615,7 @@ model JournalEntry {
   id          String        @id @default(uuid())
   date        DateTime
   description String
-  reference   String?                                         // referencia externa (factura, pago, etc.)
+  reference   String? // referencia externa (factura, pago, etc.)
   createdById String        @map("created_by_id")
   createdAt   DateTime      @default(now()) @map("created_at")
   createdBy   User          @relation("journal_creator", fields: [createdById], references: [id])
@@ -614,8 +630,8 @@ model JournalLine {
   id        String       @id @default(uuid())
   entryId   String       @map("entry_id")
   accountId String       @map("account_id")
-  debitGs   Int          @default(0) @map("debit_gs")          // PYG entero
-  creditGs  Int          @default(0) @map("credit_gs")         // PYG entero
+  debitGs   Int          @default(0) @map("debit_gs") // PYG entero
+  creditGs  Int          @default(0) @map("credit_gs") // PYG entero
   entry     JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
   account   Account      @relation(fields: [accountId], references: [id])
 
@@ -659,6 +675,87 @@ enum PaymentStatus {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// VENTA DE PRODUCTOS — mostrador (bebidas, snacks, accesorios)
+//
+// El cliente arma su carrito y genera un QR; el operario lo escanea desde el módulo
+// Ventas, verifica lo que se lleva y cobra. El stock se descuenta y la venta entra a la
+// caja del día SOLO cuando el pago quedó efectivamente hecho (saldo debitado o Bancard
+// aprobado): un QR sin cobrar no reserva mercadería ni figura en ninguna caja.
+// ═══════════════════════════════════════════════════════════════════
+
+model Order {
+  id                   String       @id @default(uuid())
+  userId               String       @map("user_id")
+  employeeId           String?      @map("employee_id") // quién cobró
+  // PENDING | SCANNED | AUTHORIZING | PAID | DECLINED | CANCELLED | EXPIRED | VOIDED
+  status               String       @default("PENDING")
+  totalGs              Int          @map("total_gs") // congelado al confirmar el carrito
+  // wallet = saldo de la billetera · card = tarjeta catastrada (elegida por el cliente)
+  paymentMethod        String?      @map("payment_method")
+  cardId               String?      @map("card_id") // PaymentCard elegida (si paga con tarjeta)
+  paymentId            String?      @map("payment_id") // Payment generado (cobro con tarjeta)
+  creditId             String?      @map("credit_id") // Credit negativo (cobro con saldo)
+  bancardShopProcessId BigInt?      @unique @map("bancard_shop_process_id")
+  cashSessionId        String?      @map("cash_session_id") // caja del día donde cayó la venta
+  declineReason        String?      @map("decline_reason")
+  voidReason           String?      @map("void_reason")
+  qrIssuedAt           DateTime?    @map("qr_issued_at")
+  expiresAt            DateTime?    @map("expires_at")
+  scannedAt            DateTime?    @map("scanned_at")
+  paidAt               DateTime?    @map("paid_at")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+  user                 User         @relation("order_client", fields: [userId], references: [id], onDelete: Cascade)
+  employee             User?        @relation("order_employee", fields: [employeeId], references: [id], onDelete: SetNull)
+  cashSession          CashSession? @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  items                OrderItem[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([cashSessionId])
+  @@map("orders")
+}
+
+// Una línea del carrito. Nombre y precio quedan CONGELADOS al momento de la compra: si
+// mañana sube el precio o se renombra el producto, el comprobante del cliente no cambia.
+model OrderItem {
+  id           String        @id @default(uuid())
+  orderId      String        @map("order_id")
+  itemId       String        @map("item_id")
+  nameSnapshot String        @map("name_snapshot")
+  unitPriceGs  Int           @map("unit_price_gs")
+  qty          Int
+  lineTotalGs  Int           @map("line_total_gs")
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item         InventoryItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([itemId])
+  @@map("order_items")
+}
+
+// Caja del día: corte con hora y responsable. No es un filtro por fecha — una sesión
+// cerrada es un documento que ya nadie puede mover.
+model CashSession {
+  id          String    @id @default(uuid())
+  status      String    @default("OPEN") // OPEN | CLOSED
+  openedAt    DateTime  @default(now()) @map("opened_at")
+  openedById  String?   @map("opened_by_id")
+  closedAt    DateTime? @map("closed_at")
+  closedById  String?   @map("closed_by_id")
+  totalGs     Int?      @map("total_gs") // congelado al cerrar
+  ordersCount Int?      @map("orders_count")
+  notes       String?
+  openedBy    User?     @relation("cash_opener", fields: [openedById], references: [id], onDelete: SetNull)
+  closedBy    User?     @relation("cash_closer", fields: [closedById], references: [id], onDelete: SetNull)
+  orders      Order[]
+
+  @@index([status])
+  @@index([openedAt])
+  @@map("cash_sessions")
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // ARIZAR IA / GoHighLevel — integración (OAuth, webhooks, chat)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -668,9 +765,9 @@ model ArizarOAuthToken {
   refreshToken     String    @map("refresh_token")
   locationId       String    @unique @map("location_id")
   companyId        String?   @map("company_id")
-  userType         String?   @map("user_type")            // Company | Location
+  userType         String?   @map("user_type") // Company | Location
   scope            String?
-  expiresAt        DateTime  @map("expires_at")           // expiración del access token
+  expiresAt        DateTime  @map("expires_at") // expiración del access token
   lastRefreshedAt  DateTime? @map("last_refreshed_at")
   lastRefreshError String?   @map("last_refresh_error")
   refreshAttempts  Int       @default(0) @map("refresh_attempts")
@@ -685,11 +782,11 @@ model ArizarOAuthToken {
 
 model WebhookEvent {
   id          String    @id @default(uuid())
-  source      String    @default("arizar")               // arizar | bancard | ...
-  webhookId   String?   @map("webhook_id")               // id del webhook de GHL (idempotencia)
-  eventType   String    @map("event_type")               // ContactCreate, AppointmentUpdate, InboundMessage...
+  source      String    @default("arizar") // arizar | bancard | ...
+  webhookId   String?   @map("webhook_id") // id del webhook de GHL (idempotencia)
+  eventType   String    @map("event_type") // ContactCreate, AppointmentUpdate, InboundMessage...
   locationId  String?   @map("location_id")
-  status      String    @default("received")             // received | processed | failed | duplicate
+  status      String    @default("received") // received | processed | failed | duplicate
   payloadJson Json?     @map("payload_json")
   error       String?
   processedAt DateTime? @map("processed_at")
@@ -703,18 +800,18 @@ model WebhookEvent {
 
 model Conversation {
   id                   String    @id @default(uuid())
-  userId               String?   @map("user_id")          // FK suelta a User (cliente)
+  userId               String?   @map("user_id") // FK suelta a User (cliente)
   arizarContactId      String?   @map("arizar_contact_id")
   arizarConversationId String?   @unique @map("arizar_conversation_id")
-  channel              String                              // SMS | Email | WhatsApp | Live_Chat | Custom
+  channel              String // SMS | Email | WhatsApp | Live_Chat | Custom
   lastMessageAt        DateTime? @map("last_message_at")
   lastMessageBody      String?   @map("last_message_body")
   unreadCount          Int       @default(0) @map("unread_count")
-  status               String    @default("open")         // open | closed
+  status               String    @default("open") // open | closed
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  messages             Message[]
+  messages Message[]
 
   @@index([userId])
   @@index([lastMessageAt])
@@ -725,15 +822,15 @@ model Message {
   id              String   @id @default(uuid())
   conversationId  String   @map("conversation_id")
   arizarMessageId String?  @unique @map("arizar_message_id")
-  direction       String                                  // inbound | outbound
+  direction       String // inbound | outbound
   channel         String
   body            String?
   attachmentsJson Json?    @map("attachments_json")
-  isAi            Boolean  @default(false) @map("is_ai")  // generado por IA
-  status          String   @default("sent")              // sent | delivered | read | failed
+  isAi            Boolean  @default(false) @map("is_ai") // generado por IA
+  status          String   @default("sent") // sent | delivered | read | failed
   createdAt       DateTime @default(now()) @map("created_at")
 
-  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
   @@index([createdAt])

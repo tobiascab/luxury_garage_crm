@@ -22,6 +22,14 @@ const inventoryItemSchema = z.object({
   supplierId: z.string().optional(),
   expiresAt: z.string().datetime().optional().or(z.string().length(0)),
   isActive: z.boolean().optional(),
+  // ── Cara comercial: sólo para lo que se vende en el mostrador ──
+  // Un producto vendible ES un ítem de inventario, así vender descuenta del mismo stock del
+  // que descuenta un servicio y no hay dos verdades del mismo artículo.
+  isForSale: z.boolean().optional(),
+  salePriceGs: z.number().int().nonnegative('El precio no puede ser negativo').optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
+  saleCategory: z.string().optional().nullable(),
+  saleOrder: z.number().int().optional().nullable(),
 });
 
 // Ajuste de stock (entrada/salida): delta puede ser negativo
@@ -59,12 +67,14 @@ const recipeSchema = z.object({
 // GET /api/inventory — listar insumos (con búsqueda, filtro de categoría y paginación)
 router.get('/', ...adminOnly, async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, search, category } = req.query;
+    const { page = 1, limit = 20, search, category, forSale } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const where = {};
 
     if (search) where.name = { contains: search, mode: 'insensitive' };
     if (category) where.category = category;
+    // forSale=1 → sólo el catálogo del mostrador (lo que ve el cliente en la tienda)
+    if (forSale === '1' || forSale === 'true') where.isForSale = true;
 
     const [items, total] = await Promise.all([
       req.prisma.inventoryItem.findMany({ where, skip, take: parseInt(limit), orderBy: { name: 'asc' } }),

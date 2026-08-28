@@ -15,3 +15,5 @@ dev-dist/
 # Volcados de base de datos: nunca al repo (contienen datos de clientes y hashes)
 *.sql
 backup_*
+# ...pero las migraciones SÍ van: son la estructura de las tablas, no datos de nadie.
+!backend/prisma/sql/*.sql

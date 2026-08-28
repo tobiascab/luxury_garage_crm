@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import {
     Home, Calendar, QrCode, CreditCard, User,
     Bell, BellRing, ArrowLeft, X, Moon, Sun, History,
-    Droplets, ShieldCheck, Gift, Megaphone, Info, AlertTriangle, Check, CheckCheck,
-} from 'lucide-react';
+    Droplets, ShieldCheck, Gift, Megaphone, Info, AlertTriangle, Check, CheckCheck, Receipt } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -68,7 +67,7 @@ interface MainLayoutProps {
 
 // ── Tab definitions ────────────────────────────────────────────────────────
 const CLIENT_TABS = ['/inicio', '/booking', '/qr', '/planes', '/perfil'];
-const EMPLOYEE_TABS = ['/employee', '/scan', '/historial', '/perfil'];
+const EMPLOYEE_TABS = ['/employee', '/scan', '/ventas', '/historial', '/perfil'];
 
 const NAV_CLIENT = [
     { path: '/inicio', Icon: Home, label: 'Inicio' },
@@ -81,6 +80,7 @@ const NAV_CLIENT = [
 const NAV_EMPLOYEE = [
     { path: '/employee', Icon: Home, label: 'Inicio' },
     { path: '/scan', Icon: QrCode, label: 'Escanear' },
+    { path: '/ventas', Icon: Receipt, label: 'Ventas' },
     { path: '/historial', Icon: History, label: 'Historial' },
     { path: '/perfil', Icon: User, label: 'Perfil' },
 ];
