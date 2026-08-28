@@ -1,7 +1,6 @@
 const router = require('express').Router();
 const { authenticate } = require('../middleware/auth');
 const orderService = require('../services/orderService');
-const bancardService = require('../services/bancardService');
 const { materializeApprovedPayment } = require('../services/paymentReconciliation');
 
 /**
@@ -91,20 +90,6 @@ function pedidoParaCliente(order, { conToken = true } = {}) {
   };
 }
 
-/**
- * Si el banco pidió verificación, el cliente tiene que resolverla en SU teléfono: se le
- * devuelven los datos del desafío para abrir el iframe de Bancard.
- */
-async function conDesafio3ds(prisma, order, payload) {
-  if (order.status !== 'AUTHORIZING' || !order.bancardShopProcessId) return payload;
-  const op = await prisma.bancardOperation.findUnique({
-    where: { shopProcessId: Number(order.bancardShopProcessId) },
-    select: { processId: true },
-  });
-  if (!op?.processId) return payload;
-  return { ...payload, threeDs: { processId: op.processId, jsLibUrl: bancardService.jsLibUrl } };
-}
-
 // POST /api/shop/orders — confirmar el carrito y generar el QR de compra
 router.post('/orders', authenticate, async (req, res, next) => {
   try {
@@ -179,7 +164,7 @@ router.get('/orders/current', authenticate, async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
       include: { items: true },
     });
-    res.json({ success: true, data: order ? await conDesafio3ds(req.prisma, order, pedidoParaCliente(order)) : null });
+    res.json({ success: true, data: order ? pedidoParaCliente(order) : null });
   } catch (err) { next(err); }
 });
 
@@ -198,7 +183,7 @@ router.get('/orders/:id', authenticate, async (req, res, next) => {
       });
       return res.json({ success: true, data: pedidoParaCliente(vencido) });
     }
-    res.json({ success: true, data: await conDesafio3ds(req.prisma, order, pedidoParaCliente(order)) });
+    res.json({ success: true, data: pedidoParaCliente(order) });
   } catch (err) { next(err); }
 });
 
@@ -220,7 +205,7 @@ router.post('/orders/:id/refresh', authenticate, async (req, res, next) => {
       }
     }
     const fresco = await req.prisma.order.findUnique({ where: { id: order.id }, include: { items: true } });
-    res.json({ success: true, data: await conDesafio3ds(req.prisma, fresco, pedidoParaCliente(fresco)) });
+    res.json({ success: true, data: pedidoParaCliente(fresco) });
   } catch (err) { next(err); }
 });
 

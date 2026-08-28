@@ -25,7 +25,6 @@ export default function EmpleadoVentas({ user }: { user: any }) {
     const [pedido, setPedido] = useState<any | null>(null);
     const [resultado, setResultado] = useState<{ ok: boolean; mensaje: string; pedido?: any } | null>(null);
     const [procesando, setProcesando] = useState(false);
-    const [esperando3ds, setEsperando3ds] = useState(false);
     const [codigoManual, setCodigoManual] = useState('');
     const [errorCamara, setErrorCamara] = useState<string | null>(null);
     const [resumen, setResumen] = useState<{ totalGs: number; count: number } | null>(null);
@@ -116,12 +115,6 @@ export default function EmpleadoVentas({ user }: { user: any }) {
         setProcesando(true);
         try {
             const { data } = await api.post(`/sales/orders/${pedido.orderId}/charge`, {});
-            if (data?.requires3ds) {
-                // El banco pide verificación: la resuelve el cliente en SU teléfono. Acá se espera.
-                setEsperando3ds(true);
-                setProcesando(false);
-                return;
-            }
             setResultado({ ok: true, mensaje: data?.message || 'Cobrado', pedido: data?.data });
             setPedido(null);
         } catch (e: any) {
@@ -132,29 +125,9 @@ export default function EmpleadoVentas({ user }: { user: any }) {
         }
     };
 
-    // Mientras el cliente resuelve el 3DS, se consulta el estado del pedido.
-    useEffect(() => {
-        if (!esperando3ds || !pedido?.orderId) return;
-        const i = setInterval(async () => {
-            try {
-                const { data } = await api.get(`/sales/orders/${pedido.orderId}`, { _noCache: true } as any);
-                const p = data?.data;
-                if (p?.status === 'PAID') {
-                    setEsperando3ds(false);
-                    setResultado({ ok: true, mensaje: 'Cobrado a la tarjeta del cliente', pedido: p });
-                    setPedido(null);
-                } else if (p?.status === 'DECLINED') {
-                    setEsperando3ds(false);
-                    setResultado({ ok: false, mensaje: 'El banco rechazó el cobro.' });
-                    setPedido(null);
-                }
-            } catch (_) { /* se reintenta en el próximo tick */ }
-        }, 2500);
-        return () => clearInterval(i);
-    }, [esperando3ds, pedido?.orderId]);
 
     const reiniciar = () => {
-        setPedido(null); setResultado(null); setCodigoManual(''); setEsperando3ds(false);
+        setPedido(null); setResultado(null); setCodigoManual('');
     };
 
     return (
@@ -302,28 +275,18 @@ export default function EmpleadoVentas({ user }: { user: any }) {
                             </div>
 
                             <div className="p-5 pt-3 flex gap-2">
-                                <Pressable onClick={reiniciar} disabled={procesando || esperando3ds}
+                                <Pressable onClick={reiniciar} disabled={procesando}
                                     className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-black uppercase tracking-widest text-xs disabled:opacity-40">
                                     Cancelar
                                 </Pressable>
-                                <Pressable onClick={cobrar} disabled={procesando || esperando3ds || (pedido.payment?.method === 'wallet' && !pedido.payment?.walletAlcanza)}
+                                <Pressable onClick={cobrar} disabled={procesando || (pedido.payment?.method === 'wallet' && !pedido.payment?.walletAlcanza)}
                                     className="flex-[2] py-4 bg-emerald-600 text-white rounded-xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-40 shadow-lg shadow-emerald-600/20">
-                                    {procesando ? <RefreshCw size={16} className="animate-spin" />
-                                        : esperando3ds ? <><Loader2 size={16} className="animate-spin" /> Esperando al cliente</>
-                                            : <><CheckCircle2 size={16} /> Cobrar {gs(pedido.totalGs)}</>}
+                                    {procesando
+                                        ? <RefreshCw size={16} className="animate-spin" />
+                                        : <><CheckCircle2 size={16} /> Cobrar {gs(pedido.totalGs)}</>}
                                 </Pressable>
                             </div>
 
-                            {esperando3ds && (
-                                <div className="px-5 pb-5 -mt-2">
-                                    <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20">
-                                        <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
-                                        <p className="text-xs text-amber-700 dark:text-amber-300 font-medium leading-relaxed">
-                                            El banco pidió verificación. El cliente tiene que confirmarla en su teléfono; esta pantalla se actualiza sola.
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
                         </motion.div>
                     )}
                 </AnimatePresence>

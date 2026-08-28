@@ -6,8 +6,6 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import useScrollLock from '../../hooks/useScrollLock';
-import { useBancard3ds } from '../components/Bancard3dsModal';
-import { loadBancardScript } from '../lib/bancardPayment';
 import {
     motion, AnimatePresence, Reveal, StaggerList, StaggerItem,
     Pressable, scaleIn, popIn, springPop, useReduce,
@@ -43,12 +41,10 @@ export default function Tienda({ user, onUpdate }: { user: any; onUpdate?: () =>
     const [error, setError] = useState<string | null>(null);
 
     const reduce = useReduce();
-    const { handlers: bancard3ds, modal: modal3ds } = useBancard3ds();
     // Con el carrito abierto, el fondo no se mueve: sin esto el dedo arrastra la grilla de
     // atrás en vez del contenido de la hoja (scroll chaining).
     useScrollLock(carritoAbierto);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const desafioRef = useRef(false); // el 3DS se monta una sola vez por pedido
 
     // ── Carga inicial: catálogo, medios de pago y pedido vivo ──────────────────
     useEffect(() => {
@@ -131,7 +127,7 @@ export default function Tienda({ user, onUpdate }: { user: any; onUpdate?: () =>
 
     useEffect(() => {
         if (!pedido?.id) return;
-        const vivo = ['PENDING', 'SCANNED', 'AUTHORIZING'].includes(pedido.status);
+        const vivo = ['PENDING', 'SCANNED'].includes(pedido.status);
         if (!vivo) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } return; }
 
         const tick = () => refrescarPedido(pedido.id);
@@ -145,34 +141,6 @@ export default function Tienda({ user, onUpdate }: { user: any; onUpdate?: () =>
         };
     }, [pedido?.id, pedido?.status, refrescarPedido]);
 
-    // El banco pidió verificación: el desafío se resuelve ACÁ, en el teléfono del cliente,
-    // mientras el encargado espera. Al terminar se le pregunta al backend cómo salió.
-    useEffect(() => {
-        if (pedido?.status !== 'AUTHORIZING' || !pedido?.threeDs || desafioRef.current) return;
-        desafioRef.current = true;
-        (async () => {
-            const { processId, jsLibUrl } = pedido.threeDs;
-            try {
-                const sdk = await loadBancardScript(jsLibUrl);
-                const containerId = await bancard3ds.mount({ processId, shopProcessId: 0 });
-                if (sdk.Charge && typeof sdk.Charge.createForm === 'function') {
-                    sdk.Charge.createForm(containerId, String(processId));
-                } else if (sdk.Cards && typeof sdk.Cards.createForm === 'function') {
-                    sdk.Cards.createForm(containerId, String(processId));
-                }
-                await bancard3ds.waitForDone();
-            } catch (e) {
-                console.error('3DS de la compra falló', e);
-            } finally {
-                bancard3ds.cleanup?.();
-            }
-            try {
-                const r = await api.post(`/shop/orders/${pedido.id}/refresh`, {});
-                if (r.data?.data) setPedido(r.data.data);
-            } catch (_) { /* el polling lo resuelve igual */ }
-            desafioRef.current = false;
-        })();
-    }, [pedido?.status, pedido?.threeDs, pedido?.id, bancard3ds]);
 
     // ── Acciones ───────────────────────────────────────────────────────────────
     const generarQR = async () => {
@@ -227,7 +195,6 @@ export default function Tienda({ user, onUpdate }: { user: any; onUpdate?: () =>
     if (pedido) {
         return (
             <>
-                {modal3ds}
                 <EstadoPedido
                     pedido={pedido}
                     reduce={reduce}
@@ -242,8 +209,6 @@ export default function Tienda({ user, onUpdate }: { user: any; onUpdate?: () =>
     // ── MODO CATÁLOGO ──────────────────────────────────────────────────────────
     return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pb-28 max-w-2xl mx-auto">
-            {modal3ds}
-
             <Reveal className="px-1 mb-4">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 dark:bg-blue-500/10 text-primary dark:text-blue-400 rounded-full text-[10px] font-bold tracking-widest uppercase mb-2 border border-primary/20 dark:border-blue-500/30">
                     <ShoppingBag size={11} /> Tienda
@@ -654,9 +619,7 @@ function EstadoPedido({ pedido, reduce, onCancelar, onVolver, onReintentar }: an
                                     <QRCodeSVG value={pedido.qrToken} size={220} bgColor="#ffffff" fgColor="#0f172a" level="M" marginSize={2}
                                         imageSettings={{ src: '/logo.png', height: 30, width: 30, excavate: true }} />
                                     <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-primary dark:bg-blue-500 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.1em] whitespace-nowrap shadow-xl">
-                                        {pedido.status === 'PENDING' && 'Esperando al encargado...'}
-                                        {pedido.status === 'SCANNED' && 'Revisando tu pedido...'}
-                                        {pedido.status === 'AUTHORIZING' && 'Confirmá con tu banco'}
+                                        {pedido.status === 'PENDING' ? 'Esperando al encargado...' : 'Revisando tu pedido...'}
                                     </div>
                                 </div>
                             ) : (
@@ -675,12 +638,6 @@ function EstadoPedido({ pedido, reduce, onCancelar, onVolver, onReintentar }: an
                                 <p className="text-[11px] font-bold text-slate-400 mt-4 flex items-center justify-center gap-1.5">
                                     <Clock size={12} /> Vence en {mm}:{ss}
                                 </p>
-                            )}
-                            {pedido.status === 'AUTHORIZING' && (
-                                <div className="mt-4 flex items-center justify-center gap-2 text-amber-600 dark:text-amber-400">
-                                    <Loader2 size={14} className="animate-spin" />
-                                    <span className="text-[11px] font-black uppercase tracking-widest">Verificando con tu banco</span>
-                                </div>
                             )}
                         </div>
 

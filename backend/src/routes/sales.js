@@ -261,18 +261,18 @@ router.post('/orders/:id/charge', soloStaff, async (req, res, next) => {
       return res.status(402).json({ success: false, message: msg });
     }
 
-    // 3DS: la verificación la hace el CLIENTE en su teléfono. El operario espera.
+    // Este comercio está certificado por Bancard como "Pago con Token", SIN 3DS: el cobro se
+    // resuelve en el acto. Si aun así el banco pidiera una verificación, no se manda al cliente
+    // a un flujo que esta integración no tiene —y que además hoy no se podría cerrar, porque
+    // Bancard no habilita la consulta de estado—: se corta acá, sin cobrar, y el operario cobra
+    // con saldo o con otra tarjeta. Mejor un "no salió" inmediato que un pago en el limbo.
     if (chargeResult.threeDsRequired) {
-      await req.prisma.bancardOperation.update({
-        where: { shopProcessId },
-        data: { status: 'PENDING', processId: chargeResult.processId ? String(chargeResult.processId) : null },
-      });
-      await req.prisma.order.update({ where: { id: order.id }, data: { status: 'AUTHORIZING' } });
-      return res.json({
-        success: true, requires3ds: true,
-        message: 'El banco pide que el cliente confirme en su teléfono.',
-        data: { orderId: order.id },
-      });
+      const msg = 'El banco pidió una verificación extra. Cobrale con saldo o con otra tarjeta.';
+      await req.prisma.payment.update({ where: { id: pendingPayment.id }, data: { status: 'FAILED', description: `${description} — verificación 3DS no soportada` } });
+      await req.prisma.bancardOperation.update({ where: { shopProcessId }, data: { status: 'FAILED' } });
+      await req.prisma.order.update({ where: { id: order.id }, data: { status: 'DECLINED', declineReason: msg } });
+      console.warn(`[Ventas] Bancard pidió 3DS en un comercio certificado sin 3DS · sp=${shopProcessId}`);
+      return res.status(402).json({ success: false, message: msg });
     }
 
     if (!chargeResult.approved) {
