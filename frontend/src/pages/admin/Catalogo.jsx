@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion as Motion } from 'framer-motion';
 import {
   Plus, Search, ShoppingBag, Image as ImageIcon, Pencil, Eye, EyeOff,
-  Upload, PackageSearch, AlertTriangle, X,
+  Upload, PackageSearch, AlertTriangle, X, Trash2, Loader2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
@@ -36,6 +36,7 @@ export default function Catalogo() {
   const [form, setForm] = useState(VACIO);
   const [guardando, setGuardando] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
+  const [arrastrando, setArrastrando] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -60,6 +61,18 @@ export default function Catalogo() {
     return base.filter((i) => [i.name, i.brand, i.saleCategory, i.category]
       .filter(Boolean).some((v) => String(v).toLowerCase().includes(t)));
   }, [items, enTienda, vista, busqueda]);
+
+  // Categorías ya usadas: se ofrecen como atajo para no escribir "Bebidas" cada vez.
+  const categorias = useMemo(
+    () => [...new Set(items.map((i) => i.saleCategory).filter(Boolean))].sort(),
+    [items],
+  );
+
+  // Margen por unidad, para que el precio no se cargue a ciegas.
+  const margen = useMemo(() => {
+    const p = Number(form.salePriceGs), c = Number(form.costPerUnit);
+    return Number.isFinite(p) && p > 0 && Number.isFinite(c) && c > 0 ? p - c : null;
+  }, [form.salePriceGs, form.costPerUnit]);
 
   const abrirNuevo = () => { setEditando(null); setForm(VACIO); setModal(true); };
   const abrirEdicion = (item) => {
@@ -292,62 +305,146 @@ export default function Catalogo() {
         onClose={() => setModal(false)}
         title={editando ? 'Editar producto' : 'Nuevo producto'}
         onSubmit={guardar}
-        submitLabel={guardando ? 'Guardando...' : 'Guardar'}
-        submitDisabled={guardando}
+        submitLabel={guardando ? 'Guardando...' : editando ? 'Guardar cambios' : 'Agregar producto'}
+        submitDisabled={guardando || subiendo}
       >
-        <FormField label="Nombre" required>
-          <input className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-            value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Coca-Cola 500 ml" />
-        </FormField>
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Marca">
-            <input className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="Coca-Cola" />
-          </FormField>
-          <FormField label="Categoría">
-            <input className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={form.saleCategory} onChange={(e) => setForm({ ...form, saleCategory: e.target.value })} placeholder="Bebidas" />
-          </FormField>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Precio de venta (₲)" required>
-            <input type="number" min="0" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={form.salePriceGs} onChange={(e) => setForm({ ...form, salePriceGs: e.target.value })} placeholder="10000" />
-          </FormField>
-          <FormField label="Costo (₲)" hint="Para saber cuánto se gana.">
-            <input type="number" min="0" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={form.costPerUnit} onChange={(e) => setForm({ ...form, costPerUnit: e.target.value })} />
-          </FormField>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label="Stock actual">
-            <input type="number" min="0" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={form.currentStock} onChange={(e) => setForm({ ...form, currentStock: e.target.value })} />
-          </FormField>
-          <FormField label="Avisar cuando queden">
-            <input type="number" min="0" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/20"
-              value={form.minStockAlert} onChange={(e) => setForm({ ...form, minStockAlert: e.target.value })} />
-          </FormField>
-        </div>
-        <FormField label="Foto" hint="Es lo que ve el cliente en la tienda y el operario al cobrar.">
-          <div className="flex items-center gap-3">
-            <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0">
-              {form.imageUrl
-                ? <img src={form.imageUrl} alt="" className="w-full h-full object-cover" />
-                : <ImageIcon size={20} className="text-slate-400" />}
+        <div className="space-y-6">
+          {/* ── Qué es ── */}
+          <section className="space-y-4">
+            <FormField
+              label="Nombre" name="name" required autoFocus
+              placeholder="Coca-Cola 500 ml"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                label="Marca" name="brand" placeholder="Coca-Cola"
+                value={form.brand}
+                onChange={(e) => setForm({ ...form, brand: e.target.value })}
+              />
+              <div>
+                <FormField
+                  label="Categoría" name="saleCategory" placeholder="Bebidas"
+                  value={form.saleCategory}
+                  onChange={(e) => setForm({ ...form, saleCategory: e.target.value })}
+                />
+                {categorias.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {categorias.map((c) => (
+                      <button
+                        key={c} type="button"
+                        onClick={() => setForm({ ...form, saleCategory: c })}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${form.saleCategory === c
+                          ? 'bg-primary text-white dark:bg-blue-600'
+                          : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <label className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-semibold text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
-              <Upload size={15} /> {subiendo ? 'Subiendo...' : form.imageUrl ? 'Cambiar foto' : 'Subir foto'}
-              <input type="file" accept="image/*" hidden onChange={(e) => subirFoto(e.target.files?.[0])} />
+          </section>
+
+          {/* ── Cuánto cuesta ── */}
+          <section className="pt-5 border-t border-slate-100 dark:border-white/5 space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Precio y stock</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                label="Precio de venta" name="salePriceGs" type="number" min="0" required prefix="₲"
+                placeholder="10000"
+                hint={margen != null ? `Ganás ₲${margen.toLocaleString('es-PY')} por unidad` : 'Lo que paga el cliente'}
+                value={form.salePriceGs}
+                onChange={(e) => setForm({ ...form, salePriceGs: e.target.value })}
+              />
+              <FormField
+                label="Costo" name="costPerUnit" type="number" min="0" prefix="₲"
+                placeholder="0" hint="Lo que te cuesta a vos"
+                value={form.costPerUnit}
+                onChange={(e) => setForm({ ...form, costPerUnit: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                label="Stock actual" name="currentStock" type="number" min="0"
+                hint={editando ? 'Para corregirlo mejor usá Inventario' : 'Cuántos tenés hoy'}
+                value={form.currentStock}
+                onChange={(e) => setForm({ ...form, currentStock: e.target.value })}
+              />
+              <FormField
+                label="Avisarme cuando queden" name="minStockAlert" type="number" min="0"
+                hint="Para reponer a tiempo"
+                value={form.minStockAlert}
+                onChange={(e) => setForm({ ...form, minStockAlert: e.target.value })}
+              />
+            </div>
+          </section>
+
+          {/* ── Cómo se ve ── */}
+          <section className="pt-5 border-t border-slate-100 dark:border-white/5">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Foto</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+              Es lo que ve el cliente en la tienda y el operario al cobrar.
+            </p>
+
+            {form.imageUrl ? (
+              <div className="flex items-center gap-4">
+                <img src={form.imageUrl} alt="" className="w-28 h-28 rounded-xl object-cover border border-slate-200 dark:border-white/10" />
+                <div className="flex flex-col gap-2">
+                  <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-semibold text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5">
+                    <Upload size={15} /> Cambiar
+                    <input type="file" accept="image/*" hidden onChange={(e) => subirFoto(e.target.files?.[0])} />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, imageUrl: '' })}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                  >
+                    <Trash2 size={15} /> Quitar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Zona de carga: se puede arrastrar la foto encima o tocar para elegirla. */
+              <label
+                onDragOver={(e) => { e.preventDefault(); setArrastrando(true); }}
+                onDragLeave={() => setArrastrando(false)}
+                onDrop={(e) => { e.preventDefault(); setArrastrando(false); subirFoto(e.dataTransfer.files?.[0]); }}
+                className={`flex flex-col items-center justify-center gap-2 w-full py-8 px-4 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${arrastrando
+                  ? 'border-primary bg-primary/5 dark:border-blue-500 dark:bg-blue-500/10'
+                  : 'border-slate-200 dark:border-white/10 hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-white/5'}`}
+              >
+                <div className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center">
+                  {subiendo ? <Loader2 size={20} className="animate-spin text-primary" /> : <ImageIcon size={20} className="text-slate-400" />}
+                </div>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  {subiendo ? 'Subiendo...' : 'Arrastrá la foto o tocá para elegirla'}
+                </p>
+                <p className="text-xs text-slate-400">JPG, PNG o WEBP · hasta 5 MB</p>
+                <input type="file" accept="image/*" hidden onChange={(e) => subirFoto(e.target.files?.[0])} />
+              </label>
+            )}
+          </section>
+
+          {/* ── Publicación ── */}
+          <section className="pt-5 border-t border-slate-100 dark:border-white/5">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox" className="w-4 h-4 mt-0.5 accent-blue-600"
+                checked={form.isForSale}
+                onChange={(e) => setForm({ ...form, isForSale: e.target.checked })}
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-900 dark:text-white">Publicar en la tienda del cliente</span>
+                <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Si lo dejás sin marcar, queda cargado pero nadie lo ve todavía.
+                </span>
+              </span>
             </label>
-          </div>
-        </FormField>
-        <label className="flex items-center gap-2.5 cursor-pointer select-none">
-          <input type="checkbox" className="w-4 h-4 accent-blue-600" checked={form.isForSale} onChange={(e) => setForm({ ...form, isForSale: e.target.checked })} />
-          <span className="text-sm text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">
-            <ShoppingBag size={14} /> Publicar en la tienda del cliente
-          </span>
-        </label>
+          </section>
+        </div>
       </FormModal>
     </div>
   );

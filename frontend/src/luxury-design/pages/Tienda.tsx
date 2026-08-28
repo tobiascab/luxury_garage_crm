@@ -5,6 +5,7 @@ import {
     CheckCircle2, Clock, PackageX, Loader2, AlertCircle, ShoppingBag, ArrowLeft,
 } from 'lucide-react';
 import api from '../../services/api';
+import useScrollLock from '../../hooks/useScrollLock';
 import { useBancard3ds } from '../components/Bancard3dsModal';
 import { loadBancardScript } from '../lib/bancardPayment';
 import {
@@ -43,6 +44,9 @@ export default function Tienda({ user, onUpdate }: { user: any; onUpdate?: () =>
 
     const reduce = useReduce();
     const { handlers: bancard3ds, modal: modal3ds } = useBancard3ds();
+    // Con el carrito abierto, el fondo no se mueve: sin esto el dedo arrastra la grilla de
+    // atrás en vez del contenido de la hoja (scroll chaining).
+    useScrollLock(carritoAbierto);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const desafioRef = useRef(false); // el 3DS se monta una sola vez por pedido
 
@@ -317,7 +321,7 @@ export default function Tienda({ user, onUpdate }: { user: any; onUpdate?: () =>
                     <motion.div
                         initial={{ y: 90, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 90, opacity: 0 }}
                         transition={reduce ? { duration: 0.15 } : springPop}
-                        className="fixed bottom-20 left-0 right-0 z-30 px-4"
+                        className="fixed bottom-20 left-0 right-0 z-40 px-4"
                     >
                         <Pressable
                             onClick={() => setCarritoAbierto(true)}
@@ -428,12 +432,12 @@ function Carrito({ lineas, total, opciones, medioPago, tarjetaId, enviando, onCe
             <motion.div
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 onClick={onCerrar}
-                className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40"
+                className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60]"
             />
             <motion.div
                 initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
                 transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-                className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-slate-900 rounded-t-[2rem] border-t border-slate-100 dark:border-slate-800 max-h-[88vh] flex flex-col"
+                className="fixed bottom-0 left-0 right-0 z-[70] bg-white dark:bg-slate-900 rounded-t-[2rem] border-t border-slate-100 dark:border-slate-800 max-h-[88vh] flex flex-col shadow-2xl"
             >
                 <div className="p-5 pb-3 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
                     <h2 className="font-black text-base text-slate-900 dark:text-white uppercase italic tracking-tighter">Tu pedido</h2>
@@ -442,7 +446,7 @@ function Carrito({ lineas, total, opciones, medioPago, tarjetaId, enviando, onCe
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+                <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-3">
                     {lineas.map(({ producto, qty }: any) => (
                         <div key={producto.id} className="flex items-center gap-3">
                             <div className="w-14 h-14 rounded-2xl bg-slate-50 dark:bg-slate-800 overflow-hidden shrink-0">
