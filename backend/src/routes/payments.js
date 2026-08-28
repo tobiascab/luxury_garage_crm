@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { authenticate, authorize } = require('../middleware/auth');
 const bancardService = require('../services/bancardService');
+const { sincronizarTarjetas } = require('../services/cardSync');
 const { postPaymentCompleted } = require('../services/journalService');
 const { evaluatePlanChange, computeMembershipCharge, DOWNGRADE_MSG } = require('../services/membershipRules');
 const contractService = require('../services/contractService');
@@ -145,83 +146,18 @@ router.post('/card/sync', authenticate, async (req, res, next) => {
   try {
     const user = await req.prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
-
     if (!user.bancardUserId) {
       return res.status(400).json({
         success: false,
-        message: 'El usuario no tiene un ID de Bancard asignado. Registrá una tarjeta primero.',
+        message: 'Todavía no registraste ninguna tarjeta.',
       });
     }
 
-    // Fetch cards from Bancard
-    const bancardCards = await bancardService.getUserCards(user.bancardUserId);
-
-    if (!bancardCards || bancardCards.length === 0) {
-      const localCards = await req.prisma.paymentCard.findMany({
-        where: { userId: user.id },
-        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'desc' }],
-      });
-      return res.json({
-        success: true,
-        data: localCards,
-        message: 'No se encontraron tarjetas en Bancard aún.',
-      });
-    }
-
-    // Upsert each Bancard card into local DB
-    const existingLocalCards = await req.prisma.paymentCard.findMany({
-      where: { userId: user.id },
-    });
-    const newCards = [];
-
-    for (const card of bancardCards) {
-      const bancardCardId = parseInt(card.card_id);
-      const existing = existingLocalCards.find(c => c.bancardCardId === bancardCardId);
-
-      if (existing) {
-        // Update token and card details (alias_token has a short TTL)
-        await req.prisma.paymentCard.update({
-          where: { id: existing.id },
-          data: {
-            bancardAliasToken: card.alias_token,
-            maskedNumber: card.card_masked_number || existing.maskedNumber,
-            brand: card.card_brand || existing.brand,
-            cardType: card.card_type || existing.cardType,
-            expirationDate: card.expiration_date || existing.expirationDate,
-          },
-        });
-      } else {
-        // Create new card record
-        const isFirst = existingLocalCards.length === 0 && newCards.length === 0;
-        const created = await req.prisma.paymentCard.create({
-          data: {
-            userId: user.id,
-            bancardCardId,
-            bancardAliasToken: card.alias_token,
-            maskedNumber: card.card_masked_number || '****',
-            brand: card.card_brand || 'Unknown',
-            cardType: card.card_type || null,
-            expirationDate: card.expiration_date || null,
-            alias: `${card.card_brand || 'Tarjeta'} ${card.card_masked_number ? '...' + card.card_masked_number.slice(-4) : ''}`.trim(),
-            isPrimary: isFirst,
-          },
-        });
-        newCards.push(created);
-      }
-    }
-
-    // Return full updated list
-    const allCards = await req.prisma.paymentCard.findMany({
-      where: { userId: user.id },
-      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'desc' }],
-    });
-
+    const { cards, nuevas } = await sincronizarTarjetas(req.prisma, user);
     res.json({
       success: true,
-      data: allCards,
-      message: newCards.length > 0
-        ? `${newCards.length} tarjeta(s) sincronizada(s) desde Bancard`
-        : 'Tarjetas actualizadas',
+      data: cards,
+      message: nuevas > 0 ? `${nuevas} tarjeta(s) sincronizada(s) desde Bancard` : 'Tarjetas actualizadas',
     });
   } catch (err) {
     console.error('[Bancard] card/sync error:', err.message);
@@ -239,6 +175,24 @@ router.get('/cards', authenticate, async (req, res, next) => {
       where: { userId: req.user.id },
       orderBy: [{ isPrimary: 'desc' }, { createdAt: 'desc' }],
     });
+
+    // Sin tarjetas acá pero con cuenta en Bancard: puede haber quedado una registrada allá
+    // (Bancard redirige el navegador al terminar el catastro y la app pierde el hilo). Se
+    // consulta antes de decirle al cliente que no tiene ninguna, porque si no queda trabado:
+    // no la ve, y al cargarla otra vez Bancard la rechaza por duplicada.
+    if (!localCards.length) {
+      const user = await req.prisma.user.findUnique({ where: { id: req.user.id } });
+      if (user?.bancardUserId) {
+        try {
+          const { cards, nuevas } = await sincronizarTarjetas(req.prisma, user);
+          if (nuevas > 0) console.log(`[Bancard] ${nuevas} tarjeta(s) recuperada(s) de Bancard para ${user.email}`);
+          return res.json({ success: true, data: cards });
+        } catch (e) {
+          // Si Bancard no responde, se devuelve lo local: nunca se rompe el perfil por esto.
+          console.error('[Bancard] no se pudo recuperar tarjetas:', e.message);
+        }
+      }
+    }
 
     res.json({ success: true, data: localCards });
   } catch (err) {

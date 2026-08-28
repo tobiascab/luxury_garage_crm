@@ -4,6 +4,7 @@ import {
     Bell, BellRing, ArrowLeft, X, Moon, Sun, History,
     Droplets, ShieldCheck, Gift, Megaphone, Info, AlertTriangle, Check, CheckCheck, Receipt } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { pageVariants, popIn, springSnappy, springPop, useReduce } from '../lib/motion';
@@ -100,6 +101,44 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const NAV_ITEMS = isEmployee ? NAV_EMPLOYEE : NAV_CLIENT;
     const currentIdx = TABS.indexOf(location.pathname);
     const isTabRoute = currentIdx !== -1;
+
+
+    // ── Vuelta del catastro de tarjeta ────────────────────────────────────────────
+    // Bancard redirige el navegador al terminar, con el resultado en la URL. Sin esto el
+    // cliente volvía a la app y no veía NADA: ni que se guardó, ni por qué falló. Además se
+    // sincroniza con Bancard, porque la tarjeta pudo quedar registrada allá y no acá.
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        if (!params.get('cardRegistered')) return;
+
+        const estado = params.get('status') || '';
+        const detalle = params.get('description') || '';
+
+        (async () => {
+            let tarjetas = [];
+            try {
+                const r = await api.post('/payments/card/sync');
+                tarjetas = r.data?.data || [];
+            } catch (_) { /* el aviso se da igual */ }
+
+            if (estado.includes('fail')) {
+                // "La tarjeta ya ha sido catastrada": si al sincronizar aparece, para el cliente
+                // no es un error — ya la tiene y puede usarla.
+                if (/catastrada/i.test(detalle) && tarjetas.length) {
+                    toast.success('Esa tarjeta ya estaba registrada. Ya podés usarla.');
+                } else {
+                    toast.error(detalle || 'No se pudo guardar la tarjeta. Probá de nuevo.');
+                }
+            } else if (tarjetas.length) {
+                toast.success('Tarjeta guardada');
+            }
+
+            refreshProfile?.();
+            // Se limpia la URL para que recargar no repita el aviso.
+            navigate(location.pathname, { replace: true });
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.search]);
 
     // Al cambiar de módulo hay que volver arriba. React Router conserva la posición del
     // scroll entre rutas: si venías del fondo de una pantalla larga y entrabas a una más
