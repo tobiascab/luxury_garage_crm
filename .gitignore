@@ -12,6 +12,10 @@ package-lock.json
 .claude/skills/
 dev-dist/
 
+# Archivos que suben los usuarios (fotos de productos, vehículos, avatares): son datos, no
+# código. Se respaldan con la base, no con git.
+backend/uploads/
+
 # Volcados de base de datos: nunca al repo (contienen datos de clientes y hashes)
 *.sql
 backup_*
