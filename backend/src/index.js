@@ -179,6 +179,14 @@ const server = app.listen(PORT, () => {
   setInterval(() => {
     reconcilePendingCharges(prisma).catch((e) => console.error('[Reconciliación] error:', e.message));
   }, 5 * 60 * 1000);
+
+  // Ventas de mostrador con el cobro colgado (el cliente abandonó la verificación del banco).
+  // Se cierran para que nadie reciba un descuento tardío por una compra que no se llevó; si el
+  // banco ya había aprobado, se le devuelve la plata.
+  const { cerrarVentasColgadas } = require('./services/orderService');
+  setInterval(() => {
+    cerrarVentasColgadas(prisma).catch((e) => console.error('[Ventas] cierre de colgadas falló:', e.message));
+  }, 5 * 60 * 1000);
 });
 
 process.on('SIGTERM', async () => {

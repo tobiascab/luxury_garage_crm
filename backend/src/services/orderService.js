@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const bancardService = require('./bancardService');
 
 /**
  * Ventas de mostrador: productos físicos que el cliente arma en su teléfono y el operario
@@ -248,6 +249,113 @@ async function anularVenta(prisma, { orderId, motivo, adminId }) {
   });
 }
 
+// Cuánto puede vivir un cobro sin terminarse. Pasado ese rato, la venta se cierra: el cliente
+// ya se fue del mostrador y nadie espera que se le descuente nada.
+const VENTANA_COBRO_MS = 15 * 60 * 1000;
+// Si Bancard no deja consultar el estado de la operación (hoy `get_single_buy_confirmation`
+// responde 403 en este comercio), igual no se puede dejar la venta abierta para siempre: a los
+// 45 minutos se cierra y la operación queda marcada para que un humano la mire.
+const VENTANA_SIN_RESPUESTA_MS = 45 * 60 * 1000;
+
+/**
+ * Cierra las ventas cuyo cobro quedó colgado (el cliente abandonó la verificación del banco,
+ * se cortó la red, cerró la app).
+ *
+ * Sin esto, la reconciliación —que existe para rescatar pagos huérfanos— podía materializar una
+ * venta HORAS después: le descontaba la plata y el stock a alguien que ya se había ido sin
+ * llevarse nada. Acá se corta ese hilo, pero con una regla que no se puede saltear: si Bancard
+ * ya aprobó el cobro, la plata SALIÓ de la tarjeta y no alcanza con "no entregar" — hay que
+ * devolvérsela. Por eso se intenta el rollback, y si no se puede, queda marcado para que un
+ * humano lo resuelva. Nunca en silencio.
+ */
+async function cerrarVentasColgadas(prisma) {
+  const corte = new Date(Date.now() - VENTANA_COBRO_MS);
+  const colgadas = await prisma.order.findMany({
+    where: { status: { in: ['PENDING', 'SCANNED', 'AUTHORIZING'] }, updatedAt: { lt: corte } },
+    take: 50,
+  });
+
+  const resumen = { revisadas: colgadas.length, vencidas: 0, devueltas: 0, aRevisar: 0 };
+
+  for (const order of colgadas) {
+    // Sin cobro iniciado (o pagado con saldo): simplemente venció.
+    if (!order.bancardShopProcessId) {
+      await prisma.order.updateMany({
+        where: { id: order.id, status: { in: ['PENDING', 'SCANNED', 'AUTHORIZING'] } },
+        data: { status: 'EXPIRED', declineReason: 'El pedido venció sin completarse' },
+      });
+      resumen.vencidas++;
+      continue;
+    }
+
+    const sp = Number(order.bancardShopProcessId);
+    let aprobado = false;
+    let sinRespuesta = true;
+    try {
+      const conf = await bancardService.getConfirmation(sp);
+      aprobado = conf?.response === 'S' && String(conf?.response_code) === '00';
+      sinRespuesta = false;
+    } catch (e) {
+      // Bancard no contesta o no permite consultar. No se decide a ciegas... pero tampoco se
+      // deja la venta abierta indefinidamente: pasado un plazo largo se cierra igual y la
+      // operación queda marcada, porque descontarle al cliente horas después es peor.
+      if (Date.now() - new Date(order.updatedAt).getTime() < VENTANA_SIN_RESPUESTA_MS) continue;
+      await prisma.$transaction(async (tx) => {
+        await tx.order.updateMany({
+          where: { id: order.id, status: { in: ['PENDING', 'SCANNED', 'AUTHORIZING'] } },
+          data: { status: 'EXPIRED', declineReason: 'El cobro quedó sin confirmar y la compra se cerró' },
+        });
+        await tx.bancardOperation.updateMany({
+          where: { shopProcessId: sp, status: 'PENDING' },
+          data: { status: 'NEEDS_RECONCILIATION' },
+        });
+      });
+      resumen.aRevisar++;
+      console.error(`[Ventas] ⚠️ venta cerrada sin poder confirmar el cobro sp=${sp} order=${order.id} — verificar en el portal de Bancard`);
+      continue;
+    }
+
+    if (!aprobado) {
+      // El banco nunca aprobó: no quedó nada pendiente de cobrar. El operario rehace el pedido.
+      await prisma.$transaction(async (tx) => {
+        await tx.bancardOperation.updateMany({ where: { shopProcessId: sp, status: { not: 'COMPLETED' } }, data: { status: 'FAILED' } });
+        await tx.payment.updateMany({ where: { bancardShopProcessId: sp, status: { not: 'COMPLETED' } }, data: { status: 'FAILED' } });
+        await tx.order.updateMany({
+          where: { id: order.id, status: { in: ['PENDING', 'SCANNED', 'AUTHORIZING'] } },
+          data: { status: 'EXPIRED', declineReason: 'El cobro no se completó a tiempo' },
+        });
+      });
+      resumen.vencidas++;
+      continue;
+    }
+
+    // El banco SÍ aprobó y la venta ya no se va a entregar: hay que devolver la plata.
+    const r = await bancardService.rollback(sp).catch((e) => ({ success: false, message: e.message }));
+    if (r?.success) {
+      await prisma.$transaction(async (tx) => {
+        await tx.bancardOperation.updateMany({ where: { shopProcessId: sp }, data: { status: 'FAILED' } });
+        await tx.payment.updateMany({ where: { bancardShopProcessId: sp }, data: { status: 'REFUNDED', description: 'Venta no completada — cobro anulado' } });
+        await tx.order.updateMany({
+          where: { id: order.id, status: { in: ['PENDING', 'SCANNED', 'AUTHORIZING'] } },
+          data: { status: 'EXPIRED', declineReason: 'El cobro se anuló: la compra no se completó a tiempo' },
+        });
+      });
+      resumen.devueltas++;
+      console.log(`[Ventas] cobro anulado por demora sp=${sp} order=${order.id}`);
+    } else {
+      // No se pudo devolver: que quede a la vista del admin, con el dinero cobrado.
+      await prisma.bancardOperation.updateMany({ where: { shopProcessId: sp }, data: { status: 'NEEDS_RECONCILIATION' } });
+      resumen.aRevisar++;
+      console.error(`[Ventas] ⚠️ cobro aprobado que no se pudo anular sp=${sp} order=${order.id} — requiere reembolso manual`);
+    }
+  }
+
+  if (resumen.vencidas || resumen.devueltas || resumen.aRevisar) {
+    console.log(`[Ventas] cierre de colgadas: ${JSON.stringify(resumen)}`);
+  }
+  return resumen;
+}
+
 /** Marca vencidos los QR que nadie escaneó. Barato de correr seguido. */
 async function vencerPedidosViejos(prisma) {
   const r = await prisma.order.updateMany({
@@ -259,6 +367,8 @@ async function vencerPedidosViejos(prisma) {
 
 module.exports = {
   ORDER_QR_VALIDITY_MS,
+  VENTANA_COBRO_MS,
+  cerrarVentasColgadas,
   buildOrderToken,
   verifyOrderToken,
   saldoDisponible,

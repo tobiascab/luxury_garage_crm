@@ -181,6 +181,21 @@ async function materializeApprovedPayment(prisma, shopProcessId) {
       meta.appointmentId = appointment.id;
     } else if (isOrder) {
       kind = 'order';
+      // Venta de mostrador que ya se cerró por demora: NO se materializa. El cliente se fue
+      // hace rato y descontarle ahora la plata y el stock sería cobrarle algo que nunca se
+      // llevó. Como el banco sí aprobó, queda marcada para que el admin devuelva el dinero.
+      const orden = await tx.order.findUnique({ where: { id: meta.orderId }, select: { status: true } });
+      if (orden && ['EXPIRED', 'CANCELLED', 'VOIDED'].includes(orden.status)) {
+        await tx.payment.updateMany({
+          where: { bancardShopProcessId: sp },
+          data: { status: 'COMPLETED', description: 'Compra vencida — requiere devolución' },
+        });
+        await tx.bancardOperation.update({
+          where: { shopProcessId: sp },
+          data: { status: 'NEEDS_RECONCILIATION', metadataJson: { ...meta, orderExpired: true } },
+        });
+        return { status: 'noop', reason: 'order_expired_needs_refund' };
+      }
       // Venta de mostrador cobrada con tarjeta que pasó por 3DS: acá se cierra igual que si
       // hubiera sido aprobada en el acto — mismo descuento de stock y misma caja del día.
       const amt = Number(meta.amountGs ?? op.amountGs);
