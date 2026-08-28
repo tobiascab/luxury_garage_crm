@@ -31,7 +31,7 @@ async function importWithRetry(factory, attempts = 3) {
   for (let i = 0; i < attempts; i++) {
     try {
       const mod = await factory();
-      sessionStorage.removeItem('chunk-reloaded'); // cargó bien → reset
+      sessionStorage.removeItem('chunk-reloaded-at'); // cargó bien → reset
       return mod;
     } catch (err) {
       const isLast = i === attempts - 1;
@@ -39,8 +39,13 @@ async function importWithRetry(factory, attempts = 3) {
         await new Promise((r) => setTimeout(r, 250 * (i + 1))); // 250ms, 500ms…
         continue;
       }
-      if (!sessionStorage.getItem('chunk-reloaded')) {
-        sessionStorage.setItem('chunk-reloaded', '1');
+      // Recargar para bajar los assets nuevos. El guard evita el bucle infinito (recargar
+      // contra un servidor caído no arregla nada), pero se libera pasado un rato: con varios
+      // despliegues seguidos, una sola recarga por sesión no alcanza y la app se quedaba
+      // mostrando "No se pudo cargar esta sección" hasta que el usuario recargaba a mano.
+      const ultima = Number(sessionStorage.getItem('chunk-reloaded-at') || 0);
+      if (Date.now() - ultima > 20000) {
+        sessionStorage.setItem('chunk-reloaded-at', String(Date.now()));
         window.location.reload();
         return new Promise(() => { }); // colgar hasta que recargue
       }
@@ -77,8 +82,11 @@ class ChunkErrorBoundary extends Component {
   componentDidCatch(error) {
     const msg = String(error?.message || error || '');
     if (/Loading chunk|dynamically imported module|imported module script failed|ChunkLoadError/i.test(msg)) {
-      if (!sessionStorage.getItem('chunk-reloaded')) {
-        sessionStorage.setItem('chunk-reloaded', '1');
+      // Misma guarda por tiempo que importWithRetry: una sola clave para los dos caminos,
+      // si no cada uno cree que ya recargó (o que nunca lo hizo).
+      const ultima = Number(sessionStorage.getItem('chunk-reloaded-at') || 0);
+      if (Date.now() - ultima > 20000) {
+        sessionStorage.setItem('chunk-reloaded-at', String(Date.now()));
         window.location.reload();
       }
     }
@@ -89,7 +97,7 @@ class ChunkErrorBoundary extends Component {
         <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center">
           <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">No se pudo cargar esta sección.</p>
           <button
-            onClick={() => { sessionStorage.removeItem('chunk-reloaded'); window.location.reload(); }}
+            onClick={() => { sessionStorage.removeItem('chunk-reloaded-at'); window.location.reload(); }}
             className="px-6 h-11 rounded-2xl bg-primary text-white text-sm font-bold"
           >
             Recargar

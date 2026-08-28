@@ -68,6 +68,12 @@ export default defineConfig({
     }),
   ],
   build: {
+    // No se borra dist/ en cada build A PROPÓSITO. Vite genera los chunks con un hash en el
+    // nombre; al vaciar la carpeta, cualquier pestaña que ya estaba abierta pide archivos que
+    // dejaron de existir y la app muestra "No se pudo cargar esta sección". Dejando los
+    // anteriores, quien tenga la app abierta sigue navegando hasta que recargue.
+    // Los assets que quedan sin uso se limpian con `npm run limpiar-assets`.
+    emptyOutDir: false,
     // Navegadores modernos / WebView de Capacitor → menos transpilación y bundle más chico.
     target: 'es2020',
     cssCodeSplit: true,

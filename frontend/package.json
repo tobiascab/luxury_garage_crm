@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "limpiar-assets": "node scripts/limpiar-assets.cjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
