@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const type = req.query.type || 'services';
-    const allowed = ['vehicles', 'services', 'avatars'];
+    const allowed = ['vehicles', 'services', 'avatars', 'productos'];
     const folder = allowed.includes(type) ? type : 'services';
     cb(null, path.join(__dirname, '../../uploads', folder));
   },
