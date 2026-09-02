@@ -3,6 +3,7 @@ import {
   Calendar, Clock, CheckCircle2, Sparkles, History, ChevronRight,
   ChevronLeft, Loader2, X, AlertCircle, Timer, Tag, Car, Wallet, Plus
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import BottomSheet from '../components/BottomSheet';
 import PaymentResultOverlay, { PayPhase } from '../components/PaymentResultOverlay';
@@ -250,6 +251,7 @@ function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: strin
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function Booking({ user, onBookingComplete }: BookingProps) {
+  const navigate = useNavigate();
   const [showForm, setShowForm] = useState(false);
   const [services, setServices] = useState<any[]>([]);
   const [selectedServiceId, setSelectedServiceId] = useState('');
@@ -561,9 +563,46 @@ export default function Booking({ user, onBookingComplete }: BookingProps) {
   const years = Array.from({ length: 3 }, (_, i) => (now.getFullYear() + i).toString());
   const selectClass = "flex-1 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-sm rounded-xl px-3 py-3 border-none outline-none focus:ring-2 focus:ring-primary/20 transition-all appearance-none text-center";
 
+  // Sin plan y sin tarjeta no hay con qué cobrar el turno. Se avisa ACÁ, antes de que elija
+  // servicio, tamaño y horario, en vez de dejarlo chocar contra el error al final.
+  const sinMedioDePago = user?.membership_status !== 'Activa' && user?.hasPaymentCard === false;
+
   return (
     <>
       <StaggerList className="space-y-4 pb-24">
+        {sinMedioDePago && (
+          <StaggerItem className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-amber-200 dark:border-amber-500/25 p-5 lg:p-6">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center shrink-0">
+                <Sparkles size={17} className="text-amber-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-black text-sm text-slate-900 dark:text-white uppercase italic tracking-tight">
+                  Todavía no podés reservar
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                  Activá un plan y tus lavados quedan incluidos, o agregá una tarjeta para pagar
+                  el turno suelto.
+                </p>
+                <div className="flex gap-2 mt-3.5">
+                  <Pressable
+                    onClick={() => navigate('/planes')}
+                    className="flex-1 py-3 bg-primary dark:bg-blue-500 text-white rounded-xl font-black uppercase tracking-widest text-[10px]"
+                  >
+                    Ver los planes
+                  </Pressable>
+                  <Pressable
+                    onClick={() => navigate('/tarjetas')}
+                    className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl font-black uppercase tracking-widest text-[10px]"
+                  >
+                    Agregar tarjeta
+                  </Pressable>
+                </div>
+              </div>
+            </div>
+          </StaggerItem>
+        )}
+
         {/* Formulario de reserva — SIEMPRE visible (no detrás de un botón) */}
         <StaggerItem className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm p-5 lg:p-7 transition-colors">
           <div className="flex items-center gap-3 mb-5">

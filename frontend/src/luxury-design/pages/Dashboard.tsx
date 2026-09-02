@@ -106,6 +106,42 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
         </motion.div>
       </Reveal>
 
+      {/* Cuenta sin plan: en vez de taparle la app pidiéndole la tarjeta apenas entra, se le
+          muestra qué hay adentro y desde dónde activar cuando quiera. */}
+      {user?.membership_status !== 'Activa' && (
+        <Reveal delay={0.04} variant={scaleIn}>
+          <div className="relative overflow-hidden rounded-[2rem] bg-slate-900 dark:bg-blue-950 text-white p-6 border border-white/5 shadow-xl">
+            <div className="absolute -top-10 -right-10 w-40 h-40 bg-secondary/20 blur-3xl rounded-full" />
+            <div className="relative z-10">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-[9px] font-black uppercase tracking-widest text-secondary mb-3">
+                <Sparkles size={10} /> Todavía sin plan
+              </span>
+              <h3 className="font-headline text-xl font-black uppercase italic tracking-tighter leading-tight mb-1.5">
+                Mirá lo que incluye cada plan
+              </h3>
+              <p className="text-white/70 text-sm leading-relaxed mb-5">
+                Podés recorrer la app tranquilo. Para reservar un lavado o comprar en el mostrador
+                vas a necesitar un plan activo.
+              </p>
+              <div className="flex gap-2">
+                <Pressable
+                  onClick={() => navigate('/planes')}
+                  className="flex-1 py-3.5 bg-white text-slate-900 rounded-2xl font-black uppercase tracking-widest text-[11px] flex items-center justify-center gap-2"
+                >
+                  Ver los planes
+                </Pressable>
+                <Pressable
+                  onClick={() => navigate('/activar')}
+                  className="px-5 py-3.5 bg-white/10 border border-white/15 text-white rounded-2xl font-black uppercase tracking-widest text-[11px]"
+                >
+                  Activar
+                </Pressable>
+              </div>
+            </div>
+          </div>
+        </Reveal>
+      )}
+
       {/* KPI Cards Grid */}
       <StaggerList className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Tier Card */}

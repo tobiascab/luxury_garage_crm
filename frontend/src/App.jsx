@@ -219,6 +219,7 @@ const withLuxury = (Component) => {
 const LDashboard = withLuxury(LuxuryDashboard);
 const LQRPass = withLuxury(LuxuryQRPass);
 const LTienda = withLuxury(LuxuryTienda);
+const LActivar = withLuxury(LuxuryOnboarding);
 const LBooking = withLuxury(LuxuryBooking);
 const LPlanes = withLuxury(LuxuryPlanes);
 const LProfile = withLuxury(LuxuryProfile);
@@ -253,29 +254,21 @@ function LuxuryShell() {
 }
 
 // ─────────────────────────────────────────────────────────
-// Alta obligatoria: un CLIENTE sin membresía activa no entra a la app hasta
-// registrar su tarjeta, elegir plan y pagar el primer mes (débito adelantado).
-// `onboardingRequired` lo decide el backend (GET /luxury/profile/full) y ya viene
-// en false para empleados y admins. Única salida sin completar: cerrar sesión.
+// Cuenta sin plan: entra igual.
+//
+// Antes el alta era un portón: recién creada la cuenta, sin haber visto un solo plan ni lo
+// que ofrece el Garage, la app pedía la tarjeta. Es pedir confianza antes de darla. Ahora el
+// cliente entra, mira los planes, los precios y la app, y activa cuando quiere — el alta
+// guiada sigue existiendo, pero en /activar y porque él la elige.
+//
+// Nada real ocurre sin plan ni tarjeta: reservar y comprar siguen exigiendo con qué cobrar,
+// cada uno con su aviso. Eso se controla en cada pantalla, no tapando la app entera.
 // ─────────────────────────────────────────────────────────
 function OnboardingGate({ children }) {
-  const { fullUser, loading, refreshProfile } = useLuxuryUser();
-  const { logout } = useAuth();
+  const { loading, fullUser } = useLuxuryUser();
 
-  // Sin datos todavía: no decidimos nada (evita el parpadeo del alta a un cliente que sí tiene plan).
+  // Sin datos todavía: se espera, para que la app no parpadee entre estados.
   if (loading && !fullUser) return <PageLoader />;
-
-  if (fullUser?.onboardingRequired) {
-    return (
-      <Suspense fallback={<PageLoader />}>
-        <LuxuryOnboarding
-          user={fullUser}
-          onDone={() => refreshProfile(true)}
-          onLogout={logout}
-        />
-      </Suspense>
-    );
-  }
 
   return children;
 }
@@ -373,6 +366,9 @@ function AppRoutes() {
         <Route path="/inicio" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LDashboard /></ProtectedRoute>} />
         <Route path="/booking" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LBooking /></ProtectedRoute>} />
         <Route path="/qr" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LQRPass /></ProtectedRoute>} />
+        {/* Alta guiada: cargar tarjeta, elegir plan y pagar. Ya no es un portón — se entra
+            desde el aviso del inicio o desde Planes, cuando el cliente decide activar. */}
+        <Route path="/activar" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LActivar /></ProtectedRoute>} />
         {/* Tienda de mostrador: el cliente arma su pedido y muestra el QR de compra */}
         <Route path="/tienda" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LTienda /></ProtectedRoute>} />
         <Route path="/planes" element={<ProtectedRoute roles={['CLIENT', 'ADMIN', 'SUPER_ADMIN']}><LPlanes /></ProtectedRoute>} />

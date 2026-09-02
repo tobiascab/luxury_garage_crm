@@ -1,9 +1,9 @@
+import { useNavigate } from 'react-router-dom';
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   CreditCard, Check, Shield, Crown, Zap, ArrowRight, Loader2, Lock,
   LogOut, Plus, X, ShieldCheck, CheckCircle2, Calendar, RefreshCw,
-  FileText, ChevronDown,
-} from 'lucide-react';
+  FileText, ChevronDown, ArrowLeft } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../../services/api';
 import { motion, AnimatePresence } from '../lib/motion';
@@ -39,11 +39,15 @@ function PlanIcon({ name, size = 18 }: { name: string; size?: number }) {
 
 interface OnboardingProps {
   user: any;
-  onDone: () => void;
-  onLogout: () => void;
+  // Opcionales: esta pantalla ya no es un portón que envuelve la app, es una ruta (/activar)
+  // a la que el cliente entra cuando decide activar. Sin `onDone`, al terminar vuelve al inicio.
+  onDone?: () => void;
+  onUpdate?: () => void;
+  onLogout?: () => void;
 }
 
-export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) {
+export default function Onboarding({ user, onDone, onUpdate, onLogout }: OnboardingProps) {
+  const navigate = useNavigate();
   useModoClaro();
   const [plans, setPlans] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
@@ -437,13 +441,24 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
             </p>
           </section>
 
-          {/* Salida */}
-          <button
-            onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2 text-xs font-bold text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors py-2"
-          >
-            <LogOut size={14} /> Cerrar sesión
-          </button>
+          {/* Salida: activar es opcional, así que se puede volver a mirar la app sin cerrar
+              sesión. Cerrar sesión queda para quien de verdad quiera irse. */}
+          <div className="flex items-center justify-center gap-4 pt-1">
+            <button
+              onClick={() => navigate('/inicio')}
+              className="flex items-center justify-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors py-2"
+            >
+              <ArrowLeft size={14} /> Seguir mirando
+            </button>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="flex items-center justify-center gap-2 text-xs font-bold text-slate-400 dark:text-slate-600 hover:text-slate-600 transition-colors py-2"
+              >
+                <LogOut size={14} /> Cerrar sesión
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -492,7 +507,8 @@ export default function Onboarding({ user, onDone, onLogout }: OnboardingProps) 
           setPayPhase(null);
           if (wasSuccess) {
             api.invalidate('/memberships', '/auth/me', '/luxury/profile/full');
-            onDone();
+            onUpdate?.();
+            if (onDone) onDone(); else navigate('/inicio');
           }
         }}
         onRetry={payPhase === 'error' ? handlePay : undefined}
