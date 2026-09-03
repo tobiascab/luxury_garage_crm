@@ -239,4 +239,95 @@ router.put('/legal', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req
   } catch (err) { next(err); }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// REDES SOCIALES
+// ─────────────────────────────────────────────────────────────────────────────
+// Se guardan acá y no en el código para que el Garage pueda cambiarlas sin un
+// despliegue, y para que la app no muestre íconos que no llevan a ningún lado: si una
+// red no está cargada, sencillamente no aparece.
+
+const REDES = {
+  instagram: { label: 'Instagram', base: 'https://instagram.com/' },
+  facebook: { label: 'Facebook', base: 'https://facebook.com/' },
+  tiktok: { label: 'TikTok', base: 'https://tiktok.com/@' },
+  whatsapp: { label: 'WhatsApp', base: 'https://wa.me/' },
+};
+const REDES_KEY = 'social_links';
+
+/**
+ * El admin va a pegar lo que tenga a mano: "@luxurygarage", "luxurygarage", la URL entera o
+ * un número de teléfono con espacios y guiones. Todo eso se convierte acá en un enlace que
+ * de verdad abre el perfil.
+ */
+function normalizarRed(red, valor) {
+  const v = String(valor || '').trim();
+  if (!v) return null;
+
+  if (red === 'whatsapp') {
+    const digitos = v.replace(/\D/g, '');
+    if (digitos.length < 8) return null;
+    // Paraguay: se acepta 0981..., 981... o con código de país; se guarda en formato internacional.
+    const conPais = digitos.startsWith('595') ? digitos : `595${digitos.replace(/^0/, '')}`;
+    return REDES.whatsapp.base + conPais;
+  }
+
+  if (/^https?:\/\//i.test(v)) {
+    try {
+      const u = new URL(v);
+      return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : null;
+    } catch { return null; }
+  }
+
+  const usuario = v.replace(/^@/, '').replace(/\s+/g, '');
+  if (!/^[A-Za-z0-9._-]{1,60}$/.test(usuario)) return null;
+  return REDES[red].base + usuario;
+}
+
+// GET /api/settings/redes — público: lo usa la landing (sin sesión) y la app del cliente.
+router.get('/redes', async (req, res, next) => {
+  try {
+    const row = await req.prisma.setting.findUnique({ where: { key: REDES_KEY } });
+    const guardado = (row && typeof row.value === 'object' && row.value) || {};
+    const data = {};
+    for (const red of Object.keys(REDES)) {
+      if (guardado[red]) data[red] = guardado[red];
+    }
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/settings/redes — admin. Body: { instagram?, facebook?, tiktok?, whatsapp? }
+// Un campo vacío BORRA esa red (es cómo se saca una del pie de página).
+router.put('/redes', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, res, next) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const guardadas = {};
+    const invalidas = [];
+
+    for (const [red, cfg] of Object.entries(REDES)) {
+      if (!Object.prototype.hasOwnProperty.call(body, red)) continue;
+      const crudo = String(body[red] ?? '').trim();
+      if (!crudo) continue; // vacío = se quita
+      const url = normalizarRed(red, crudo);
+      if (!url) { invalidas.push(cfg.label); continue; }
+      guardadas[red] = url;
+    }
+
+    if (invalidas.length) {
+      return res.status(400).json({
+        success: false,
+        message: `Revisá ${invalidas.join(' y ')}: poné el usuario (ej. @luxurygarage) o el enlace completo.`,
+      });
+    }
+
+    await req.prisma.setting.upsert({
+      where: { key: REDES_KEY },
+      update: { value: guardadas },
+      create: { key: REDES_KEY, value: guardadas },
+    });
+
+    res.json({ success: true, data: guardadas, message: 'Redes actualizadas' });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

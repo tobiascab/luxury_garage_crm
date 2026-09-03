@@ -3,8 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import {
   Building2, MapPin, Phone, Mail, Clock, Calendar, Box,
   Globe, Save, Loader2, Settings as SettingsIcon, Shield, Bell,
-  Briefcase, Landmark, Lock, KeyRound, Timer, Hash, FileText, ScrollText,
-} from 'lucide-react';
+  Briefcase, Landmark, Lock, KeyRound, Timer, Hash, FileText, ScrollText, Share2, Instagram, Facebook, MessageCircle, Music2, ExternalLink } from 'lucide-react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import FormField from '../../components/FormField';
@@ -14,6 +13,7 @@ const TABS = [
   { id: 'general', icon: Building2, label: 'General', description: 'Datos del negocio' },
   { id: 'operation', icon: Clock, label: 'Operaciones', description: 'Horarios y capacidad' },
   { id: 'notifications', icon: Bell, label: 'Notificaciones', description: 'Canales de aviso' },
+  { id: 'redes', icon: Share2, label: 'Redes', description: 'Instagram y demás' },
   { id: 'legal', icon: ScrollText, label: 'Legal', description: 'Términos y privacidad' },
   { id: 'security', icon: Shield, label: 'Seguridad', description: 'Tu contraseña' },
 ];
@@ -85,7 +85,7 @@ export default function SettingsPage() {
   };
 
   // Las pestañas Legal y Seguridad usan su propio endpoint/botón de guardado.
-  const showSaveBar = activeTab !== 'security' && activeTab !== 'legal';
+  const showSaveBar = activeTab !== 'security' && activeTab !== 'legal' && activeTab !== 'redes';
 
   return (
     <div className="page-content pb-20">
@@ -161,6 +161,8 @@ export default function SettingsPage() {
             </div>
           ) : activeTab === 'security' ? (
             <SecurityTab />
+          ) : activeTab === 'redes' ? (
+            <RedesTab />
           ) : activeTab === 'legal' ? (
             <LegalTab />
           ) : (
@@ -242,6 +244,121 @@ function Section({ icon, title, children }) {
         <span className="text-slate-400">{icon}</span>{title}
       </h3>
       {children}
+    </div>
+  );
+}
+
+
+// ── Redes sociales ──────────────────────────────────────────────────────────
+// Se cargan acá y no en el código: cambiarlas no necesita un despliegue, y una red que no
+// esté cargada sencillamente no aparece en la app (en vez de un ícono que no lleva a ningún lado).
+const REDES_CAMPOS = [
+  { id: 'instagram', label: 'Instagram', Icon: Instagram, placeholder: '@luxurygarage', ayuda: 'El usuario o el enlace del perfil' },
+  { id: 'facebook', label: 'Facebook', Icon: Facebook, placeholder: 'luxurygarage.py', ayuda: 'El nombre de la página o su enlace' },
+  { id: 'tiktok', label: 'TikTok', Icon: Music2, placeholder: '@luxurygarage', ayuda: 'El usuario o el enlace' },
+  { id: 'whatsapp', label: 'WhatsApp', Icon: MessageCircle, placeholder: '0981 234 567', ayuda: 'El número al que te escriben' },
+];
+
+function RedesTab() {
+  const [form, setForm] = useState({ instagram: '', facebook: '', tiktok: '', whatsapp: '' });
+  const [inicial, setInicial] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { cargar(); }, []);
+
+  const cargar = async () => {
+    setLoading(true);
+    try {
+      const r = await api.get('/settings/redes', { _noCache: true });
+      const d = r.data?.data || {};
+      const next = { instagram: d.instagram || '', facebook: d.facebook || '', tiktok: d.tiktok || '', whatsapp: d.whatsapp || '' };
+      setForm(next);
+      setInicial(next);
+    } catch {
+      toast.error('No se pudieron cargar las redes');
+    }
+    setLoading(false);
+  };
+
+  const dirty = REDES_CAMPOS.some((c) => (form[c.id] || '') !== (inicial[c.id] || ''));
+
+  const guardar = async () => {
+    setSaving(true);
+    try {
+      const r = await api.put('/settings/redes', form);
+      const d = r.data?.data || {};
+      const next = { instagram: d.instagram || '', facebook: d.facebook || '', tiktok: d.tiktok || '', whatsapp: d.whatsapp || '' };
+      setForm(next);
+      setInicial(next);
+      api.invalidate?.('/settings/redes');
+      toast.success('Redes actualizadas');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'No se pudo guardar');
+    }
+    setSaving(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-2xl p-6 space-y-4">
+        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+      </div>
+    );
+  }
+
+  const cargadas = REDES_CAMPOS.filter((c) => form[c.id]);
+
+  return (
+    <div className="space-y-5">
+      <Section icon={<Share2 size={16} />} title="Dónde encontrarnos">
+        <p className="text-sm text-slate-500 dark:text-slate-400 -mt-2 mb-5">
+          Aparecen en el pie de la página pública y en el perfil del cliente. La que dejes vacía no se muestra.
+        </p>
+        <div className="space-y-4">
+          {REDES_CAMPOS.map(({ id, label, Icon, placeholder, ayuda }) => (
+            <div key={id} className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center shrink-0 mt-6 text-slate-500 dark:text-slate-400">
+                <Icon size={17} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <FormField
+                  label={label} name={id} value={form[id]} hint={ayuda} placeholder={placeholder}
+                  onChange={(e) => setForm({ ...form, [id]: e.target.value })}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {cargadas.length > 0 && (
+        <Section icon={<ExternalLink size={16} />} title="Cómo se ven">
+          <p className="text-sm text-slate-500 dark:text-slate-400 -mt-2 mb-4">
+            Tocá una para comprobar que abre donde tiene que abrir.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {cargadas.map(({ id, label, Icon }) => (
+              <a
+                key={id} href={form[id]} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5"
+              >
+                <Icon size={15} /> {label}
+                <ExternalLink size={12} className="text-slate-400" />
+              </a>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          onClick={guardar} disabled={!dirty || saving}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary dark:bg-blue-600 text-white text-sm font-semibold shadow-sm disabled:opacity-40"
+        >
+          {saving ? 'Guardando...' : 'Guardar redes'}
+        </button>
+      </div>
     </div>
   );
 }

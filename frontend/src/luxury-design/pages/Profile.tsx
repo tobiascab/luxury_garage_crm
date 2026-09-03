@@ -42,6 +42,7 @@ import {
   CalendarCheck2,
   AtSign,
   ScrollText,
+  Instagram, Facebook, Music2, MessageCircle,
 } from 'lucide-react';
 
 import api from '../../services/api';
@@ -193,7 +194,55 @@ export default function Profile({ user, onLogout, onUpdate }: ProfileProps) {
           {renderTabContent()}
         </motion.div>
       </AnimatePresence>
+
+      <SeguinosEnRedes />
     </motion.div>
+  );
+}
+
+// ── Seguinos ────────────────────────────────────────────────────────────────
+// Las redes se cargan desde Admin › Configuración › Redes. Si no hay ninguna cargada este
+// bloque no existe: mejor nada que íconos que no llevan a ningún lado.
+const REDES_PERFIL = [
+  { id: 'instagram', label: 'Instagram', Icon: Instagram },
+  { id: 'facebook', label: 'Facebook', Icon: Facebook },
+  { id: 'tiktok', label: 'TikTok', Icon: Music2 },
+  { id: 'whatsapp', label: 'WhatsApp', Icon: MessageCircle },
+];
+
+function SeguinosEnRedes() {
+  const [redes, setRedes] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    api.get('/settings/redes')
+      .then((r) => setRedes(r.data?.data || {}))
+      .catch(() => { /* silencioso: es un extra, no puede romper el perfil */ });
+  }, []);
+
+  const visibles = REDES_PERFIL.filter((r) => redes[r.id]);
+  if (!visibles.length) return null;
+
+  return (
+    <Reveal delay={0.1} className="mt-6">
+      <div className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 p-6 text-center">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-4">Seguinos</p>
+        <div className="flex items-center justify-center gap-3">
+          {visibles.map(({ id, label, Icon }) => (
+            <a
+              key={id}
+              href={redes[id]}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={label}
+              title={label}
+              className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-blue-400 hover:border-primary/30 transition-colors"
+            >
+              <Icon size={19} />
+            </a>
+          ))}
+        </div>
+      </div>
+    </Reveal>
   );
 }
 
