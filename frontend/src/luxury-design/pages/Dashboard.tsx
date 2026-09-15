@@ -27,9 +27,12 @@ import {
   Zap,
   CreditCard,
   ShoppingBag,
+  ChevronRight,
 } from 'lucide-react';
 
 import { useNavigate } from 'react-router-dom';
+import { useContacto } from '../lib/contacto';
+import LogoRed from '../components/LogoRed';
 import useScrollLock from '../../hooks/useScrollLock';
 
 interface DashboardProps {
@@ -341,6 +344,8 @@ const Dashboard = memo(function Dashboard({ user }: DashboardProps) {
         </StaggerList>
       </Reveal>
 
+      <ContactoGarage />
+
       {/* VIP QR Modal */}
       <AnimatePresence>
         {showQR && (
@@ -412,5 +417,65 @@ const ActionButton = memo(function ActionButton({ icon, label, onClick }: { icon
     </StaggerItem>
   );
 });
+
+// ── Contacto ────────────────────────────────────────────────────────────────
+// WhatsApp va primero y grande porque es por donde el cliente realmente escribe; abre el
+// chat con el saludo ya puesto. Si no hay ningún canal cargado, esta tarjeta no existe.
+function ContactoGarage() {
+  const canales = useContacto();
+  if (!canales.length) return null;
+
+  const whatsapp = canales.find((c) => c.id === 'whatsapp');
+  const resto = canales.filter((c) => c.id !== 'whatsapp');
+
+  return (
+    <Reveal className="bg-white/80 dark:bg-slate-900/50 backdrop-blur-md p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-colors">
+      <h3 className="font-headline text-[10px] font-black mb-1 text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] px-1">
+        ¿Tenés una consulta?
+      </h3>
+      <p className="text-sm text-slate-500 dark:text-slate-400 px-1 mb-5">Estamos del otro lado, de lunes a sábado.</p>
+
+      <div className="space-y-3">
+        {whatsapp && (
+          <motion.a
+            href={whatsapp.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            whileTap={{ scale: 0.97 }}
+            className="flex items-center gap-4 p-4 rounded-2xl text-white shadow-lg shadow-emerald-600/20 transition-[filter] hover:brightness-105"
+            style={{ background: '#25D366' }}
+          >
+            <span className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
+              <LogoRed red="whatsapp" estilo="glifo" size={28} className="[&_path]:fill-white" />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-black text-base leading-tight">Escribinos por WhatsApp</span>
+              <span className="block text-sm text-white/85 tabular-nums mt-0.5">{whatsapp.detalle}</span>
+            </span>
+            <ChevronRight size={20} className="text-white/80 shrink-0" />
+          </motion.a>
+        )}
+
+        {resto.map((c) => (
+          <motion.a
+            key={c.id}
+            href={c.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            whileTap={{ scale: 0.97 }}
+            className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700 hover:border-slate-200 dark:hover:border-slate-600 transition-colors"
+          >
+            <LogoRed red={c.id} estilo="tile" size={48} />
+            <span className="flex-1 min-w-0">
+              <span className="block font-black text-base leading-tight text-slate-900 dark:text-white">{c.titulo}</span>
+              <span className="block text-sm text-slate-500 dark:text-slate-400 mt-0.5 truncate">{c.detalle}</span>
+            </span>
+            <ChevronRight size={20} className="text-slate-300 dark:text-slate-600 shrink-0" />
+          </motion.a>
+        ))}
+      </div>
+    </Reveal>
+  );
+}
 
 export default Dashboard;

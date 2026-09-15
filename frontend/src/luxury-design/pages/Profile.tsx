@@ -42,10 +42,11 @@ import {
   CalendarCheck2,
   AtSign,
   ScrollText,
-  Instagram, Facebook, Music2, MessageCircle,
 } from 'lucide-react';
 
 import api from '../../services/api';
+import { useContacto } from '../lib/contacto';
+import LogoRed from '../components/LogoRed';
 import SelectorVehiculo from '../components/SelectorVehiculo';
 import ImagenVehiculo from '../components/ImagenVehiculo';
 import BottomSheet from '../components/BottomSheet';
@@ -195,52 +196,41 @@ export default function Profile({ user, onLogout, onUpdate }: ProfileProps) {
         </motion.div>
       </AnimatePresence>
 
-      <SeguinosEnRedes />
+      {/* El contacto es para el cliente: el staff trabaja adentro del Garage. */}
+      {!isEmployee && <ContactoPerfil />}
     </motion.div>
   );
 }
 
-// ── Seguinos ────────────────────────────────────────────────────────────────
-// Las redes se cargan desde Admin › Configuración › Redes. Si no hay ninguna cargada este
-// bloque no existe: mejor nada que íconos que no llevan a ningún lado.
-const REDES_PERFIL = [
-  { id: 'instagram', label: 'Instagram', Icon: Instagram },
-  { id: 'facebook', label: 'Facebook', Icon: Facebook },
-  { id: 'tiktok', label: 'TikTok', Icon: Music2 },
-  { id: 'whatsapp', label: 'WhatsApp', Icon: MessageCircle },
-];
-
-function SeguinosEnRedes() {
-  const [redes, setRedes] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    api.get('/settings/redes')
-      .then((r) => setRedes(r.data?.data || {}))
-      .catch(() => { /* silencioso: es un extra, no puede romper el perfil */ });
-  }, []);
-
-  const visibles = REDES_PERFIL.filter((r) => redes[r.id]);
-  if (!visibles.length) return null;
+// ── Contacto ────────────────────────────────────────────────────────────────
+// Los canales se cargan desde Admin › Configuración › Redes. Cada fila dice a dónde lleva
+// (el número, el @usuario) en vez de un ícono suelto, y WhatsApp abre el chat con el saludo
+// ya escrito. Si no hay ninguno cargado, este bloque no existe.
+function ContactoPerfil() {
+  const canales = useContacto();
+  if (!canales.length) return null;
 
   return (
     <Reveal delay={0.1} className="mt-6">
-      <div className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 p-6 text-center">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-4">Seguinos</p>
-        <div className="flex items-center justify-center gap-3">
-          {visibles.map(({ id, label, Icon }) => (
-            <a
-              key={id}
-              href={redes[id]}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={label}
-              title={label}
-              className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-blue-400 hover:border-primary/30 transition-colors"
-            >
-              <Icon size={19} />
-            </a>
-          ))}
-        </div>
+      <div className="bg-white dark:bg-slate-900/40 rounded-[2rem] border border-slate-100 dark:border-slate-800 p-2">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 px-4 pt-4 pb-2">Contacto</p>
+        {canales.map((c) => (
+          <motion.a
+            key={c.id}
+            href={c.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            whileTap={{ scale: 0.98 }}
+            className="flex items-center gap-3.5 p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+          >
+            <LogoRed red={c.id} estilo="tile" size={44} />
+            <span className="flex-1 min-w-0">
+              <span className="block font-bold text-sm text-slate-900 dark:text-white">{c.titulo}</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400 tabular-nums truncate mt-0.5">{c.detalle}</span>
+            </span>
+            <ChevronRight size={18} className="text-slate-300 dark:text-slate-600 shrink-0" />
+          </motion.a>
+        ))}
       </div>
     </Reveal>
   );
